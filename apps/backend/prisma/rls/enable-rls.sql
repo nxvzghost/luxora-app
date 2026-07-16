@@ -33,8 +33,12 @@ BEGIN
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t); -- força mesmo para o owner da tabela
+    -- tenant_id é TEXT no schema Prisma (String @id @default(uuid()) não vira
+    -- o tipo nativo `uuid` do Postgres) — current_setting já retorna text,
+    -- então SEM cast é o comportamento correto; ::uuid aqui quebrava com
+    -- "operator does not exist: text = uuid" na primeira execução real.
     EXECUTE format(
-      'CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)::uuid)',
+      'CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true))',
       t
     );
   END LOOP;

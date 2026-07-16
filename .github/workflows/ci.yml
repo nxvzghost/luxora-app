@@ -60,12 +60,18 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Postgres ignora RLS incondicionalmente para superusuários (ver
+      # infra/docker/postgres-init/01-app-role.sql) — migrar e rodar a
+      # aplicação com o usuário "postgres" tornaria toda policy de
+      # isolamento multi-tenant inerte sem nenhum erro visível. luxora_app
+      # não é superusuário nem tem BYPASSRLS.
+      - run: PGPASSWORD=postgres psql -h localhost -U postgres -d luxora_test -v ON_ERROR_STOP=1 -f infra/docker/postgres-init/01-app-role.sql
       - run: pnpm --filter @luxora/backend prisma:migrate
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/luxora_test
+          DATABASE_URL: postgresql://luxora_app:luxora_app_dev_pw@localhost:5432/luxora_test
       - run: pnpm test:integration
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/luxora_test
+          DATABASE_URL: postgresql://luxora_app:luxora_app_dev_pw@localhost:5432/luxora_test
           REDIS_URL: redis://localhost:6379
 
   # Job isolado — os 16 Testes Críticos. Nunca combinar com test-integration:
@@ -94,12 +100,16 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Ver comentário equivalente no job test-integration: sem isto, os
+      # próprios Testes Críticos de isolamento multi-tenant rodariam contra
+      # uma conexão que ignora RLS por completo, sem acusar nada.
+      - run: PGPASSWORD=postgres psql -h localhost -U postgres -d luxora_test -v ON_ERROR_STOP=1 -f infra/docker/postgres-init/01-app-role.sql
       - run: pnpm --filter @luxora/backend prisma:migrate
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/luxora_test
+          DATABASE_URL: postgresql://luxora_app:luxora_app_dev_pw@localhost:5432/luxora_test
       - run: pnpm --filter @luxora/backend seed
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/luxora_test
+          DATABASE_URL: postgresql://luxora_app:luxora_app_dev_pw@localhost:5432/luxora_test
       - run: pnpm test:critical
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/luxora_test
+          DATABASE_URL: postgresql://luxora_app:luxora_app_dev_pw@localhost:5432/luxora_test

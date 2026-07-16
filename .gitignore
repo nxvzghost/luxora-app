@@ -10,3 +10,4 @@ dist/
 .DS_Store
 coverage/
 apps/backend/prisma/*.db
+*.tsbuildinfo

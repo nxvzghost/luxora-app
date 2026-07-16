@@ -7,7 +7,7 @@
  * no banco". Isso força que testes de isolamento multi-tenant sejam a
  * regra, não a exceção.
  */
-import { PrismaClient, BillingPolicy, UserRole, PatientState } from '@prisma/client';
+import { PrismaClient, BillingPolicy, UserRole, PatientState, PlanTier, BillingCycle, SubscriptionStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -49,6 +49,22 @@ async function main() {
       passwordHash,
       role: UserRole.therapist,
       therapistId: therapistA.id,
+    },
+  });
+
+  // Assinatura ativa só para o Tenant A — de propósito, não por descuido.
+  // SubscriptionAccessGuard (Módulo 17) bloqueia toda rota (exceto login e a
+  // própria tela de assinatura) quando não há ClinicSubscription com acesso
+  // ativo — sem isso aqui, nenhuma rota de Paciente/Agenda/Financeiro seria
+  // testável localmente. Tenant B fica deliberadamente sem assinatura, para
+  // exercitar o caminho bloqueado (SUBSCRIPTION_INACTIVE) sem precisar de
+  // um segundo cenário de seed.
+  await prisma.clinicSubscription.create({
+    data: {
+      tenantId: tenantA.id,
+      plan: PlanTier.professional,
+      billingCycle: BillingCycle.monthly,
+      status: SubscriptionStatus.active,
     },
   });
 

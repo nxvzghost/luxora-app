@@ -11,6 +11,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // test/integration/ ainda não tem nenhum arquivo — sem isso, `vitest run
+    // test/integration` sai com código 1 ("No test files found") e quebra o
+    // job test-integration do CI (e test-critical, que depende dele) mesmo
+    // sem nenhum teste ter falhado de verdade. test/unit e test/critical têm
+    // arquivos reais; se um dia ficarem vazios por engano, essa config não
+    // detecta — risco aceito, mesmo padrão já usado em apps/frontend.
+    passWithNoTests: true,
   },
   resolve: {
     alias: {

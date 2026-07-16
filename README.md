@@ -8,7 +8,9 @@ Plataforma operacional para clínicas de saúde mental — automação de agenda
 
 **Módulos 1–17 implementados** (Fundação, Domain, Auth, Multi-Tenant, Pacientes, Clínica/Terapeuta, Agenda, API, Financeiro, Auditoria, WhatsApp, IA, Follow-up/Inadimplência, Automações, Frontend, Assinatura+Asaas).
 
-`pnpm build`, `pnpm lint` e `pnpm test:unit` rodam limpos na raiz do monorepo (274/274 testes unitários do backend). `test:critical` e `test:integration` exigem Postgres/Redis reais — ver "Setup local" abaixo.
+`pnpm build`, `pnpm lint` e `pnpm test:unit` rodam limpos na raiz do monorepo (274/274 testes unitários do backend). Validado de ponta a ponta contra Postgres/Redis reais: migrations, RLS, seed, boot do backend, login via API e os 4 Testes Críticos de isolamento multi-tenant — ver "Setup local" abaixo.
+
+**Bug de segurança real encontrado e corrigido nesta validação**: a aplicação conectava ao Postgres como o usuário `postgres` (superusuário do container oficial). O Postgres ignora Row-Level Security incondicionalmente para superusuários — nem `FORCE ROW LEVEL SECURITY` muda isso — e os Repositories deste projeto dependem 100% de RLS para isolar dados por Tenant (nenhum WHERE tenant_id explícito nas queries). Na prática, qualquer clínica autenticada conseguia ler dados de qualquer outra clínica, silenciosamente, sem nenhum erro. Corrigido criando uma role de aplicação (`luxora_app`) sem privilégio de superusuário — ver [`infra/docker/postgres-init/01-app-role.sql`](./infra/docker/postgres-init/01-app-role.sql).
 
 ## Documentação
 
@@ -38,7 +40,13 @@ Se o pnpm reclamar que não encontrou pacotes do workspace, confira se `pnpm-wor
 cp .env.example .env
 ```
 
-`DATABASE_URL` e `REDIS_URL` do `.env.example` já batem com as portas expostas pelo `docker-compose.yml` deste repositório (`localhost:5432` / `localhost:6379`, banco `luxora_dev`) — não precisa alterar para rodar localmente. Troque `JWT_SECRET` por uma string aleatória longa. `ASAAS_API_KEY`, `ANTHROPIC_API_KEY` etc. podem ficar em branco: só dão erro quando o fluxo específico que os usa for chamado. Detalhe completo de cada variável: [`CONFIGURACAO_AMBIENTE.md`](./CONFIGURACAO_AMBIENTE.md).
+`DATABASE_URL` e `REDIS_URL` do `.env.example` já batem com as portas expostas pelo `docker-compose.yml` deste repositório (`localhost:5432` / `localhost:6379`, banco `luxora_dev`) — não precisa alterar para rodar localmente. **`DATABASE_URL` usa a role `luxora_app`, nunca `postgres`** — ver aviso de segurança em "Status" acima. Troque `JWT_SECRET` por uma string aleatória longa. `ASAAS_API_KEY`, `ANTHROPIC_API_KEY` etc. podem ficar em branco: só dão erro quando o fluxo específico que os usa for chamado. Detalhe completo de cada variável: [`CONFIGURACAO_AMBIENTE.md`](./CONFIGURACAO_AMBIENTE.md).
+
+Este `.env` é lido tanto pelo Prisma CLI quanto pelo NestJS a partir do diretório onde o comando roda (`apps/backend`), não da raiz do monorepo — copie (ou symlink) o mesmo arquivo para `apps/backend/.env` também:
+
+```bash
+cp .env apps/backend/.env
+```
 
 ### 3. Subir Postgres e Redis
 
@@ -46,7 +54,13 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Isso sobe só a infraestrutura de dados (Postgres 16 + Redis 7) — backend e frontend rodam fora do Docker, via `pnpm dev` (passo 6). Confirme que os dois serviços estão saudáveis:
+Isso sobe só a infraestrutura de dados (Postgres 16 + Redis 7) — backend e frontend rodam fora do Docker, via `pnpm dev` (passo 6). Na primeira inicialização (volume vazio), o Postgres também roda automaticamente `infra/docker/postgres-init/01-app-role.sql`, criando a role `luxora_app` sem privilégio de superusuário. Se você já tinha um volume de um `docker-compose up` anterior a essa correção, a role não existe ainda — aplique manualmente:
+
+```bash
+docker compose exec -T postgres psql -U postgres -d luxora_dev -v ON_ERROR_STOP=1 < infra/docker/postgres-init/01-app-role.sql
+```
+
+Confirme que os dois serviços estão saudáveis:
 
 ```bash
 docker compose ps
@@ -78,7 +92,9 @@ pnpm --filter @luxora/backend seed
 pnpm dev
 ```
 
-Backend sobe em `http://localhost:3000` (rota de saúde: `GET /health`), frontend em `http://localhost:3001` ou `3002` — o terminal mostra a porta exata.
+Backend sobe em `http://localhost:3000` (rota de saúde: `GET /api/v1/health` — todo endpoint usa o prefixo `/api/v1`), frontend em `http://localhost:3001` ou `3002` — o terminal mostra a porta exata.
+
+Credenciais de teste (criadas pelo seed): `admin@clinica-a.luxora.dev` / `admin@clinica-b.luxora.dev`, senha `luxora-dev-2026`. Só o Tenant A tem assinatura ativa no seed — de propósito, para poder testar tanto o caminho liberado quanto o bloqueado (`SUBSCRIPTION_INACTIVE`) sem precisar de um segundo cenário.
 
 ### 7. Validar que o ambiente está de pé
 
@@ -86,7 +102,7 @@ Backend sobe em `http://localhost:3000` (rota de saúde: `GET /health`), fronten
 pnpm build         # backend + frontend compilam sem erro
 pnpm lint          # inclui a regra de fronteira de Clean Architecture (boundaries/element-types)
 pnpm test:unit     # 274 testes, não depende de banco
-pnpm --filter @luxora/backend test:critical   # os 16 Testes Críticos — precisa do Postgres do passo 3
+pnpm --filter @luxora/backend test:critical   # precisa do Postgres do passo 3 (só 4 dos 16 Testes Críticos documentados em docs/09-Testes/01-Testes-Criticos.md estão implementados em código até agora)
 ```
 
 ### Parar os serviços

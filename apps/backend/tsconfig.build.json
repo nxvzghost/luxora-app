@@ -1,4 +1,14 @@
 {
+  // incremental: false — nest-cli.json já roda deleteOutDir: true (limpa dist/
+  // inteiro a cada build). Um .tsbuildinfo incremental sobrevivendo a essa
+  // limpeza pode convencer o tsc de que nada mudou e pular o emit por
+  // completo (build "sucesso", dist/ vazio, sem nenhum erro visível) — foi
+  // exatamente o que aconteceu ao apagar dist/ manualmente nesta sessão.
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "dist", "test", "**/*spec.ts", "**/*.test.ts"]
+  "compilerOptions": {
+    "rootDir": "./src",
+    "incremental": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "test", "prisma", "**/*spec.ts", "**/*.test.ts"]
 }

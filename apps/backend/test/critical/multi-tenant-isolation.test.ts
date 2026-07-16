@@ -14,12 +14,29 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Arrange-only: com RLS de verdade em vigor (ver infra/docker/postgres-init/
+// 01-app-role.sql), DATABASE_URL conecta como `luxora_app`, sem BYPASSRLS —
+// exatamente o comportamento correto de produção, mas que também bloqueia
+// a leitura cross-tenant que o PRÓPRIO teste precisa para montar o fixture
+// (comparar paciente do Tenant B visto pelo Tenant A). Arrange usa o
+// superusuário do Postgres só para isso; a asserção em si continua sendo o
+// que valida isolamento de verdade.
+function toSuperuserUrl(databaseUrl: string): string {
+  const url = new URL(databaseUrl);
+  url.username = 'postgres';
+  url.password = 'postgres';
+  return url.toString();
+}
+const fixturePrisma = new PrismaClient({
+  datasources: { db: { url: toSuperuserUrl(process.env.DATABASE_URL ?? '') } },
+});
+
 describe('[CRÍTICO #1] Isolamento multi-tenant via API', () => {
   it('usuário autenticado no Tenant A nunca lê registro do Tenant B, mesmo fornecendo ID válido diretamente', async () => {
     // Arrange: dois tenants com pacientes distintos (via seed-dev.ts)
-    const tenantA = await prisma.tenant.findFirstOrThrow({ where: { name: 'Clínica Teste A' } });
-    const tenantB = await prisma.tenant.findFirstOrThrow({ where: { name: 'Clínica Teste B' } });
-    const patientOfB = await prisma.patient.findFirstOrThrow({ where: { tenantId: tenantB.id } });
+    const tenantA = await fixturePrisma.tenant.findFirstOrThrow({ where: { name: 'Clínica Teste A' } });
+    const tenantB = await fixturePrisma.tenant.findFirstOrThrow({ where: { name: 'Clínica Teste B' } });
+    const patientOfB = await fixturePrisma.patient.findFirstOrThrow({ where: { tenantId: tenantB.id } });
 
     // Act: autenticar como usuário do Tenant A e tentar ler paciente do Tenant B
     // pelo ID direto (não por busca — simula um usuário mal-intencionado ou um
