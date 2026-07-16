@@ -24,7 +24,7 @@ Todo documento, todo nome de classe, toda tabela, todo endpoint de API e todo pr
 | Usuário | `user` | Qualquer pessoa autenticada na plataforma (Terapeuta, Administrador etc. — ver `06-Autenticacao.md`). Conceito técnico de acesso, distinto de Terapeuta (papel de negócio). |
 | Sessão | `session` | Atendimento realizado ou agendado entre Terapeuta e Paciente — o registro central da operação clínica-administrativa. |
 | Agendamento | `appointment` | Reserva de horário na Agenda que **origina** uma Sessão. Ver nota de resolução abaixo. |
-| Agenda | — (não é tabela própria; representada pelo conjunto de `appointment` + bloqueios de um Terapeuta) | Disponibilidade de horários de um Terapeuta. |
+| Agenda | `AvailabilityCalendar` (Aggregate Root, Bounded Context `Availability` — ver ADR-0040) | Disponibilidade de horários de um Terapeuta. Não é mais atributo do Terapeuta: `AvailabilityCalendar` referencia `therapistId`, nunca o contrário (PD-001 / ADR-0040). |
 | Cobrança | `billing` | Valor devido por um Paciente, podendo agregar uma ou mais Sessões (ver `03-Database/03-Relacionamentos.md`). |
 | Pagamento | `payment` | Quitação de uma Cobrança. |
 | Mensagem | `message` | Comunicação administrativa enviada a Paciente ou Terapeuta. |
@@ -32,6 +32,7 @@ Todo documento, todo nome de classe, toda tabela, todo endpoint de API e todo pr
 | Regra / Política | `policy` | Configuração da Clínica que altera comportamento do sistema (cobrança, cancelamento, confirmação etc.). |
 | Notificação | `notification` | Aviso enviado internamente (a Terapeuta ou Administrador), distinto de Mensagem (externa, a Paciente). |
 | Motor Operacional | `Operational Engine` | Núcleo de decisão da plataforma (ADR-0001). Nunca chamado de outro nome em código ou documentação. |
+| Motor de Disponibilidade | `AvailabilityCalendar.isAvailable()` (Bounded Context `Availability`) | Componente central que decide "esse horário está livre?" para todo o sistema (PD-001 / ADR-0040). Delegado pelo Motor Operacional, mesmo padrão de delegação já usado para o Policy Engine (ver ADR-0001). Nenhum módulo consulta agenda diretamente. |
 | Agente | `AI Agent` | Componente de IA que interpreta linguagem natural e consulta o Motor Operacional — nunca decide sozinho (ADR-0006). |
 | Tenant | `tenant` | Sinônimo técnico de Clínica, usado especificamente no contexto de isolamento multi-tenant. |
 

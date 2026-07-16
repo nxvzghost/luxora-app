@@ -65,7 +65,6 @@ Representa um profissional vinculado à clínica.
 * Modalidade
 * Duração padrão
 * Valor padrão
-* Agenda
 * Status
 
 ---
@@ -116,9 +115,13 @@ Representa um atendimento agendado.
 
 ---
 
-# Agenda
+# AvailabilityCalendar (Agenda)
 
-Responsável pela disponibilidade do terapeuta.
+Aggregate Root do Bounded Context `Availability` (ADR-0040 / PD-001). Não é mais atributo do Terapeuta: referencia o Terapeuta por `therapistId`, nunca o contrário — o Terapeuta não possui a Agenda diretamente.
+
+## Responsabilidade
+
+* Responder "esse horário está livre?" via `isAvailable(from, to): boolean` — único método de decisão real, consultado por todo módulo que precise agir sobre a agenda (Motor Operacional, IA, importação externa).
 
 ## Contém
 

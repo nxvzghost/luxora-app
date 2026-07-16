@@ -17,7 +17,8 @@ Uma Clínica possui:
 * N Terapeutas
 * N Pacientes
 * N Regras
-* N Agendas
+
+Indiretamente, também está associada a N `AvailabilityCalendar` — um por Terapeuta, nunca posse direta da Clínica (ver ADR-0040).
 
 ---
 
@@ -26,7 +27,7 @@ Uma Clínica possui:
 Um Terapeuta:
 
 * pertence a uma Clínica;
-* possui uma Agenda;
+* é referenciado por um `AvailabilityCalendar` (Bounded Context `Availability`, ver ADR-0040) — nunca o possui diretamente;
 * atende vários Pacientes;
 * realiza várias Sessões.
 
