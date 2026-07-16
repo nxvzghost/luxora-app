@@ -8,7 +8,9 @@ Plataforma operacional para clínicas de saúde mental — automação de agenda
 
 **Módulos 1–17 implementados** (Fundação, Domain, Auth, Multi-Tenant, Pacientes, Clínica/Terapeuta, Agenda, API, Financeiro, Auditoria, WhatsApp, IA, Follow-up/Inadimplência, Automações, Frontend, Assinatura+Asaas).
 
-`pnpm build`, `pnpm lint` e `pnpm test:unit` rodam limpos na raiz do monorepo (274/274 testes unitários do backend). Validado de ponta a ponta contra Postgres/Redis reais: migrations, RLS, seed, boot do backend, login via API e os 4 Testes Críticos de isolamento multi-tenant — ver "Setup local" abaixo.
+`pnpm build`, `pnpm lint` e `pnpm test:unit` rodam limpos na raiz do monorepo (275/275 testes unitários do backend, 24/24 Testes Críticos + 1 skip documentado). Validado de ponta a ponta contra Postgres/Redis reais e contra o frontend rodando de verdade no navegador — ver "Setup local" abaixo.
+
+**⚠️ PD-001 registrada — Motor de Disponibilidade**: decisão de produto com impacto arquitetural direto, documentação completa em [`docs/11-Product-Decisions/PD-001-Motor-de-Disponibilidade/`](./docs/11-Product-Decisions/PD-001-Motor-de-Disponibilidade/) e [`ADR-0040`](./docs/02-Arquitetura/ADRs/ADR-0040-motor-disponibilidade-bounded-context.md). Confirma 4 violações reais já no código: `AgendarConsultaUseCase`, `RemarcarConsultaUseCase`, `CriarAgendamentoRecorrenteUseCase` e `IntentActionRouter` (Módulo 12) criam/alteram agendamento sem consultar nenhuma autoridade central de disponibilidade. Módulos 18–21 propostos (Centralização → Exceções/Recorrência → Assistente conversacional → Importação externa), cada um exigindo aprovação própria de escopo — **implementação ainda não iniciada**.
 
 **Bug de segurança real encontrado e corrigido nesta validação**: a aplicação conectava ao Postgres como o usuário `postgres` (superusuário do container oficial). O Postgres ignora Row-Level Security incondicionalmente para superusuários — nem `FORCE ROW LEVEL SECURITY` muda isso — e os Repositories deste projeto dependem 100% de RLS para isolar dados por Tenant (nenhum WHERE tenant_id explícito nas queries). Na prática, qualquer clínica autenticada conseguia ler dados de qualquer outra clínica, silenciosamente, sem nenhum erro. Corrigido criando uma role de aplicação (`luxora_app`) sem privilégio de superusuário — ver [`infra/docker/postgres-init/01-app-role.sql`](./infra/docker/postgres-init/01-app-role.sql).
 
@@ -21,6 +23,7 @@ Toda a documentação técnica está em [`docs/`](./docs) e é a fonte oficial d
 - [`docs/01-Domain/`](./docs/01-Domain) — entidades, relacionamentos, Linguagem Ubíqua
 - [`docs/02-Arquitetura/`](./docs/02-Arquitetura) — princípios, ADRs, Motor Operacional
 - [`docs/09-Testes/01-Testes-Criticos.md`](./docs/09-Testes/01-Testes-Criticos.md) — os 16 testes que bloqueiam merge
+- [`docs/11-Product-Decisions/`](./docs/11-Product-Decisions) — decisões de produto com impacto arquitetural direto (categoria nova; gera ADRs como consequência)
 
 ## Setup local
 

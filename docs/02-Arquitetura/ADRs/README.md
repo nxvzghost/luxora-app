@@ -97,6 +97,7 @@ As ADRs foram organizadas em uma sequência lógica.
 | ADR-0020 | Governança da Arquitetura         |
 
 | ADR-0021 | Fronteira entre Motor Operacional e n8n |
+| ADR-0040 | Motor de Disponibilidade como Bounded Context central (derivado de PD-001) — ver nota de numeração no próprio arquivo |
 
 
 
