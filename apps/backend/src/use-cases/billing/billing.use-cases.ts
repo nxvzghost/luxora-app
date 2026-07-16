@@ -2,6 +2,7 @@ import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Billing } from '@domain/billing/billing.entity';
 import { BillingRepository, BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
+import { AuditService } from '@domain-services/platform/audit.service';
 import { TenantContext } from '@shared/tenant-context';
 import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { ClinicRepository, CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
@@ -24,6 +25,7 @@ export interface GerarCobrancaInput {
 export class GerarCobrancaUseCase {
   constructor(
     @Inject(BILLING_REPOSITORY) private readonly repo: BillingRepository,
+    private readonly auditService: AuditService,
     private readonly tenantContext: TenantContext,
   ) {}
 
@@ -40,7 +42,10 @@ export class GerarCobrancaUseCase {
     });
     await this.repo.save(billing);
     await this.repo.linkSessions(billing.id, input.sessionIds); // UNIQUE(session_id) protege contra dupla-cobrança da mesma sessão
-    billing.pullDomainEvents();
+
+    // Módulo 10: eventos agora persistidos de verdade, não mais descartados.
+    await this.auditService.recordAll(billing.pullDomainEvents());
+
     return billing;
   }
 }
@@ -83,6 +88,7 @@ export class EnviarCobrancaUseCase {
     @Inject(CLINIC_REPOSITORY) private readonly clinicRepo: ClinicRepository,
     private readonly consultarCobranca: ConsultarCobrancaUseCase,
     private readonly messageQueue: MessageQueueProducer,
+    private readonly auditService: AuditService,
   ) {}
 
   async execute(id: string): Promise<Billing> {
@@ -111,7 +117,10 @@ export class EnviarCobrancaUseCase {
 
     billing.transitionTo('Enviada');
     await this.repo.save(billing);
-    billing.pullDomainEvents();
+
+    // Módulo 10: eventos agora persistidos de verdade, não mais descartados.
+    await this.auditService.recordAll(billing.pullDomainEvents());
+
     return billing;
   }
 }

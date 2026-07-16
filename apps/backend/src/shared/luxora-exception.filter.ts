@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Response } from 'express';
 
 type ErrorCategory = 'validation' | 'business_rule' | 'authorization' | 'not_found' | 'system';
@@ -14,10 +14,23 @@ type ErrorCategory = 'validation' | 'business_rule' | 'authorization' | 'not_fou
  */
 @Catch()
 export class LuxoraExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(LuxoraExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const { status, code, message, category } = this.normalize(exception);
+
+    // BUG REAL ENCONTRADO E CORRIGIDO: a mensagem "Nossa equipe foi
+    // notificada" era mentira — nenhuma exceção não mapeada era logada em
+    // lugar nenhum, tornando todo erro 500 uma caixa-preta sem rastro
+    // nenhum para diagnosticar depois.
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      this.logger.error(
+        exception instanceof Error ? exception.stack ?? exception.message : String(exception),
+      );
+    }
+
     response.status(status).json({ error: { code, message, category, timestamp: new Date().toISOString() } });
   }
 

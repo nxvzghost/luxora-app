@@ -13,7 +13,8 @@ function makeUseCase(existing: ClinicSubscription | null = null) {
     attachCreditCard: vi.fn(),
     cancelSubscription: vi.fn(),
   };
-  return { useCase: new CriarAssinaturaUseCase(repo, paymentProvider), repo, paymentProvider };
+  const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) } as never;
+  return { useCase: new CriarAssinaturaUseCase(repo, paymentProvider, auditService), repo, paymentProvider };
 }
 
 describe('CriarAssinaturaUseCase', () => {

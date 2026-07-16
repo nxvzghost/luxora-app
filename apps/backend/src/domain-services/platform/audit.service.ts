@@ -12,12 +12,12 @@ import { TenantContext } from '@shared/tenant-context';
  * descartar (como vinha fazendo desde o Módulo 05 — comentário recorrente
  * "esvazia a fila... não acumula em memória" nunca persistia nada).
  *
- * RETROFIT PARCIAL, DOCUMENTADO NO README DO MÓDULO: por tempo, apenas
- * CadastrarPacienteUseCase, AgendarConsultaUseCase e
- * RegistrarPagamentoUseCase foram atualizados como prova do padrão — os
- * ~20 Use Cases restantes (M05-M09) ainda descartam eventos sem persistir.
- * Não é um bug de lógica (nada quebra), é uma lacuna de cobertura de
- * auditoria a fechar antes de considerar o Módulo 10 encerrado de verdade.
+ * RETROFIT CONCLUÍDO: todo Use Case que produz DomainEvent (patient,
+ * therapist, clinic, appointment, billing, payment, subscription, AI) já
+ * passa pullDomainEvents() para cá — confirmado por grep em toda
+ * use-cases/, não só pelos exemplos citados aqui antes. Validado também
+ * contra o Postgres real: PUT /therapists/:id/availability grava linha
+ * real em audit_log com payload correto.
  */
 @Injectable()
 export class AuditService {

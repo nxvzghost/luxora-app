@@ -6,6 +6,7 @@ import {
   CLINIC_SUBSCRIPTION_REPOSITORY,
 } from '@domain-services/subscription/clinic-subscription.repository';
 import { PaymentProvider, PAYMENT_PROVIDER } from '@domain-services/subscription/payment-provider';
+import { AuditService } from '@domain-services/platform/audit.service';
 
 export interface CriarAssinaturaInput {
   tenantId: string;
@@ -30,6 +31,7 @@ export class CriarAssinaturaUseCase {
   constructor(
     @Inject(CLINIC_SUBSCRIPTION_REPOSITORY) private readonly repo: ClinicSubscriptionRepository,
     @Inject(PAYMENT_PROVIDER) private readonly paymentProvider: PaymentProvider,
+    private readonly auditService: AuditService,
   ) {}
 
   async execute(input: CriarAssinaturaInput): Promise<ClinicSubscription> {
@@ -62,7 +64,9 @@ export class CriarAssinaturaUseCase {
 
     subscription.linkToAsaas(asaasCustomerId, asaasSubscriptionId);
     await this.repo.save(subscription);
-    subscription.pullDomainEvents();
+
+    // Módulo 10: eventos agora persistidos de verdade, não mais descartados.
+    await this.auditService.recordAll(subscription.pullDomainEvents());
 
     return subscription;
   }

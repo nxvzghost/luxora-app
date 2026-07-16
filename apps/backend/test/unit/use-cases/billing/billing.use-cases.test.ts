@@ -11,30 +11,34 @@ function tenantContext() {
   return tc;
 }
 
+function auditService() {
+  return { recordAll: vi.fn().mockResolvedValue(undefined) } as never;
+}
+
 describe('GerarCobrancaUseCase — cobrança agregada (Testes Críticos #4-7)', () => {
   it('rejeita cobrança sem nenhuma sessão vinculada', async () => {
     const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn() };
-    const useCase = new GerarCobrancaUseCase(repo, tenantContext());
+    const useCase = new GerarCobrancaUseCase(repo, auditService(), tenantContext());
     await expect(useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: [] })).rejects.toThrow(/ao menos uma sessão/);
   });
 
   it('cria cobrança por sessão avulsa (1 sessionId — caso N=1)', async () => {
     const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined) };
-    const useCase = new GerarCobrancaUseCase(repo, tenantContext());
+    const useCase = new GerarCobrancaUseCase(repo, auditService(), tenantContext());
     await useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: ['s1'] });
     expect(repo.linkSessions).toHaveBeenCalledWith(expect.any(String), ['s1']);
   });
 
   it('cria cobrança agregada (N sessionIds — semanal/mensal)', async () => {
     const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined) };
-    const useCase = new GerarCobrancaUseCase(repo, tenantContext());
+    const useCase = new GerarCobrancaUseCase(repo, auditService(), tenantContext());
     await useCase.execute({ patientId: 'p1', amount: 1600, dueDate: new Date(), sessionIds: ['s1', 's2', 's3', 's4'] });
     expect(repo.linkSessions).toHaveBeenCalledWith(expect.any(String), ['s1', 's2', 's3', 's4']);
   });
 
   it('nasce no estado Criada', async () => {
     const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined) };
-    const useCase = new GerarCobrancaUseCase(repo, tenantContext());
+    const useCase = new GerarCobrancaUseCase(repo, auditService(), tenantContext());
     const billing = await useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: ['s1'] });
     expect(billing.state).toBe('Criada');
   });
@@ -46,7 +50,7 @@ describe('EnviarCobrancaUseCase — Módulo 11 (envio real via fila)', () => {
     const patientRepo = { findById: vi.fn().mockResolvedValue(patient), findAllByTenant: vi.fn(), save: vi.fn() };
     const clinicRepo = { findByTenantId: vi.fn().mockResolvedValue(clinic), save: vi.fn() };
     const messageQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
-    const useCase = new EnviarCobrancaUseCase(billingRepo, patientRepo, clinicRepo, new ConsultarCobrancaUseCase(billingRepo), messageQueue);
+    const useCase = new EnviarCobrancaUseCase(billingRepo, patientRepo, clinicRepo, new ConsultarCobrancaUseCase(billingRepo), messageQueue, auditService());
     return { useCase, messageQueue, billingRepo };
   }
 
