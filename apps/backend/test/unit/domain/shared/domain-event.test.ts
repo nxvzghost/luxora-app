@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { DomainEvent } from '@domain/shared/domain-event';
 
 class TestEvent extends DomainEvent {
-  constructor(entityId: string, tenantId: string, readonly extra: string) {
-    super('TesteEvento', entityId, tenantId);
+  declare readonly extra: string;
+
+  constructor(entityId: string, tenantId: string, extra: string) {
+    super('TesteEvento', entityId, tenantId, { extra });
   }
 }
 

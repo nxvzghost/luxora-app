@@ -21,13 +21,11 @@ const sessionTransitions: Record<SessionState, readonly SessionState[]> = {
 const sessionStateMachine = new StateMachine<SessionState>('Sessão', sessionTransitions);
 
 export class SessionStateChangedEvent extends DomainEvent {
-  constructor(
-    entityId: string,
-    tenantId: string,
-    readonly fromState: SessionState | null,
-    readonly toState: SessionState,
-  ) {
-    super('SessaoEstadoAlterado', entityId, tenantId);
+  declare readonly fromState: SessionState | null;
+  declare readonly toState: SessionState;
+
+  constructor(entityId: string, tenantId: string, fromState: SessionState | null, toState: SessionState) {
+    super('SessaoEstadoAlterado', entityId, tenantId, { fromState, toState });
   }
 }
 

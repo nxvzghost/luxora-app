@@ -33,13 +33,11 @@ const appointmentStateMachine = new StateMachine<AppointmentState>(
 );
 
 export class AppointmentStateChangedEvent extends DomainEvent {
-  constructor(
-    entityId: string,
-    tenantId: string,
-    readonly fromState: AppointmentState,
-    readonly toState: AppointmentState,
-  ) {
-    super('AgendamentoEstadoAlterado', entityId, tenantId);
+  declare readonly fromState: AppointmentState;
+  declare readonly toState: AppointmentState;
+
+  constructor(entityId: string, tenantId: string, fromState: AppointmentState, toState: AppointmentState) {
+    super('AgendamentoEstadoAlterado', entityId, tenantId, { fromState, toState });
   }
 }
 

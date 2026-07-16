@@ -22,15 +22,20 @@ export interface ProcessarMensagemResult {
 }
 
 class AiInteractionAuditEvent extends DomainEvent {
+  declare readonly intent: string;
+  declare readonly costEstimate: number;
+  declare readonly requiresEscalation: boolean;
+  declare readonly actionTaken: boolean;
+
   constructor(
     entityId: string,
     tenantId: string,
-    readonly intent: string,
-    readonly costEstimate: number,
-    readonly requiresEscalation: boolean,
-    readonly actionTaken: boolean,
+    intent: string,
+    costEstimate: number,
+    requiresEscalation: boolean,
+    actionTaken: boolean,
   ) {
-    super('InteracaoDeIA', entityId, tenantId);
+    super('InteracaoDeIA', entityId, tenantId, { intent, costEstimate, requiresEscalation, actionTaken });
   }
 }
 

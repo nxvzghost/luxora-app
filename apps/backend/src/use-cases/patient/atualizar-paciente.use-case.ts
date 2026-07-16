@@ -22,12 +22,10 @@ export interface AtualizarPacienteInput {
  * usado para AiInteractionAuditEvent (Módulo 12).
  */
 class PatientDataUpdatedEvent extends DomainEvent {
-  constructor(
-    entityId: string,
-    tenantId: string,
-    readonly changedFields: string[],
-  ) {
-    super('PacienteDadosAtualizados', entityId, tenantId);
+  declare readonly changedFields: string[];
+
+  constructor(entityId: string, tenantId: string, changedFields: string[]) {
+    super('PacienteDadosAtualizados', entityId, tenantId, { changedFields });
   }
 }
 

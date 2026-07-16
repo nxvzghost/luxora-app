@@ -12,12 +12,10 @@ import { DomainEvent } from '../shared/domain-event';
  * pagamento — pixKey/payeeName) nunca era auditada. Corrigido.
  */
 export class ClinicUpdatedEvent extends DomainEvent {
-  constructor(
-    entityId: string,
-    tenantId: string,
-    readonly action: string,
-  ) {
-    super('ClinicaAtualizada', entityId, tenantId);
+  declare readonly action: string;
+
+  constructor(entityId: string, tenantId: string, action: string) {
+    super('ClinicaAtualizada', entityId, tenantId, { action });
   }
 }
 

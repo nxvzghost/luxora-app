@@ -12,7 +12,9 @@ export function buildAgendaSummaryMessage(
 ): string {
   const firstName = therapistName.split(' ')[0];
   if (appointments.length === 0) {
-    return `Olá, ${firstName}! 😊\n\nAmanhã você não tem nenhuma consulta agendada.`;
+    return updated
+      ? `Olá, ${firstName}! 😊\n\nSua agenda de amanhã foi atualizada: agora você não tem nenhuma consulta agendada.`
+      : `Olá, ${firstName}! 😊\n\nAmanhã você não tem nenhuma consulta agendada.`;
   }
   const lines = appointments
     .slice()

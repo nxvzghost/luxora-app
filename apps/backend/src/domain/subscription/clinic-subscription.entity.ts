@@ -32,13 +32,11 @@ const subscriptionStateMachine = new StateMachine<SubscriptionStatus>(
 );
 
 export class ClinicSubscriptionStateChangedEvent extends DomainEvent {
-  constructor(
-    entityId: string,
-    tenantId: string,
-    readonly fromState: SubscriptionStatus,
-    readonly toState: SubscriptionStatus,
-  ) {
-    super('AssinaturaEstadoAlterado', entityId, tenantId);
+  declare readonly fromState: SubscriptionStatus;
+  declare readonly toState: SubscriptionStatus;
+
+  constructor(entityId: string, tenantId: string, fromState: SubscriptionStatus, toState: SubscriptionStatus) {
+    super('AssinaturaEstadoAlterado', entityId, tenantId, { fromState, toState });
   }
 }
 

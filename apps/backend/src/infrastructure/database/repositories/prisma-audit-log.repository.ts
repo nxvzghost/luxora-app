@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { AuditLogRepository, AuditLogEntry } from '@domain-services/platform/audit-log.repository';
 import { randomUUID } from 'node:crypto';
@@ -25,7 +26,7 @@ export class PrismaAuditLogRepository implements AuditLogRepository {
           action: entry.action,
           entityType: entry.entityType,
           entityId: entry.entityId,
-          payload: entry.payload ?? undefined,
+          payload: (entry.payload ?? undefined) as Prisma.InputJsonValue | undefined,
           result: entry.result,
         },
       }),

@@ -20,6 +20,9 @@ module.exports = {
   ],
   rules: {
     '@typescript-eslint/no-explicit-any': 'error',
+    // Convenção usada no código (ex: audit.service.ts, extractPayload): prefixo
+    // `_` marca uma variável destructured intencionalmente descartada.
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     'boundaries/element-types': [
       'error',
       {

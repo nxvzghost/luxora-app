@@ -8,7 +8,11 @@ import { DomainEvent } from '../shared/domain-event';
 export type PaymentState = 'Recebido' | 'EmConferencia' | 'Confirmado' | 'Divergente' | 'Estornado';
 
 const paymentTransitions: Record<PaymentState, readonly PaymentState[]> = {
-  Recebido: ['EmConferencia'],
+  // reconcile() (abaixo) transiciona direto de Recebido para Confirmado/Divergente —
+  // é o único fluxo de reconciliação implementado neste MVP, automático e síncrono.
+  // EmConferencia permanece como estado documentado (03-Maquina-de-Estados.md) para
+  // um fluxo de conferência manual futuro, ainda não implementado por nenhum caller.
+  Recebido: ['EmConferencia', 'Confirmado', 'Divergente'],
   EmConferencia: ['Confirmado', 'Divergente'],
   Divergente: ['EmConferencia', 'Confirmado'], // re-conferência pode resolver a divergência
   Confirmado: ['Estornado'],
@@ -18,13 +22,11 @@ const paymentTransitions: Record<PaymentState, readonly PaymentState[]> = {
 const paymentStateMachine = new StateMachine<PaymentState>('Pagamento', paymentTransitions);
 
 export class PaymentStateChangedEvent extends DomainEvent {
-  constructor(
-    entityId: string,
-    tenantId: string,
-    readonly fromState: PaymentState,
-    readonly toState: PaymentState,
-  ) {
-    super('PagamentoEstadoAlterado', entityId, tenantId);
+  declare readonly fromState: PaymentState;
+  declare readonly toState: PaymentState;
+
+  constructor(entityId: string, tenantId: string, fromState: PaymentState, toState: PaymentState) {
+    super('PagamentoEstadoAlterado', entityId, tenantId, { fromState, toState });
   }
 }
 

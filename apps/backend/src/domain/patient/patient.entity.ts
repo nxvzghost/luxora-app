@@ -47,13 +47,11 @@ const patientTransitions: Record<PatientState, readonly PatientState[]> = {
 const patientStateMachine = new StateMachine<PatientState>('Paciente', patientTransitions);
 
 export class PatientStateChangedEvent extends DomainEvent {
-  constructor(
-    entityId: string,
-    tenantId: string,
-    readonly fromState: PatientState,
-    readonly toState: PatientState,
-  ) {
-    super('PacienteEstadoAlterado', entityId, tenantId);
+  declare readonly fromState: PatientState;
+  declare readonly toState: PatientState;
+
+  constructor(entityId: string, tenantId: string, fromState: PatientState, toState: PatientState) {
+    super('PacienteEstadoAlterado', entityId, tenantId, { fromState, toState });
   }
 }
 

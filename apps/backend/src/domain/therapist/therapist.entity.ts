@@ -13,12 +13,10 @@ import { DomainEvent } from '../shared/domain-event';
  * outras entidades, mesmo sem máquina de estados formal.
  */
 export class TherapistUpdatedEvent extends DomainEvent {
-  constructor(
-    entityId: string,
-    tenantId: string,
-    readonly action: string,
-  ) {
-    super('TerapeutaAtualizado', entityId, tenantId);
+  declare readonly action: string;
+
+  constructor(entityId: string, tenantId: string, action: string) {
+    super('TerapeutaAtualizado', entityId, tenantId, { action });
   }
 }
 

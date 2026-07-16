@@ -68,26 +68,24 @@ model ClinicSettings {
   @@map("clinic_settings")
 }
 
-/**
- * WhatsAppIntegration — 1:1 com Tenant.
- *
- * CORREÇÃO ARQUITETURAL REAL (não cosmética): até esta correção,
- * WhatsAppMessageProvider (Módulo 11) lia WHATSAPP_PHONE_NUMBER_ID e
- * WHATSAPP_BUSINESS_API_TOKEN de variáveis de ambiente GLOBAIS — ou seja,
- * toda clínica da plataforma enviaria mensagem pelo MESMO número de
- * WhatsApp. Isso quebra o princípio explícito de que "cada clínica deve
- * conectar seu próprio canal de WhatsApp, preservando a identidade da
- * clínica" — e é, na prática, uma falha de isolamento multi-tenant na
- * camada de comunicação, o mesmo tipo de problema que o Módulo 04 (RLS)
- * resolveu para o banco de dados, mas que nunca tinha sido aplicado aqui.
- *
- * DÍVIDA DE SEGURANÇA REGISTRADA, NÃO RESOLVIDA NESTA CORREÇÃO:
- * accessToken fica em texto plano no banco por ora — o mesmo nível de
- * cuidado que já se aplica a outras credenciais (nunca em código-fonte,
- * sempre variável de ambiente ou banco) ainda não inclui criptografia em
- * repouso para este campo. Precisa de endurecimento antes de produção
- * real com clientes pagantes — ver CONFIGURACAO_AMBIENTE.md.
- */
+// WhatsAppIntegration — 1:1 com Tenant.
+//
+// CORREÇÃO ARQUITETURAL REAL (não cosmética): até esta correção,
+// WhatsAppMessageProvider (Módulo 11) lia WHATSAPP_PHONE_NUMBER_ID e
+// WHATSAPP_BUSINESS_API_TOKEN de variáveis de ambiente GLOBAIS — ou seja,
+// toda clínica da plataforma enviaria mensagem pelo MESMO número de
+// WhatsApp. Isso quebra o princípio explícito de que "cada clínica deve
+// conectar seu próprio canal de WhatsApp, preservando a identidade da
+// clínica" — e é, na prática, uma falha de isolamento multi-tenant na
+// camada de comunicação, o mesmo tipo de problema que o Módulo 04 (RLS)
+// resolveu para o banco de dados, mas que nunca tinha sido aplicado aqui.
+//
+// DÍVIDA DE SEGURANÇA REGISTRADA, NÃO RESOLVIDA NESTA CORREÇÃO:
+// accessToken fica em texto plano no banco por ora — o mesmo nível de
+// cuidado que já se aplica a outras credenciais (nunca em código-fonte,
+// sempre variável de ambiente ou banco) ainda não inclui criptografia em
+// repouso para este campo. Precisa de endurecimento antes de produção
+// real com clientes pagantes — ver CONFIGURACAO_AMBIENTE.md.
 model WhatsAppIntegration {
   id              String   @id @default(uuid())
   tenantId        String   @unique @map("tenant_id")

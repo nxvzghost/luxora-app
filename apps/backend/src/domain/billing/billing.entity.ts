@@ -37,13 +37,11 @@ const billingTransitions: Record<BillingState, readonly BillingState[]> = {
 const billingStateMachine = new StateMachine<BillingState>('Cobrança', billingTransitions);
 
 export class BillingStateChangedEvent extends DomainEvent {
-  constructor(
-    entityId: string,
-    tenantId: string,
-    readonly fromState: BillingState,
-    readonly toState: BillingState,
-  ) {
-    super('CobrancaEstadoAlterado', entityId, tenantId);
+  declare readonly fromState: BillingState;
+  declare readonly toState: BillingState;
+
+  constructor(entityId: string, tenantId: string, fromState: BillingState, toState: BillingState) {
+    super('CobrancaEstadoAlterado', entityId, tenantId, { fromState, toState });
   }
 }
 
