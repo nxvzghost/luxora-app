@@ -16,6 +16,18 @@ import { LuxoraExceptionFilter } from '@shared/luxora-exception.filter';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // BUG REAL ENCONTRADO E CORRIGIDO: nenhum CORS configurado — o navegador
+  // bloqueava toda chamada do frontend (localhost:3001/3002) para o backend
+  // (localhost:3000), origens diferentes, com o preflight OPTIONS batendo
+  // numa rota inexistente (404) antes mesmo do POST real ser tentado.
+  // FRONTEND_URL aceita uma lista separada por vírgula, para cobrir os
+  // 3001/3002 que o Next escolhe automaticamente quando a porta padrão
+  // está ocupada (ver COMECE_AQUI.md).
+  const allowedOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:3001,http://localhost:3002')
+    .split(',')
+    .map((origin) => origin.trim());
+  app.enableCors({ origin: allowedOrigins, credentials: true });
+
   app.setGlobalPrefix('api/v1');
 
   // ValidationPipe global — sem isso, os decorators de class-validator nos

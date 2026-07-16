@@ -51,11 +51,18 @@ export interface ClinicSubscriptionProps {
   currentPeriodEnd?: Date;
 }
 
-/** Preços oficiais mensais — fonte: CEO/07 - Planos e precificacao/README.md. */
+/**
+ * Preços oficiais mensais — fonte: CEO/07 - Planos e precificacao/README.md.
+ *
+ * BUG REAL ENCONTRADO E CORRIGIDO: enterprise estava em 2990, não 2490.
+ * A regra de desconto anual (*12*0.9, ANNUAL_DISCOUNT abaixo) já batia
+ * exatamente com o valor anual oficial (R$ 26.892,00/ano) só quando
+ * partindo de 2490 — 2990*12*0.9 = 32.292, não o valor documentado.
+ */
 const MONTHLY_PRICE_BRL: Record<PlanTier, number> = {
   professional: 597,
   business: 997,
-  enterprise: 2990,
+  enterprise: 2490,
 };
 const ANNUAL_DISCOUNT = 0.1;
 

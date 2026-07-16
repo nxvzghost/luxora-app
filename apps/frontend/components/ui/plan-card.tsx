@@ -1,9 +1,13 @@
 import { PlanTier } from '@/lib/api-client/subscription.hooks';
+import { formatCurrencyBRL } from '@/lib/format-currency';
 
+// Preços oficiais mensais — precisam bater com MONTHLY_PRICE_BRL em
+// apps/backend/src/domain/subscription/clinic-subscription.entity.ts.
+// Bug real corrigido: enterprise estava em 2990, deveria ser 2490.
 const PLAN_LABELS: Record<PlanTier, { name: string; monthlyPrice: number; tagline: string }> = {
   professional: { name: 'Professional', monthlyPrice: 597, tagline: 'Tudo liberado, sem limitação escondida.' },
   business: { name: 'Business', monthlyPrice: 997, tagline: 'Para clínicas com equipe.' },
-  enterprise: { name: 'Enterprise', monthlyPrice: 2990, tagline: 'Implantação personalizada e consultoria semanal.' },
+  enterprise: { name: 'Enterprise', monthlyPrice: 2490, tagline: 'Implantação personalizada e consultoria semanal.' },
 };
 
 export function PlanCard({
@@ -19,7 +23,7 @@ export function PlanCard({
 }) {
   const info = PLAN_LABELS[plan];
   const price = billingCycle === 'monthly' ? info.monthlyPrice : info.monthlyPrice * 12 * 0.9;
-  const priceLabel = billingCycle === 'monthly' ? `R$ ${price.toFixed(0)}/mês` : `R$ ${price.toFixed(2)}/ano`;
+  const priceLabel = billingCycle === 'monthly' ? `${formatCurrencyBRL(price)}/mês` : `${formatCurrencyBRL(price)}/ano`;
 
   return (
     <button

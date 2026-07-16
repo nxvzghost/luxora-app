@@ -3,6 +3,7 @@
 import { usePatients, useBillings } from '@/lib/api-client/dashboard.hooks';
 import { StatCard } from '@/components/ui/stat-card';
 import { SideNav } from '@/components/ui/side-nav';
+import { formatCurrencyBRL } from '@/lib/format-currency';
 
 /**
  * DashboardPage — Módulo 15.
@@ -38,7 +39,7 @@ export default function DashboardPage() {
           <StatCard label="Cobranças em atraso" value={loadingBillings ? '—' : overdueBillings} />
           <StatCard
             label="Total a receber"
-            value={loadingBillings ? '—' : `R$ ${(totalPending ?? 0).toFixed(2)}`}
+            value={loadingBillings ? '—' : formatCurrencyBRL(totalPending ?? 0)}
           />
         </div>
 

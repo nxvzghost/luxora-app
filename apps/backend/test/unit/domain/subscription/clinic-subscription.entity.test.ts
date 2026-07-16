@@ -57,8 +57,12 @@ describe('ClinicSubscription', () => {
       expect(newSubscription('business', 'yearly').amountPerCycle).toBeCloseTo(10767.6, 1);
     });
 
-    it('Enterprise anual: R$32.292,00', () => {
-      expect(newSubscription('enterprise', 'yearly').amountPerCycle).toBeCloseTo(32292.0, 1);
+    it('Enterprise mensal: R$2.490', () => {
+      expect(newSubscription('enterprise', 'monthly').amountPerCycle).toBe(2490);
+    });
+
+    it('Enterprise anual: R$26.892,00', () => {
+      expect(newSubscription('enterprise', 'yearly').amountPerCycle).toBeCloseTo(26892.0, 1);
     });
   });
 

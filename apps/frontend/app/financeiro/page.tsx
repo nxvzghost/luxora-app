@@ -3,6 +3,7 @@
 import { SideNav } from '@/components/ui/side-nav';
 import { StatCard } from '@/components/ui/stat-card';
 import { useBillings, usePatients } from '@/lib/api-client/dashboard.hooks';
+import { formatCurrencyBRL } from '@/lib/format-currency';
 
 const STATE_LABELS: Record<string, string> = {
   Pendente: 'Pendente',
@@ -39,8 +40,8 @@ export default function FinanceiroPage() {
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', marginBottom: '1.5rem' }}>Financeiro</h1>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-          <StatCard label="Total faturado" value={`R$ ${total.toFixed(2)}`} tone="gold" />
-          <StatCard label="Recebido" value={`R$ ${received.toFixed(2)}`} />
+          <StatCard label="Total faturado" value={formatCurrencyBRL(total)} tone="gold" />
+          <StatCard label="Recebido" value={formatCurrencyBRL(received)} />
           <StatCard label="Cobranças em atraso" value={overdue} />
         </div>
 
@@ -71,7 +72,7 @@ export default function FinanceiroPage() {
                 </p>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <p style={{ margin: '0 0 0.25rem', fontWeight: 700 }}>R$ {billing.amount.toFixed(2)}</p>
+                <p style={{ margin: '0 0 0.25rem', fontWeight: 700 }}>{formatCurrencyBRL(billing.amount)}</p>
                 <span
                   style={{
                     fontSize: '0.75rem',
