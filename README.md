@@ -102,8 +102,10 @@ Credenciais de teste (criadas pelo seed): `admin@clinica-a.luxora.dev` / `admin@
 pnpm build         # backend + frontend compilam sem erro
 pnpm lint          # inclui a regra de fronteira de Clean Architecture (boundaries/element-types)
 pnpm test:unit     # 274 testes, não depende de banco
-pnpm --filter @luxora/backend test:critical   # precisa do Postgres do passo 3 (só 4 dos 16 Testes Críticos documentados em docs/09-Testes/01-Testes-Criticos.md estão implementados em código até agora)
+pnpm --filter @luxora/backend test:critical   # precisa do Postgres/Redis do passo 3 — 15 dos 16 Testes Críticos documentados em docs/09-Testes/01-Testes-Criticos.md (o #13 é revisão de processo, não automatizável; o #3, cache multi-tenant, é `describe.skip` documentado — não existe camada de cache neste código ainda)
 ```
+
+Existe também `pnpm --filter @luxora/backend test:manual` — chama a API real de **produção** da Asaas (a Luxora não tem conta sandbox). Nunca roda sozinho, nunca em CI, só quando você decide validar o ambiente real com sua própria `ASAAS_API_KEY`. Ver [`apps/backend/test/manual/README.md`](./apps/backend/test/manual/README.md).
 
 ### Parar os serviços
 

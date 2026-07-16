@@ -59,8 +59,10 @@ ASAAS_BASE_URL=https://api.asaas.com/v3
 
 ### Ambientes
 
-- `ASAAS_ENV=production` — ambiente real, transações de verdade. Usar `ASAAS_BASE_URL=https://api.asaas.com/v3`.
-- `ASAAS_ENV=sandbox` — ambiente de testes da Asaas, sem dinheiro real. Usar `ASAAS_BASE_URL=https://api-sandbox.asaas.com/v3`. **Recomendado para todo desenvolvimento local.**
+- `ASAAS_ENV=production` — ambiente real, transações de verdade. Usar `ASAAS_BASE_URL=https://api.asaas.com/v3`. **É o único ambiente que a Luxora usa** — não existe conta sandbox da Asaas para este projeto.
+- `ASAAS_ENV=sandbox` — existe na documentação oficial da Asaas (`ASAAS_BASE_URL=https://api-sandbox.asaas.com/v3`), mas a Luxora não tem conta configurada lá. Não usar a menos que uma conta sandbox seja criada no futuro.
+
+Por não haver sandbox, nenhum teste automatizado (`test:unit`, `test:integration`, `test:critical`, CI) chama a API da Asaas de verdade — todos usam um `PaymentProvider` fake/mock. A única exceção é `apps/backend/test/manual/`, que chama a Asaas de produção de propósito e **nunca roda sozinho** — só quando um humano decide, manualmente, validar o ambiente real. Ver `apps/backend/test/manual/README.md`.
 
 ---
 
@@ -90,7 +92,7 @@ Nenhuma variação de `.env` é aceitável em controle de versão.
 - [ ] Copiar `.env.example` para `.env`
 - [ ] Preencher `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET` com valores do ambiente local ou da infraestrutura real
 - [ ] Preencher `ASAAS_API_KEY` com a chave real da conta Asaas da Luxora (nunca inventada)
-- [ ] Confirmar que `ASAAS_ENV` está correto para o ambiente (sandbox em dev, production em produção)
+- [ ] Confirmar `ASAAS_ENV=production` (único ambiente Asaas que a Luxora usa — não há sandbox)
 - [ ] Confirmar que `.env` está listado no `.gitignore` antes do primeiro commit
 - [ ] Nunca colar nenhuma credencial em mensagem de commit, PR, ou documentação
 
