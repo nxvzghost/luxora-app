@@ -1,0 +1,523 @@
+PRD v1.0
+Documento 02
+Requisitos Funcionais
+
+Versão 1.0
+
+Status
+
+Em desenvolvimento
+
+Objetivo
+
+Este documento define todas as funcionalidades obrigatórias da plataforma Luxora.
+
+Todo desenvolvimento deverá seguir este documento.
+
+Nenhuma funcionalidade poderá ser implementada sem estar documentada aqui.
+
+Definição
+
+Requisitos funcionais representam tudo aquilo que o sistema deve ser capaz de executar.
+
+Cada requisito recebe um código único.
+
+Exemplo:
+
+RF-001
+
+RF-002
+
+RF-003
+
+...
+
+Esses códigos serão utilizados durante todo o desenvolvimento.
+
+Módulo 01
+Cadastro da Clínica
+RF-001
+
+O sistema deve permitir o cadastro de uma clínica.
+
+RF-002
+
+O sistema deve permitir alterar os dados da clínica.
+
+RF-003
+
+O sistema deve permitir definir o nome comercial.
+
+RF-004
+
+Cadastrar CNPJ (opcional).
+
+RF-005
+
+Cadastrar endereço.
+
+RF-006
+
+Cadastrar telefone.
+
+RF-007
+
+Cadastrar e-mail.
+
+RF-008
+
+Cadastrar logotipo.
+
+RF-009
+
+Cadastrar horário de funcionamento.
+
+RF-010
+
+Cadastrar política financeira.
+
+Exemplos:
+
+Pagamento antes.
+
+Pagamento depois.
+
+Mensal.
+
+Semanal.
+
+Personalizado.
+
+RF-011
+
+Cadastrar política de cancelamento.
+
+RF-012
+
+Cadastrar política de remarcação.
+
+RF-013
+
+Cadastrar tempo padrão da sessão.
+
+RF-014
+
+Cadastrar formas de pagamento.
+
+PIX.
+
+Cartão.
+
+Dinheiro.
+
+Transferência.
+
+Módulo 02
+Cadastro do Terapeuta
+RF-015
+
+Cadastrar terapeuta.
+
+RF-016
+
+Cadastrar foto.
+
+RF-017
+
+Cadastrar CRP (quando aplicável).
+
+RF-018
+
+Cadastrar especialidades.
+
+RF-019
+
+Cadastrar horários de atendimento.
+
+RF-020
+
+Cadastrar férias.
+
+RF-021
+
+Cadastrar bloqueios.
+
+RF-022
+
+Cadastrar duração padrão da consulta.
+
+RF-023
+
+Cadastrar valor padrão.
+
+RF-024
+
+Cadastrar modalidade.
+
+Online.
+
+Presencial.
+
+Híbrido.
+
+RF-025
+
+Cadastrar tom de comunicação.
+
+Formal.
+
+Humanizado.
+
+Objetivo.
+
+Personalizado.
+
+Módulo 03
+Cadastro do Paciente
+RF-026
+
+Cadastrar paciente.
+
+RF-027
+
+Cadastrar telefone.
+
+RF-028
+
+Cadastrar WhatsApp.
+
+RF-029
+
+Cadastrar e-mail.
+
+RF-030
+
+Cadastrar endereço.
+
+RF-031
+
+Cadastrar responsável financeiro.
+
+RF-032
+
+Cadastrar observações administrativas.
+
+RF-033
+
+Cadastrar frequência.
+
+Semanal.
+
+Quinzenal.
+
+Mensal.
+
+Livre.
+
+RF-034
+
+Cadastrar horário preferencial.
+
+RF-035
+
+Cadastrar modalidade.
+
+RF-036
+
+Cadastrar valor da sessão.
+
+RF-037
+
+Cadastrar forma de pagamento.
+
+RF-038
+
+Cadastrar política individual.
+
+Exemplo.
+
+Paciente sempre paga no final do mês.
+
+RF-039
+
+Cadastrar status.
+
+Novo.
+
+Ativo.
+
+Em pausa.
+
+Inativo.
+
+Alta.
+
+Módulo 04
+Agenda
+RF-040
+
+Criar agenda.
+
+RF-041
+
+Editar agenda.
+
+RF-042
+
+Excluir agenda.
+
+RF-043
+
+Consultar disponibilidade.
+
+RF-044
+
+Detectar conflito.
+
+RF-045
+
+Sugerir encaixes.
+
+RF-046
+
+Bloquear horários.
+
+RF-047
+
+Cadastrar férias.
+
+RF-048
+
+Cadastrar feriados.
+
+RF-049
+
+Mover horários automaticamente.
+
+RF-050
+
+Sincronizar agenda.
+
+Módulo 05
+Agendamento
+RF-051
+
+Agendar consulta.
+
+RF-052
+
+Remarcar consulta.
+
+RF-053
+
+Cancelar consulta.
+
+RF-054
+
+Confirmar consulta.
+
+RF-055
+
+Gerar lembrete.
+
+RF-056
+
+Gerar confirmação.
+
+RF-057
+
+Detectar conflito.
+
+RF-058
+
+Consultar disponibilidade.
+
+RF-059
+
+Cadastrar recorrência.
+
+RF-060
+
+Criar sessão.
+
+Módulo 06
+WhatsApp
+RF-061
+
+Receber mensagens.
+
+RF-062
+
+Enviar mensagens.
+
+RF-063
+
+Identificar intenção.
+
+RF-064
+
+Consultar histórico.
+
+RF-065
+
+Responder automaticamente.
+
+RF-066
+
+Escalar para terapeuta.
+
+RF-067
+
+Enviar lembretes.
+
+RF-068
+
+Enviar cobranças.
+
+RF-069
+
+Enviar recibos.
+
+RF-070
+
+Registrar conversa.
+
+Módulo 07
+Financeiro
+RF-071
+
+Gerar cobrança.
+
+RF-072
+
+Registrar pagamento.
+
+RF-073
+
+Registrar comprovante.
+
+RF-074
+
+Detectar atraso.
+
+RF-075
+
+Enviar cobrança automática.
+
+RF-076
+
+Gerar fechamento mensal.
+
+RF-077
+
+Gerar relatório financeiro.
+
+RF-078
+
+Mostrar inadimplência.
+
+RF-079
+
+Registrar negociação.
+
+RF-080
+
+Registrar perdão financeiro.
+
+Módulo 08
+Dashboard
+RF-081
+
+Mostrar consultas do dia.
+
+RF-082
+
+Mostrar consultas da semana.
+
+RF-083
+
+Mostrar faturamento.
+
+RF-084
+
+Mostrar receita prevista.
+
+RF-085
+
+Mostrar receita recebida.
+
+RF-086
+
+Mostrar pacientes ativos.
+
+RF-087
+
+Mostrar pacientes inativos.
+
+RF-088
+
+Mostrar taxa de ocupação.
+
+RF-089
+
+Mostrar horários livres.
+
+RF-090
+
+Mostrar indicadores financeiros.
+
+Módulo 09
+Follow-up
+RF-091
+
+Detectar pacientes sem retorno.
+
+RF-092
+
+Enviar lembrete.
+
+RF-093
+
+Escalar ao terapeuta.
+
+RF-094
+
+Registrar retorno.
+
+RF-095
+
+Registrar ausência.
+
+RF-096
+
+Atualizar status do paciente.
+
+RF-097
+
+Executar política da clínica.
+
+RF-098
+
+Executar política individual.
+
+RF-099
+
+Gerar relatório.
+
+RF-100
+
+Encerrar follow-up.
+
+Critério Geral
+
+Todo requisito funcional deverá possuir futuramente:
+
+Fluxo principal
+Fluxos alternativos
+Regras de negócio
+Critérios de aceite
+Casos de erro
+Eventos gerados
+Permissões
+Dependências técnicas
+Prioridade do backlog

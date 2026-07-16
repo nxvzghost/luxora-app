@@ -1,0 +1,29 @@
+{
+  "name": "luxora",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Luxora — Plataforma operacional para clínicas de saúde mental. Tecnologia que ilumina decisões.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:critical": "turbo run test:critical",
+    "test:unit": "turbo run test:unit",
+    "test:integration": "turbo run test:integration"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.5.0",
+    "prettier": "^3.3.0",
+    "tsx": "^4.16.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,370 @@
+# Luxora
+
+# PRODUCT REQUIREMENTS DOCUMENT
+
+## Documento 05 — Jornada do Paciente
+
+**Versão:** 1.0
+
+**Status:** Em Desenvolvimento
+
+---
+
+# Objetivo
+
+Este documento descreve toda a jornada administrativa do paciente dentro da Luxora.
+
+Seu propósito é garantir uma experiência consistente, humanizada e previsível, desde o primeiro contato até a alta ou inativação.
+
+Este documento trata exclusivamente de processos administrativos.
+
+Questões clínicas permanecem sob responsabilidade do terapeuta.
+
+---
+
+# Índice
+
+JP-001 Primeiro Contato
+
+JP-002 Cadastro
+
+JP-003 Agendamento
+
+JP-004 Confirmação
+
+JP-005 Pré-sessão
+
+JP-006 Sessão
+
+JP-007 Pós-sessão
+
+JP-008 Cobrança
+
+JP-009 Pagamento
+
+JP-010 Recorrência
+
+JP-011 Follow-up
+
+JP-012 Inatividade
+
+JP-013 Retorno
+
+JP-014 Alta
+
+JP-015 Exceções
+
+---
+
+# JP-001 — Primeiro Contato
+
+## Objetivo
+
+Receber o paciente de forma acolhedora e identificar sua intenção.
+
+## Entradas possíveis
+
+* Quero marcar consulta.
+* Gostaria de informações.
+* Quero remarcar.
+* Quero cancelar.
+* Quero falar com o terapeuta.
+* Quero enviar comprovante.
+* Tenho uma dúvida administrativa.
+
+## Ações do sistema
+
+1. Identificar o paciente.
+2. Caso não exista cadastro, iniciar coleta de informações.
+3. Caso exista cadastro, recuperar histórico administrativo.
+4. Identificar a intenção principal.
+5. Encaminhar para o fluxo adequado.
+
+---
+
+# JP-002 — Cadastro
+
+## Objetivo
+
+Criar o perfil administrativo do paciente.
+
+## Dados mínimos
+
+* Nome completo
+* Telefone
+* WhatsApp
+* Modalidade (presencial, online ou híbrida)
+* Preferência de contato
+
+## Dados opcionais
+
+* E-mail
+* Endereço
+* Observações administrativas
+* Responsável financeiro
+
+Após o cadastro, o paciente passa ao estado **Ativo**.
+
+---
+
+# JP-003 — Agendamento
+
+## Objetivo
+
+Encontrar um horário compatível com as regras da clínica e a disponibilidade do terapeuta.
+
+## Fluxo principal
+
+1. Consultar agenda.
+2. Filtrar horários disponíveis.
+3. Oferecer opções ao paciente.
+4. Receber a escolha.
+5. Reservar o horário.
+6. Criar a sessão.
+7. Registrar auditoria.
+8. Enviar confirmação.
+
+## Regras
+
+* Nunca oferecer horários bloqueados.
+* Nunca gerar conflito de agenda.
+* Respeitar políticas da clínica.
+
+---
+
+# JP-004 — Confirmação
+
+## Objetivo
+
+Reduzir faltas e garantir previsibilidade.
+
+## Fluxo
+
+1. Verificar antecedência configurada pela clínica.
+2. Enviar confirmação utilizando o tom de comunicação definido.
+3. Registrar envio.
+4. Registrar resposta do paciente, quando houver.
+
+## Observação
+
+A mensagem pode ser afirmativa, conforme a política da clínica.
+
+Exemplo:
+
+"Passando para confirmar sua sessão amanhã às 13h."
+
+---
+
+# JP-005 — Pré-sessão
+
+## Objetivo
+
+Preparar administrativamente a sessão.
+
+## Verificações
+
+* Sessão confirmada.
+* Horário reservado.
+* Modalidade correta.
+* Dados do paciente atualizados.
+
+Caso exista alguma inconsistência, o sistema deverá seguir as regras da clínica ou escalar para o terapeuta quando necessário.
+
+---
+
+# JP-006 — Sessão
+
+## Objetivo
+
+Registrar administrativamente que a sessão ocorreu.
+
+## Após a conclusão
+
+* Alterar estado da sessão para "Realizada".
+* Atualizar histórico do paciente.
+* Iniciar fluxo financeiro.
+
+O conteúdo da sessão não é armazenado pelo Luxora.
+
+---
+
+# JP-007 — Pós-sessão
+
+## Objetivo
+
+Executar automaticamente os processos administrativos posteriores ao atendimento.
+
+## Possíveis ações
+
+* Gerar cobrança.
+* Registrar pagamento.
+* Solicitar comprovante, quando aplicável.
+* Agendar próxima sessão.
+* Atualizar indicadores.
+
+---
+
+# JP-008 — Cobrança
+
+## Objetivo
+
+Executar a política financeira da clínica.
+
+## Exemplos de políticas
+
+* Cobrança antes da sessão.
+* Cobrança após a sessão.
+* Cobrança semanal.
+* Cobrança mensal.
+
+## Regras
+
+* Utilizar a forma de pagamento configurada.
+* Registrar todas as cobranças.
+* Nunca duplicar cobranças.
+
+---
+
+# JP-009 — Pagamento
+
+## Objetivo
+
+Registrar a quitação de uma cobrança.
+
+## Fluxo
+
+1. Receber confirmação do pagamento.
+2. Registrar comprovante quando enviado.
+3. Atualizar cobrança para "Quitada".
+4. Atualizar indicadores financeiros.
+5. Registrar auditoria.
+
+---
+
+# JP-010 — Recorrência
+
+## Objetivo
+
+Facilitar o agendamento contínuo de pacientes recorrentes.
+
+## Regras
+
+* Permitir frequência semanal, quinzenal ou personalizada.
+* Preservar histórico.
+* Ajustar automaticamente quando houver feriados, férias ou bloqueios, conforme política da clínica.
+
+---
+
+# JP-011 — Follow-up
+
+## Objetivo
+
+Reduzir abandono do tratamento.
+
+## Exemplos de gatilhos
+
+* Paciente sem novo agendamento.
+* Paciente ausente por período definido.
+* Sessão cancelada sem remarcação.
+
+## Ações
+
+* Enviar mensagem de acompanhamento.
+* Registrar tentativa.
+* Escalar ao terapeuta quando configurado.
+
+---
+
+# JP-012 — Inatividade
+
+Um paciente poderá ser considerado inativo conforme critérios definidos pela clínica.
+
+Exemplos
+
+* 30 dias sem sessão.
+* 60 dias sem contato.
+* Encerramento temporário do tratamento.
+
+A mudança de estado deverá ser registrada.
+
+---
+
+# JP-013 — Retorno
+
+Quando um paciente retorna:
+
+1. Reativar cadastro.
+2. Preservar histórico administrativo.
+3. Iniciar novo ciclo de agendamento.
+
+Nenhuma informação histórica deverá ser perdida.
+
+---
+
+# JP-014 — Alta
+
+A alta representa o encerramento administrativo do acompanhamento.
+
+## Ações
+
+* Atualizar estado do paciente.
+* Encerrar recorrências.
+* Finalizar follow-ups automáticos.
+* Preservar histórico para consulta futura.
+
+---
+
+# JP-015 — Exceções
+
+O sistema deverá identificar situações que exigem intervenção humana.
+
+Exemplos
+
+* Solicitações clínicas.
+* Relatos de crise.
+* Conflitos de regras.
+* Inconsistências financeiras.
+* Casos não previstos pelas políticas configuradas.
+
+Nessas situações, o sistema deverá escalar o caso ao terapeuta ou responsável autorizado.
+
+---
+
+# Estados da Jornada
+
+Durante sua permanência no sistema, o paciente poderá transitar pelos seguintes estados administrativos:
+
+* Novo
+* Identificado
+* Cadastrado
+* Ativo
+* Agendado
+* Confirmado
+* Em Sessão
+* Cobrança Pendente
+* Pagamento Confirmado
+* Em Follow-up
+* Inativo
+* Retornado
+* Alta
+
+Cada mudança de estado deverá ser registrada para auditoria e geração de indicadores.
+
+---
+
+# Dependências
+
+Este documento depende de:
+
+* 01-Visão-Geral
+* 02-Requisitos Funcionais
+* 03-Requisitos Não Funcionais
+* 04-Regras de Negócio
+
+Também servirá de base para:
+
+* Máquina de Estados
+* Casos de Uso
+* Agentes de IA
+* Fluxos de UX
+* Testes

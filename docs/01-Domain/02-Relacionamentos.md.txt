@@ -1,0 +1,79 @@
+# Domain - Documento 02
+
+# Relacionamentos do Domínio
+
+Versão: 1.0
+
+## Objetivo
+
+Definir como as entidades se relacionam.
+
+---
+
+## Clínica
+
+Uma Clínica possui:
+
+* N Terapeutas
+* N Pacientes
+* N Regras
+* N Agendas
+
+---
+
+## Terapeuta
+
+Um Terapeuta:
+
+* pertence a uma Clínica;
+* possui uma Agenda;
+* atende vários Pacientes;
+* realiza várias Sessões.
+
+---
+
+## Paciente
+
+Um Paciente:
+
+* pertence a uma Clínica;
+* pode ter várias Sessões;
+* pode possuir várias Cobranças;
+* pode realizar vários Pagamentos;
+* pode receber várias Mensagens.
+
+---
+
+## Sessão
+
+Cada Sessão:
+
+* pertence a um Paciente;
+* pertence a um Terapeuta;
+* está associada a exatamente uma Cobrança em aberto (diretamente, se a política for diária, ou como parte de um ciclo, se a política for semanal/mensal).
+
+---
+
+## Cobrança
+
+Cada Cobrança:
+
+* pertence a um Paciente;
+* está associada a uma ou mais Sessões, conforme a política de cobrança aplicável àquele Paciente específico — cada Paciente pode ter uma política própria (diária, semanal ou mensal), e na ausência de uma política individual, herda o padrão configurado pela Clínica;
+* pode possuir um ou mais registros financeiros conforme evolução futura (renegociação, estornos etc.).
+
+---
+
+## Pagamento
+
+Cada Pagamento pertence a uma Cobrança.
+
+---
+
+## Regra
+
+Cada Regra pertence exclusivamente a uma Clínica.
+
+A IA nunca cria regras.
+
+Ela apenas consulta.

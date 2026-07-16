@@ -1,0 +1,92 @@
+# Domain - Documento 03
+
+# Máquina de Estados
+
+Versão: 1.0
+
+## Objetivo
+
+Padronizar todos os estados possíveis das entidades do sistema.
+
+---
+
+# Paciente
+
+Estados possíveis:
+
+* Novo
+* Identificado
+* Cadastrado
+* Ativo
+* Agendado
+* Confirmado
+* Em Sessão
+* Pagamento Pendente
+* Pago
+* Em Follow-up
+* Inativo
+* Alta
+
+---
+
+# Sessão
+
+Estados possíveis:
+
+* Criada
+* Reservada
+* Confirmada
+* Reagendamento Solicitado
+* Reagendada
+* Cancelada
+* Realizada
+* Faturada
+* Recebida
+
+---
+
+# Horário
+
+Estados possíveis:
+
+* Livre
+* Reservado
+* Confirmado
+* Bloqueado
+* Indisponível
+
+---
+
+# Cobrança
+
+Estados possíveis:
+
+* Criada
+* Enviada
+* Visualizada
+* Pendente
+* Atrasada
+* Negociada
+* Escalada
+* Quitada
+* Cancelada
+
+---
+
+# Pagamento
+
+Estados possíveis:
+
+* Recebido
+* Em Conferência
+* Confirmado
+* Divergente
+* Estornado
+
+---
+
+## Regra Geral
+
+Uma entidade só pode ocupar um estado por vez.
+
+Toda mudança de estado deve gerar um evento de domínio e um registro de auditoria.

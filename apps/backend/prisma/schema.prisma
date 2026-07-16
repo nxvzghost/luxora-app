@@ -1,0 +1,458 @@
+// Luxora — Schema Prisma inicial (Módulo 1 — Fundação Técnica)
+// Fonte de verdade: docs/03-Database/02-Tabelas.md, 03-Relacionamentos.md, 09-Multi-Tenant.md
+// Toda tabela com dado de clínica carrega tenant_id — Row-Level Security aplicada via migration SQL manual
+// (ver prisma/migrations/00000000000000_init_rls/migration.sql)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Tenant — raiz do isolamento multi-tenant
+// ─────────────────────────────────────────────
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  clinicSettings ClinicSettings?
+  aiSettings     AiSettings?
+  whatsappIntegration WhatsAppIntegration?
+  clinicSubscription  ClinicSubscription?
+  users          User[]
+  therapists     Therapist[]
+  patients       Patient[]
+  sessions       Session[]
+  appointments   Appointment[]
+  billings       Billing[]
+  billingSessions BillingSession[]
+  payments       Payment[]
+  auditLogs      AuditLog[]
+  messageLogs    MessageLog[]
+
+  @@map("tenant")
+}
+
+enum BillingPolicy {
+  per_session
+  weekly
+  monthly
+}
+
+model ClinicSettings {
+  id                    String        @id @default(uuid())
+  tenantId              String        @unique @map("tenant_id")
+  tenant                Tenant        @relation(fields: [tenantId], references: [id])
+  defaultBillingPolicy  BillingPolicy @default(per_session) @map("default_billing_policy")
+  cancellationHoursLimit Int?          @map("cancellation_hours_limit")
+  // RF-013 (06-UX/01-Fluxo-Configuracao-Clinica.md) — nunca tinha sido
+  // implementado até o Módulo 07 precisar dele para calcular disponibilidade
+  // (ConsultarDisponibilidade). Minutos, não um Duration/Interval — mais
+  // simples de somar a um Date em JavaScript sem lib adicional.
+  defaultSessionDurationMinutes Int @default(50) @map("default_session_duration_minutes")
+  // Módulo 11 — necessário para o template real de cobrança (Padrão 7,
+  // 05-IA/01-Tom-de-Voz...) e nunca tinha sido modelado até este módulo
+  // precisar montar a mensagem de verdade.
+  pixKey                String?       @map("pix_key")
+  payeeName             String?       @map("payee_name")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
+
+  @@map("clinic_settings")
+}
+
+/**
+ * WhatsAppIntegration — 1:1 com Tenant.
+ *
+ * CORREÇÃO ARQUITETURAL REAL (não cosmética): até esta correção,
+ * WhatsAppMessageProvider (Módulo 11) lia WHATSAPP_PHONE_NUMBER_ID e
+ * WHATSAPP_BUSINESS_API_TOKEN de variáveis de ambiente GLOBAIS — ou seja,
+ * toda clínica da plataforma enviaria mensagem pelo MESMO número de
+ * WhatsApp. Isso quebra o princípio explícito de que "cada clínica deve
+ * conectar seu próprio canal de WhatsApp, preservando a identidade da
+ * clínica" — e é, na prática, uma falha de isolamento multi-tenant na
+ * camada de comunicação, o mesmo tipo de problema que o Módulo 04 (RLS)
+ * resolveu para o banco de dados, mas que nunca tinha sido aplicado aqui.
+ *
+ * DÍVIDA DE SEGURANÇA REGISTRADA, NÃO RESOLVIDA NESTA CORREÇÃO:
+ * accessToken fica em texto plano no banco por ora — o mesmo nível de
+ * cuidado que já se aplica a outras credenciais (nunca em código-fonte,
+ * sempre variável de ambiente ou banco) ainda não inclui criptografia em
+ * repouso para este campo. Precisa de endurecimento antes de produção
+ * real com clientes pagantes — ver CONFIGURACAO_AMBIENTE.md.
+ */
+model WhatsAppIntegration {
+  id              String   @id @default(uuid())
+  tenantId        String   @unique @map("tenant_id")
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  phoneNumberId   String   @map("phone_number_id")
+  accessToken     String   @map("access_token") // texto plano — dívida de segurança, ver comentário acima
+  connectedAt     DateTime @default(now()) @map("connected_at")
+  active          Boolean  @default(true)
+
+  @@map("whatsapp_integration")
+}
+
+model AiSettings {
+  id             String   @id @default(uuid())
+  tenantId       String   @unique @map("tenant_id")
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  monthlyBudgetCap Decimal? @map("monthly_budget_cap") @db.Decimal(10, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_settings")
+}
+
+// ─────────────────────────────────────────────
+// Identidade e acesso
+// ─────────────────────────────────────────────
+enum UserRole {
+  admin
+  therapist
+  super_admin
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  email        String
+  passwordHash String   @map("password_hash")
+  role         UserRole
+  therapistId  String?  @unique @map("therapist_id")
+  therapist    Therapist? @relation(fields: [therapistId], references: [id])
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  // Email GLOBALMENTE único (não por Tenant) — decisão tomada no Módulo 03,
+  // ver LUXORA/03 - ENGINEERING/ADRs/ADR-0024. Login recebe apenas email+senha;
+  // se fosse único por Tenant, o cliente precisaria informar o tenantId antes
+  // de autenticar, o que não existe em nenhum fluxo de UX já documentado.
+  @@unique([email])
+  @@map("user")
+}
+
+model Therapist {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  specialty String?
+  phone     String?
+  // Disponibilidade semanal recorrente — Módulo 06 (RF-019 a RF-022).
+  // Formato: [{ dayOfWeek: 0-6, startTime: "HH:mm", endTime: "HH:mm" }].
+  // Decisão pragmática de MVP: JSON em vez de tabela própria de slots —
+  // slots individuais concretos (ScheduleSlot, ver domain/schedule) são
+  // derivados disso + Appointments existentes, calculados em runtime pelo
+  // Caso de Uso ConsultarDisponibilidade (Módulo 07 — Agenda), não
+  // persistidos um a um.
+  availability Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  user         User?
+  sessions     Session[]
+  appointments Appointment[]
+
+  @@map("therapist")
+}
+
+// ─────────────────────────────────────────────
+// Domínio clínico-administrativo
+// ─────────────────────────────────────────────
+// Alinhado 1:1 com PatientState em domain/patient/patient.entity.ts (Módulo 02).
+// Substituiu PatientStatus (3 valores: active/inactive/discharged) no Módulo 05,
+// quando ficou claro que o schema do Módulo 01 nunca tinha sido reconciliado
+// com a máquina de estados real definida no Domain — ver ADR-0026.
+enum PatientState {
+  Novo
+  Identificado
+  Cadastrado
+  Ativo
+  Agendado
+  Confirmado
+  EmSessao
+  PagamentoPendente
+  Pago
+  EmFollowUp
+  Inativo
+  Alta
+}
+
+model Patient {
+  id                     String         @id @default(uuid())
+  tenantId               String         @map("tenant_id")
+  tenant                 Tenant         @relation(fields: [tenantId], references: [id])
+  name                   String
+  phone                  String
+  state                  PatientState   @default(Novo)
+  billingPolicyOverride  BillingPolicy? @map("billing_policy_override")
+  createdAt              DateTime       @default(now()) @map("created_at")
+  updatedAt              DateTime       @updatedAt @map("updated_at")
+  deletedAt              DateTime?      @map("deleted_at")
+
+  sessions     Session[]
+  appointments Appointment[]
+  billings     Billing[]
+
+  @@map("patient")
+}
+
+// Alinhado 1:1 com AppointmentState em domain/appointment/appointment.entity.ts.
+// Substituiu AppointmentStatus (5 valores, faltava "Reagendada") no Módulo 07 —
+// mesmo padrão de divergência já corrigido para Patient no Módulo 05 (ADR-0026).
+// Ver ADR-0028.
+enum AppointmentState {
+  Criada
+  Reservada
+  Confirmada
+  ReagendamentoSolicitado
+  Reagendada
+  Cancelada
+}
+
+model Appointment {
+  id          String            @id @default(uuid())
+  tenantId    String            @map("tenant_id")
+  tenant      Tenant            @relation(fields: [tenantId], references: [id])
+  patientId   String            @map("patient_id")
+  patient     Patient           @relation(fields: [patientId], references: [id])
+  therapistId String            @map("therapist_id")
+  therapist   Therapist         @relation(fields: [therapistId], references: [id])
+  scheduledAt DateTime          @map("scheduled_at")
+  modality    String            @default("presencial")
+  state       AppointmentState  @default(Criada)
+  recurring   Boolean           @default(false)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  session Session?
+
+  @@index([tenantId, therapistId, scheduledAt])
+  // Defesa em profundidade contra dupla-reserva concorrente (Teste Crítico
+  // #10): ver prisma/rls/unique-active-appointment.sql — um índice único
+  // PARCIAL (só sobre estados não-terminais), aplicado via SQL bruto porque
+  // o Prisma Schema DSL não suporta unique index condicional. Um @@unique
+  // simples aqui bloquearia incorretamente reagendar um horário já
+  // cancelado — por isso não está declarado nesta sintaxe.
+  @@map("appointment")
+}
+
+// Alinhado 1:1 com SessionState em domain/session/session.entity.ts.
+// Substituiu SessionStatus (scheduled/completed/no_show — nada a ver com o
+// Domain real: Realizada/Faturada/Recebida) no Módulo 07. Ver ADR-0028.
+enum SessionState {
+  Realizada
+  Faturada
+  Recebida
+}
+
+model Session {
+  id            String        @id @default(uuid())
+  tenantId      String        @map("tenant_id")
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  appointmentId String        @unique @map("appointment_id")
+  appointment   Appointment   @relation(fields: [appointmentId], references: [id])
+  patientId     String        @map("patient_id")
+  patient       Patient       @relation(fields: [patientId], references: [id])
+  therapistId   String        @map("therapist_id")
+  therapist     Therapist     @relation(fields: [therapistId], references: [id])
+  state         SessionState  @default(Realizada)
+  completedAt   DateTime?     @map("completed_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  billingSessions BillingSession[]
+
+  @@index([tenantId, patientId])
+  @@map("session")
+}
+
+// ─────────────────────────────────────────────
+// Financeiro — cobrança agregada via billing_session (N:N)
+// ─────────────────────────────────────────────
+enum BillingStatus {
+  criada
+  enviada
+  visualizada
+  pendente
+  atrasada
+  negociada
+  escalada
+  quitada
+  cancelada
+}
+
+model Billing {
+  id        String        @id @default(uuid())
+  tenantId  String        @map("tenant_id")
+  tenant    Tenant        @relation(fields: [tenantId], references: [id])
+  patientId String        @map("patient_id")
+  patient   Patient       @relation(fields: [patientId], references: [id])
+  amount    Decimal       @db.Decimal(10, 2)
+  status    BillingStatus @default(criada)
+  dueDate   DateTime      @map("due_date")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  billingSessions BillingSession[]
+  payment         Payment?
+
+  @@index([tenantId, patientId, status])
+  @@map("billing")
+}
+
+// Tabela de junção — permite que uma billing agregue N sessions (semanal/mensal)
+// ou represente exatamente 1 session (cobrança por sessão avulsa)
+model BillingSession {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  billingId String   @map("billing_id")
+  billing   Billing  @relation(fields: [billingId], references: [id])
+  sessionId String   @unique @map("session_id") // UNIQUE: uma session nunca em 2 billings abertas ao mesmo tempo
+  session   Session  @relation(fields: [sessionId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("billing_session")
+}
+
+enum PaymentStatus {
+  recebido
+  em_conferencia
+  confirmado
+  divergente
+  estornado
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  tenantId      String        @map("tenant_id")
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  billingId     String        @unique @map("billing_id")
+  billing       Billing       @relation(fields: [billingId], references: [id])
+  amount        Decimal       @db.Decimal(10, 2)
+  method        String
+  status        PaymentStatus @default(recebido)
+  idempotencyKey String       @unique @map("idempotency_key")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  @@map("payment")
+}
+
+// ─────────────────────────────────────────────
+// Auditoria — ver docs/03-Database/08-Auditoria.md
+// ─────────────────────────────────────────────
+enum ActorType {
+  user
+  ai_agent
+  system
+}
+
+enum AuditResult {
+  success
+  failure
+}
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  tenantId   String      @map("tenant_id")
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  userId     String?     @map("user_id")
+  actorType  ActorType   @map("actor_type")
+  action     String
+  entityType String      @map("entity_type")
+  entityId   String      @map("entity_id")
+  payload    Json?
+  result     AuditResult
+  ipAddress  String?     @map("ip_address")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  // Sem updatedAt/deletedAt — auditoria é imutável por definição (ver 08-Auditoria.md)
+
+  @@index([tenantId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_log")
+}
+
+// Módulo 11 (Comunicação) — idempotência real de envio, mesma filosofia de
+// defesa em profundidade já aplicada a Payment (Módulo 09, idempotencyKey
+// @unique) e ao índice único parcial de Appointment (Módulo 07). Sem isso,
+// um retry de fila (BullMQ) poderia reenviar a mesma mensagem ao paciente.
+model MessageLog {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  toPhoneNumber  String   @map("to_phone_number")
+  body           String
+  idempotencyKey String   @unique @map("idempotency_key")
+  providerMessageId String? @map("provider_message_id")
+  status         String   @default("sent") // sent | failed
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("message_log")
+}
+
+// Módulo 17 — Assinatura da Luxora + Asaas (ADR-0037).
+// Plano/ciclo/status DA CLÍNICA COM A LUXORA — nunca confundir com Billing
+// (Módulo 09), que é o paciente pagando a clínica. Dois domínios financeiros
+// completamente separados, mesmo os dois usando Asaas por baixo.
+enum PlanTier {
+  professional
+  business
+  enterprise
+}
+
+enum BillingCycle {
+  monthly
+  yearly
+}
+
+// Fonte: 05-IA/00 nunca define isso — estados definidos aqui pela primeira
+// vez, espelhando o ciclo de vida real de uma assinatura recorrente
+// (trial opcional → ativa → pode entrar em atraso → pode ser cancelada).
+enum SubscriptionStatus {
+  trialing
+  active
+  past_due
+  cancelled
+}
+
+model ClinicSubscription {
+  id                 String             @id @default(uuid())
+  tenantId           String             @unique @map("tenant_id")
+  tenant             Tenant             @relation(fields: [tenantId], references: [id])
+  plan               PlanTier
+  billingCycle       BillingCycle       @map("billing_cycle")
+  status             SubscriptionStatus @default(trialing)
+  // IDs do lado Asaas — nunca o contrário (Asaas nunca conhece nosso id
+  // interno como chave primária dele; nós guardamos os dois lados do link).
+  asaasCustomerId    String?            @map("asaas_customer_id")
+  asaasSubscriptionId String?           @unique @map("asaas_subscription_id")
+  currentPeriodEnd   DateTime?          @map("current_period_end")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  @@map("clinic_subscription")
+}
+
+// Idempotência de webhook (ADR: "nunca use a API Key como token do
+// webhook" + "implemente idempotência com base no id do evento", ambos já
+// na documentação oficial da Asaas) — mesmo padrão de MessageLog acima.
+model AsaasWebhookEvent {
+  id          String   @id @default(uuid())
+  asaasEventId String  @unique @map("asaas_event_id")
+  eventType   String   @map("event_type")
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@map("asaas_webhook_event")
+}

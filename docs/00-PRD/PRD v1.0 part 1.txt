@@ -1,0 +1,350 @@
+CLINICOS
+PRODUCT REQUIREMENTS DOCUMENT
+PRD v1.0
+
+Documento Oficial do Produto
+
+Versão 1.0.0
+
+Status:
+Em Desenvolvimento
+
+Responsável pelo Produto:
+Fundadores Luxora
+
+Última atualização:
+09/07/2026
+
+SUMÁRIO
+Visão Geral
+Problema
+Oportunidade
+Mercado
+Público-alvo
+Objetivos
+Não Objetivos
+Proposta de Valor
+MVP
+Indicadores de Sucesso
+Glossário
+1. VISÃO GERAL
+O que é a Luxora
+
+Luxora é um Sistema Operacional para Clínicas de Saúde Mental.
+
+Sua missão é assumir toda a operação administrativa da clínica para que terapeutas possam dedicar praticamente 100% do seu tempo ao atendimento dos pacientes.
+
+A Luxora não é um chatbot.
+
+Não é um CRM.
+
+Não é um ERP.
+
+Não é uma agenda.
+
+Não é apenas uma IA.
+
+Ele é uma plataforma operacional.
+
+Missão
+
+Eliminar a sobrecarga administrativa de profissionais da saúde mental através de inteligência operacional.
+
+Visão
+
+Ser o principal sistema operacional utilizado por clínicas de saúde mental da América Latina.
+
+Valores
+
+Humanização.
+
+Confiabilidade.
+
+Segurança.
+
+Simplicidade.
+
+Automação.
+
+Configuração.
+
+Escalabilidade.
+
+2. PROBLEMA
+
+Hoje um terapeuta realiza dezenas de tarefas administrativas diariamente.
+
+Exemplos:
+
+Responder WhatsApp.
+
+Agendar consultas.
+
+Reagendar horários.
+
+Cancelar consultas.
+
+Confirmar presença.
+
+Enviar cobranças.
+
+Receber comprovantes.
+
+Controlar pagamentos.
+
+Emitir recibos.
+
+Controlar pacientes ativos.
+
+Fazer follow-up.
+
+Organizar agenda.
+
+Fechar financeiro do mês.
+
+Tudo isso normalmente é feito manualmente.
+
+Consequências
+
+Menos tempo para pacientes.
+
+Mais desgaste emocional.
+
+Erros financeiros.
+
+Perda de consultas.
+
+Perda de cobranças.
+
+Agenda desorganizada.
+
+Baixa previsibilidade financeira.
+
+Menor qualidade de vida.
+
+3. OPORTUNIDADE
+
+Existe uma oportunidade de transformar esse trabalho manual em um fluxo automatizado.
+
+A plataforma deverá executar automaticamente:
+
+Recepção.
+
+Agendamento.
+
+Cobrança.
+
+Confirmação.
+
+Follow-up.
+
+Organização.
+
+Indicadores.
+
+Sem substituir o terapeuta.
+
+4. MERCADO
+
+Mercado inicial:
+
+Psicólogos.
+
+Psicanalistas.
+
+Terapeutas.
+
+Mercado secundário:
+
+Psiquiatras.
+
+Fonoaudiólogos.
+
+Terapeutas ocupacionais.
+
+Neuropsicólogos.
+
+Mercado futuro:
+
+Clínicas multidisciplinares.
+
+5. PÚBLICO-ALVO
+Persona Primária
+
+Profissional autônomo.
+
+Atende entre 40 e 120 pacientes mensais.
+
+Não possui equipe administrativa.
+
+Utiliza WhatsApp diariamente.
+
+Recebe via PIX.
+
+Controla agenda manualmente.
+
+Persona Secundária
+
+Clínica com dois ou mais terapeutas.
+
+Necessita organização operacional.
+
+6. OBJETIVOS
+
+Reduzir em 90% o tempo gasto com administração.
+
+Reduzir esquecimentos de cobrança.
+
+Eliminar conflitos de agenda.
+
+Melhorar previsibilidade financeira.
+
+Melhorar qualidade de vida do terapeuta.
+
+Melhorar experiência do paciente.
+
+7. NÃO OBJETIVOS
+
+O sistema não deve:
+
+Dar aconselhamento psicológico.
+
+Interpretar sintomas.
+
+Realizar diagnóstico.
+
+Tomar decisões clínicas.
+
+Substituir o terapeuta.
+
+Enviar mensagens clínicas.
+
+Interpretar emoções.
+
+8. PROPOSTA DE VALOR
+
+Transformamos a operação da sua clínica para que você tenha mais tempo, menos preocupação e mais qualidade no atendimento.
+
+9. MVP
+
+O MVP deverá possuir apenas os módulos necessários para operar uma clínica.
+
+Módulo 01
+
+Cadastro da Clínica
+
+Módulo 02
+
+Cadastro do Terapeuta
+
+Módulo 03
+
+Pacientes
+
+Módulo 04
+
+Agenda
+
+Módulo 05
+
+WhatsApp
+
+Módulo 06
+
+Agendamento
+
+Módulo 07
+
+Confirmação
+
+Módulo 08
+
+Cobrança
+
+Módulo 09
+
+Financeiro
+
+Módulo 10
+
+Dashboard
+
+Módulo 11
+
+Follow-up
+
+Funcionalidades obrigatórias
+
+Agendar automaticamente.
+
+Consultar agenda.
+
+Evitar conflitos.
+
+Confirmar consultas.
+
+Lembrar pacientes.
+
+Enviar cobrança.
+
+Receber comprovantes.
+
+Registrar pagamento.
+
+Fechar mês.
+
+Mostrar indicadores.
+
+10. INDICADORES DE SUCESSO
+
+Tempo economizado.
+
+Redução de faltas.
+
+Redução da inadimplência.
+
+Tempo médio gasto no WhatsApp.
+
+Receita mensal.
+
+Consultas realizadas.
+
+Pacientes ativos.
+
+Pacientes inativos.
+
+Taxa de ocupação.
+
+11. GLOSSÁRIO
+
+Paciente
+
+Pessoa atendida.
+
+Terapeuta
+
+Profissional responsável.
+
+Sessão
+
+Atendimento realizado.
+
+Cobrança
+
+Solicitação de pagamento.
+
+Pagamento
+
+Valor recebido.
+
+Agenda
+
+Conjunto de horários disponíveis.
+
+Follow-up
+
+Contato realizado para retorno do paciente.
+
+Motor Operacional
+
+Camada responsável por executar todas as regras administrativas da clínica.

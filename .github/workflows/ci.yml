@@ -1,0 +1,105 @@
+name: CI
+
+# Fonte: docs/10-Sprint-0/05-Criterios-de-Engenharia.md
+# Nenhum PR é mergeável sem este workflow verde — especialmente o job
+# test-critical, que roda os 16 Testes Críticos isolados dos demais.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  test-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:unit
+
+  test-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: luxora_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @luxora/backend prisma:migrate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/luxora_test
+      - run: pnpm test:integration
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/luxora_test
+          REDIS_URL: redis://localhost:6379
+
+  # Job isolado — os 16 Testes Críticos. Nunca combinar com test-integration:
+  # a intenção é que uma falha aqui seja imediatamente visível como bloqueio
+  # de segurança/regra de negócio, não misturada com teste comum.
+  test-critical:
+    runs-on: ubuntu-latest
+    needs: test-integration
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: luxora_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @luxora/backend prisma:migrate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/luxora_test
+      - run: pnpm --filter @luxora/backend seed
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/luxora_test
+      - run: pnpm test:critical
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/luxora_test

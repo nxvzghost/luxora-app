@@ -1,0 +1,201 @@
+# Domain - Documento 01
+
+# Entidades do Domínio
+
+Versão: 1.0
+
+## Objetivo
+
+Definir todas as entidades que representam o negócio da Luxora.
+
+Cada entidade possui identidade própria e regras específicas.
+
+---
+
+# Clínica
+
+Representa uma organização que utiliza a Luxora.
+
+## Responsabilidades
+
+* Definir políticas operacionais.
+* Configurar horários.
+* Definir tom de comunicação.
+* Definir regras financeiras.
+* Definir regras de cancelamento.
+* Possuir terapeutas.
+* Possuir pacientes.
+
+## Principais atributos
+
+* ID
+* Nome
+* Nome comercial
+* CNPJ (opcional)
+* Telefone
+* E-mail
+* Endereço
+* Fuso horário
+* Horário de funcionamento
+* Política de cobrança
+* Política de cancelamento
+* Política de lembretes
+* Configurações de IA
+* Status
+
+---
+
+# Terapeuta
+
+Representa um profissional vinculado à clínica.
+
+## Responsabilidades
+
+* Atender pacientes.
+* Definir disponibilidade.
+* Aprovar exceções.
+* Receber escalonamentos.
+
+## Atributos
+
+* ID
+* Clínica
+* Nome
+* Registro profissional
+* Modalidade
+* Duração padrão
+* Valor padrão
+* Agenda
+* Status
+
+---
+
+# Paciente
+
+Representa uma pessoa atendida.
+
+## Responsabilidades
+
+* Possuir sessões.
+* Possuir histórico financeiro.
+* Possuir histórico administrativo.
+
+## Atributos
+
+* ID
+* Clínica
+* Nome
+* Telefone
+* WhatsApp
+* E-mail
+* Frequência
+* Valor da sessão
+* Forma de pagamento
+* Horário preferido
+* Modalidade
+* Status
+* Observações administrativas
+
+---
+
+# Sessão
+
+Representa um atendimento agendado.
+
+## Atributos
+
+* ID
+* Paciente
+* Terapeuta
+* Data
+* Hora
+* Duração
+* Modalidade
+* Valor
+* Estado
+
+---
+
+# Agenda
+
+Responsável pela disponibilidade do terapeuta.
+
+## Contém
+
+* Horários livres
+* Horários bloqueados
+* Horários reservados
+* Horários confirmados
+* Férias
+* Feriados
+
+---
+
+# Cobrança
+
+Representa um valor devido.
+
+## Atributos
+
+* ID
+* Sessão
+* Valor
+* Data de emissão
+* Data de vencimento
+* Estado
+
+---
+
+# Pagamento
+
+Representa a quitação de uma cobrança.
+
+## Atributos
+
+* ID
+* Cobrança
+* Valor
+* Forma de pagamento
+* Data
+* Comprovante
+* Estado
+
+---
+
+# Mensagem
+
+Representa toda comunicação administrativa.
+
+## Tipos
+
+* Agendamento
+* Confirmação
+* Cobrança
+* Lembrete
+* Follow-up
+* Aviso
+
+---
+
+# Follow-up
+
+Representa ações automáticas para pacientes sem retorno.
+
+---
+
+# Regra
+
+Representa uma política configurável da clínica.
+
+Exemplos
+
+* Cobrar após a sessão.
+* Cobrar mensalmente.
+* Confirmar 24 horas antes.
+* Cancelamento com 2 horas.
+
+---
+
+# Notificação
+
+Representa avisos enviados para terapeuta ou paciente.

@@ -1,0 +1,391 @@
+# Luxora
+
+# PRODUCT REQUIREMENTS DOCUMENT
+
+## Documento 04 — Regras de Negócio
+
+**Versão:** 1.0
+
+**Status:** Em Desenvolvimento
+
+---
+
+# Objetivo
+
+Este documento define todas as regras operacionais da Luxora.
+
+As regras de negócio representam o comportamento esperado da plataforma diante de eventos administrativos.
+
+Toda decisão tomada pelo sistema deverá obedecer às regras aqui descritas.
+
+Nenhum agente de IA poderá executar ações fora destas regras.
+
+---
+
+# Índice
+
+RN-001 Cadastro da Clínica
+
+RN-002 Cadastro do Terapeuta
+
+RN-003 Cadastro do Paciente
+
+RN-004 Agenda
+
+RN-005 Agendamento
+
+RN-006 Confirmação
+
+RN-007 Sessão
+
+RN-008 Cobrança
+
+RN-009 Pagamento
+
+RN-010 Follow-up
+
+RN-011 Cancelamentos
+
+RN-012 Reagendamentos
+
+RN-013 Horários
+
+RN-014 Mensagens
+
+RN-015 Escalonamento
+
+RN-016 Dashboard
+
+RN-017 Auditoria
+
+RN-018 Inteligência Artificial
+
+RN-019 Segurança
+
+RN-020 Regras Gerais
+
+---
+
+# RN-001 — Cadastro da Clínica
+
+## Objetivo
+
+Registrar todas as informações necessárias para personalizar o comportamento operacional da plataforma.
+
+## Regras
+
+Cada clínica possui identidade própria.
+
+Toda configuração pertence exclusivamente à clínica.
+
+Não existe configuração global que substitua regras específicas da clínica.
+
+Toda alteração deve ser registrada em auditoria.
+
+---
+
+# RN-002 — Cadastro do Terapeuta
+
+Cada terapeuta possui regras próprias.
+
+O sistema deverá permitir:
+
+* duração padrão da sessão;
+* modalidade de atendimento;
+* horários disponíveis;
+* períodos de férias;
+* bloqueios pessoais;
+* política de cobrança;
+* política de cancelamento.
+
+Caso existam conflitos entre regras da clínica e do terapeuta, prevalecerá a configuração definida pela clínica, salvo exceções explicitamente configuradas.
+
+---
+
+# RN-003 — Cadastro do Paciente
+
+Cada paciente possui um perfil administrativo.
+
+O sistema deverá armazenar, entre outros:
+
+* frequência;
+* valor da sessão;
+* forma de pagamento;
+* histórico de sessões;
+* histórico financeiro;
+* histórico de faltas;
+* observações administrativas.
+
+É proibido utilizar este espaço para registrar conteúdo clínico da terapia.
+
+---
+
+# RN-004 — Agenda
+
+A agenda é considerada a fonte oficial de disponibilidade.
+
+## Regras
+
+Um horário não pode pertencer simultaneamente a duas sessões confirmadas.
+
+Bloqueios possuem prioridade sobre horários livres.
+
+Férias tornam todos os horários indisponíveis.
+
+Emergências podem gerar encaixes apenas quando permitido pelas políticas da clínica.
+
+Toda alteração de agenda deverá ser registrada.
+
+---
+
+# RN-005 — Agendamento
+
+O sistema somente poderá realizar um agendamento quando:
+
+* houver horário disponível;
+* não existir conflito;
+* o paciente possuir cadastro válido;
+* a modalidade solicitada estiver disponível.
+
+Após confirmação do agendamento:
+
+* criar sessão;
+* reservar horário;
+* registrar evento;
+* enviar confirmação.
+
+---
+
+# RN-006 — Confirmação
+
+A confirmação não deverá ser formulada como pergunta quando a política da clínica determinar comunicação afirmativa.
+
+Exemplo:
+
+"Passando para confirmar sua sessão amanhã às 14h."
+
+e não
+
+"Você confirma sua sessão?"
+
+A política de linguagem é configurável.
+
+---
+
+# RN-007 — Sessão
+
+Uma sessão poderá assumir apenas um estado por vez.
+
+Estados permitidos:
+
+* Criada
+* Confirmada
+* Reagendada
+* Cancelada
+* Realizada
+* Faturada
+* Recebida
+
+Após ser marcada como "Realizada", o sistema deverá iniciar automaticamente o fluxo financeiro correspondente.
+
+---
+
+# RN-008 — Cobrança
+
+Toda cobrança nasce de uma sessão realizada, salvo exceções definidas pela clínica.
+
+A forma de cobrança será determinada pela política operacional.
+
+Exemplos:
+
+* imediatamente após a sessão;
+* antes da sessão;
+* semanalmente;
+* quinzenalmente;
+* mensalmente.
+
+O sistema nunca deverá alterar essa política automaticamente.
+
+---
+
+# RN-009 — Pagamento
+
+Ao registrar um pagamento:
+
+* atualizar saldo;
+* atualizar indicadores financeiros;
+* registrar comprovante quando enviado;
+* alterar estado da cobrança para "Quitada";
+* registrar auditoria.
+
+Nunca registrar um mesmo pagamento duas vezes.
+
+---
+
+# RN-010 — Follow-up
+
+O Follow-up deverá obedecer às regras definidas pela clínica.
+
+Exemplos:
+
+* paciente ausente por 7 dias;
+* paciente sem novo agendamento;
+* paciente que interrompeu tratamento.
+
+O sistema poderá sugerir contato.
+
+A decisão final sempre pertence à política operacional da clínica.
+
+---
+
+# RN-011 — Cancelamentos
+
+Ao cancelar uma sessão:
+
+* liberar horário;
+* atualizar agenda;
+* registrar motivo quando informado;
+* verificar política financeira.
+
+Caso exista cobrança por ausência, seguir exatamente a política da clínica.
+
+---
+
+# RN-012 — Reagendamentos
+
+Reagendamentos deverão:
+
+* respeitar disponibilidade;
+* manter histórico;
+* registrar motivo;
+* preservar rastreabilidade.
+
+Nenhum histórico poderá ser perdido.
+
+---
+
+# RN-013 — Horários
+
+Cada horário possui um único estado.
+
+Estados possíveis:
+
+* Livre
+* Reservado
+* Confirmado
+* Bloqueado
+* Indisponível
+
+O sistema nunca deverá permitir dois estados simultâneos.
+
+---
+
+# RN-014 — Mensagens
+
+Toda mensagem enviada automaticamente deverá:
+
+* respeitar o tom definido pela clínica;
+* utilizar linguagem humanizada;
+* ser registrada;
+* possuir histórico.
+
+Mensagens administrativas nunca deverão conter interpretações clínicas.
+
+---
+
+# RN-015 — Escalonamento
+
+O sistema deverá encaminhar ao terapeuta situações como:
+
+* solicitações clínicas;
+* relatos de crise;
+* dúvidas terapêuticas;
+* exceções não previstas pelas regras.
+
+O objetivo é garantir que decisões clínicas permaneçam exclusivamente sob responsabilidade do profissional.
+
+---
+
+# RN-016 — Dashboard
+
+Todos os indicadores deverão ser gerados a partir dos dados oficiais do sistema.
+
+O Dashboard nunca utilizará estimativas quando houver dados reais disponíveis.
+
+---
+
+# RN-017 — Auditoria
+
+Todas as operações críticas deverão gerar registro.
+
+Exemplos:
+
+* criação;
+* alteração;
+* exclusão;
+* pagamento;
+* cancelamento;
+* login;
+* configurações.
+
+Cada registro deverá conter:
+
+* data;
+* hora;
+* usuário responsável;
+* ação executada;
+* resultado.
+
+---
+
+# RN-018 — Inteligência Artificial
+
+A IA deverá:
+
+* consultar regras antes de responder;
+* consultar estado do paciente;
+* consultar disponibilidade;
+* consultar histórico administrativo quando necessário.
+
+É proibido:
+
+* diagnosticar;
+* aconselhar;
+* interpretar sintomas;
+* modificar políticas da clínica.
+
+---
+
+# RN-019 — Segurança
+
+Toda ação deverá respeitar o perfil de acesso do usuário.
+
+A IA nunca poderá acessar informações além daquelas necessárias para executar a tarefa solicitada.
+
+---
+
+# RN-020 — Regras Gerais
+
+1. O terapeuta possui autoridade máxima sobre decisões clínicas.
+
+2. A plataforma executa apenas processos administrativos.
+
+3. Toda política pertence à clínica.
+
+4. Toda ação relevante deve ser auditável.
+
+5. Toda automação deve ser reversível quando aplicável.
+
+6. Nenhuma regra poderá contrariar a configuração definida pela clínica sem autorização explícita.
+
+---
+
+# Observação de Arquitetura
+
+As regras descritas neste documento **não pertencem à IA**.
+
+Elas pertencem ao **Motor Operacional**.
+
+A IA consulta o Motor Operacional para decidir como agir.
+
+Essa separação é um princípio fundamental da Luxora e deverá ser preservada em toda a evolução da plataforma.

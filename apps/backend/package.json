@@ -1,0 +1,46 @@
+{
+  "name": "@luxora/backend",
+  "version": "0.1.0",
+  "private": true,
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "scripts": {
+    "build": "nest build",
+    "dev": "nest start --watch",
+    "start": "node dist/main.js",
+    "lint": "eslint \"src/**/*.ts\" --fix",
+    "test:unit": "vitest run test/unit",
+    "test:integration": "vitest run test/integration",
+    "test:critical": "vitest run test/critical",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:generate": "prisma generate",
+    "seed": "prisma db seed"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.4.0",
+    "@nestjs/core": "^10.4.0",
+    "@nestjs/platform-express": "^10.4.0",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/config": "^3.2.0",
+    "@nestjs/swagger": "^7.4.0",
+    "@prisma/client": "^5.18.0",
+    "bcrypt": "^5.1.1",
+    "class-validator": "^0.14.1",
+    "class-transformer": "^0.5.1",
+    "bullmq": "^5.12.0",
+    "ioredis": "^5.4.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.0",
+    "@nestjs/testing": "^10.4.0",
+    "@luxora/config": "workspace:*",
+    "@types/bcrypt": "^5.0.2",
+    "prisma": "^5.18.0",
+    "tsx": "^4.16.0",
+    "vitest": "^2.0.0",
+    "typescript": "^5.5.0"
+  }
+}

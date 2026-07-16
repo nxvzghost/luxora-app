@@ -1,0 +1,25 @@
+# Luxora Backend — Dockerfile
+# Referência: docs/10-Sprint-0/04-Stack-Tecnologica.md
+
+FROM node:20-slim AS base
+WORKDIR /app
+RUN corepack enable
+
+FROM base AS deps
+COPY package.json pnpm-lock.yaml* ./
+COPY apps/backend/package.json ./apps/backend/
+COPY packages ./packages
+RUN pnpm install --frozen-lockfile --filter @luxora/backend...
+
+FROM deps AS build
+COPY apps/backend ./apps/backend
+RUN pnpm --filter @luxora/backend prisma:generate
+RUN pnpm --filter @luxora/backend build
+
+FROM base AS runtime
+ENV NODE_ENV=production
+COPY --from=build /app/apps/backend/dist ./dist
+COPY --from=build /app/apps/backend/prisma ./prisma
+COPY --from=build /app/node_modules ./node_modules
+EXPOSE 3000
+CMD ["node", "dist/main.js"]

@@ -1,0 +1,73 @@
+# Domain - Documento 04
+
+# Eventos de Domínio
+
+Versão: 1.0
+
+## Objetivo
+
+Definir todos os eventos relevantes da Luxora.
+
+Eventos representam fatos que ocorreram no sistema e podem disparar automações.
+
+---
+
+## Eventos do Paciente
+
+* PacienteCadastrado
+* PacienteAtualizado
+* PacienteAtivado
+* PacienteInativado
+* PacienteRetornou
+* PacienteRecebeuAlta
+
+---
+
+## Eventos da Agenda
+
+* HorarioCriado
+* HorarioReservado
+* HorarioBloqueado
+* HorarioLiberado
+* HorarioConfirmado
+
+---
+
+## Eventos da Sessão
+
+* SessaoCriada
+* SessaoConfirmada
+* SessaoReagendada
+* SessaoCancelada
+* SessaoRealizada
+
+---
+
+## Eventos Financeiros
+
+* CobrancaCriada
+* CobrancaEnviada
+* PagamentoRecebido
+* PagamentoConfirmado
+* PagamentoEstornado
+
+---
+
+## Eventos de Comunicação
+
+* MensagemEnviada
+* MensagemLida
+* FollowUpIniciado
+* FollowUpFinalizado
+
+---
+
+## Regras
+
+Todo evento deve:
+
+* possuir data e hora;
+* possuir entidade de origem;
+* possuir identificador único;
+* ser auditável;
+* poder ser utilizado por automações futuras.

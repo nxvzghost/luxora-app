@@ -1,0 +1,400 @@
+# Luxora
+
+# PRODUCT REQUIREMENTS DOCUMENT
+
+## Documento 03 — Requisitos Não Funcionais
+
+**Versão:** 1.0
+
+**Status:** Em Desenvolvimento
+
+---
+
+# Objetivo
+
+Este documento define os requisitos não funcionais da Luxora.
+
+Os requisitos não funcionais estabelecem como o sistema deve funcionar, independentemente da funcionalidade implementada.
+
+Todos os módulos da plataforma deverão respeitar estes requisitos.
+
+---
+
+# Índice
+
+RNF-001 Performance
+
+RNF-002 Disponibilidade
+
+RNF-003 Escalabilidade
+
+RNF-004 Segurança
+
+RNF-005 Privacidade
+
+RNF-006 Auditoria
+
+RNF-007 Usabilidade
+
+RNF-008 Confiabilidade
+
+RNF-009 Manutenibilidade
+
+RNF-010 Observabilidade
+
+RNF-011 Integrações
+
+RNF-012 Inteligência Artificial
+
+RNF-013 Banco de Dados
+
+RNF-014 Arquitetura
+
+RNF-015 Backup
+
+RNF-016 Recuperação
+
+RNF-017 Compatibilidade
+
+RNF-018 Acessibilidade
+
+RNF-019 Internacionalização
+
+RNF-020 Qualidade
+
+---
+
+# RNF-001 — Performance
+
+## Objetivo
+
+Garantir que o sistema responda rapidamente às solicitações dos usuários.
+
+## Requisitos
+
+* Tempo médio de resposta inferior a 2 segundos para operações comuns.
+* Consultas ao dashboard em menos de 3 segundos.
+* Busca de pacientes em menos de 1 segundo.
+* Criação de sessão em menos de 2 segundos.
+* Registro de pagamento em menos de 2 segundos.
+
+## Critério de Aceite
+
+95% das requisições deverão atender aos tempos definidos.
+
+---
+
+# RNF-002 — Disponibilidade
+
+## Objetivo
+
+Garantir alta disponibilidade da plataforma.
+
+## Requisitos
+
+* Disponibilidade mínima de 99,5%.
+* Monitoramento contínuo.
+* Reinício automático de serviços.
+* Detecção automática de falhas críticas.
+
+---
+
+# RNF-003 — Escalabilidade
+
+## Objetivo
+
+Permitir crescimento sem reescrever a plataforma.
+
+## Requisitos
+
+* Suportar múltiplas clínicas.
+* Suportar múltiplos terapeutas por clínica.
+* Crescimento horizontal dos serviços.
+* Processamento assíncrono para tarefas demoradas.
+
+---
+
+# RNF-004 — Segurança
+
+## Objetivo
+
+Proteger dados administrativos e de autenticação.
+
+## Requisitos
+
+* Autenticação obrigatória.
+* Controle de permissões por perfil.
+* Criptografia de dados sensíveis.
+* Proteção contra acesso não autorizado.
+* Registro de tentativas de acesso.
+
+---
+
+# RNF-005 — Privacidade
+
+## Objetivo
+
+Respeitar a privacidade de pacientes e terapeutas.
+
+## Requisitos
+
+* Adequação à LGPD.
+* Coleta apenas dos dados necessários.
+* Possibilidade de anonimização quando aplicável.
+* Registro de consentimentos quando exigido.
+
+---
+
+# RNF-006 — Auditoria
+
+## Objetivo
+
+Registrar todas as operações importantes.
+
+## Devem ser registrados
+
+* Login
+* Logout
+* Agendamento
+* Cancelamento
+* Reagendamento
+* Cobranças
+* Pagamentos
+* Alterações cadastrais
+* Configurações da clínica
+
+## Cada registro deve conter
+
+* Usuário
+* Data
+* Hora
+* Ação
+* Resultado
+
+---
+
+# RNF-007 — Usabilidade
+
+## Objetivo
+
+Permitir que um terapeuta utilize o sistema sem treinamento complexo.
+
+## Requisitos
+
+* Interface simples.
+* Linguagem clara.
+* Fluxos objetivos.
+* Poucos cliques para tarefas frequentes.
+* Compatível com desktop e dispositivos móveis.
+
+---
+
+# RNF-008 — Confiabilidade
+
+## Objetivo
+
+Evitar perda de dados e comportamentos inconsistentes.
+
+## Requisitos
+
+* Transações críticas devem ser atômicas.
+* Não permitir conflitos de agenda.
+* Não gerar cobranças duplicadas.
+* Não registrar pagamentos duplicados.
+
+---
+
+# RNF-009 — Manutenibilidade
+
+## Objetivo
+
+Permitir evolução contínua da plataforma.
+
+## Requisitos
+
+* Código modular.
+* Separação entre domínio, infraestrutura e interface.
+* Regras de negócio centralizadas.
+* Documentação obrigatória para novas funcionalidades.
+
+---
+
+# RNF-010 — Observabilidade
+
+## Objetivo
+
+Facilitar diagnóstico e monitoramento.
+
+## Requisitos
+
+* Logs estruturados.
+* Monitoramento de erros.
+* Histórico de eventos.
+* Métricas de uso.
+* Alertas para falhas críticas.
+
+---
+
+# RNF-011 — Integrações
+
+## Objetivo
+
+Permitir comunicação com serviços externos.
+
+## Integrações previstas
+
+* WhatsApp
+* Google Calendar
+* E-mail
+* Serviços de autenticação
+* Provedores de IA
+* Gateways de pagamento (fase futura)
+
+---
+
+# RNF-012 — Inteligência Artificial
+
+## Objetivo
+
+Garantir comportamento seguro e previsível dos agentes.
+
+## Requisitos
+
+* Nunca tomar decisões clínicas.
+* Sempre consultar as regras da clínica.
+* Registrar decisões administrativas relevantes.
+* Escalar situações fora do escopo para o terapeuta.
+* Utilizar apenas informações necessárias para executar a tarefa.
+
+---
+
+# RNF-013 — Banco de Dados
+
+## Objetivo
+
+Garantir integridade e desempenho.
+
+## Requisitos
+
+* Chaves primárias em todas as entidades.
+* Integridade referencial.
+* Índices para consultas críticas.
+* Histórico de alterações quando necessário.
+
+---
+
+# RNF-014 — Arquitetura
+
+## Objetivo
+
+Manter a plataforma organizada e escalável.
+
+## Princípios
+
+* Domain Driven Design.
+* Clean Architecture.
+* SOLID.
+* Injeção de Dependência.
+* Separação entre domínio e infraestrutura.
+
+---
+
+# RNF-015 — Backup
+
+## Objetivo
+
+Evitar perda de informações.
+
+## Requisitos
+
+* Backups automáticos.
+* Verificação periódica da restauração.
+* Política de retenção definida.
+
+---
+
+# RNF-016 — Recuperação
+
+## Objetivo
+
+Permitir recuperação após falhas.
+
+## Requisitos
+
+* Plano de recuperação documentado.
+* Restauração de backups.
+* Registro de incidentes.
+
+---
+
+# RNF-017 — Compatibilidade
+
+## Objetivo
+
+Garantir funcionamento nos principais navegadores.
+
+## Requisitos
+
+* Google Chrome
+* Microsoft Edge
+* Mozilla Firefox
+* Safari (versões suportadas)
+
+---
+
+# RNF-018 — Acessibilidade
+
+## Objetivo
+
+Melhorar a experiência para diferentes perfis de usuários.
+
+## Requisitos
+
+* Navegação por teclado.
+* Contraste adequado.
+* Textos claros.
+* Componentes acessíveis.
+
+---
+
+# RNF-019 — Internacionalização
+
+## Objetivo
+
+Preparar a plataforma para expansão.
+
+## Requisitos
+
+* Suporte a múltiplos idiomas.
+* Suporte a diferentes moedas e formatos de data (futuro).
+
+---
+
+# RNF-020 — Qualidade
+
+## Objetivo
+
+Garantir estabilidade da plataforma.
+
+## Requisitos
+
+* Revisão de código obrigatória.
+* Testes automatizados para funcionalidades críticas.
+* Correção de defeitos antes da publicação em produção.
+
+---
+
+# Dependências
+
+Este documento complementa:
+
+* 01-Visao-Geral.md
+* 02-Requisitos-Funcionais.md
+
+Os próximos documentos detalharão:
+
+* Regras de Negócio
+* Jornadas
+* Máquina de Estados
+* Casos de Uso
+* Critérios de Aceite
