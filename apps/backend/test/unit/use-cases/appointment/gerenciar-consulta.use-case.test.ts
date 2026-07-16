@@ -91,15 +91,20 @@ describe('CancelarConsultaUseCase', () => {
 });
 
 describe('ConfirmarConsultaUseCase', () => {
-  it('transiciona para Confirmada', async () => {
+  it('transiciona para Confirmada e cria a Sessão correspondente (Session.createFromConfirmedAppointment)', async () => {
     const repo: AppointmentRepository = {
       findById: vi.fn().mockResolvedValue(fakeAppointment('Reservada')),
       findActiveByTherapistAndRange: vi.fn(),
       save: vi.fn().mockResolvedValue(undefined),
     };
-    const useCase = new ConfirmarConsultaUseCase(repo, { recordAll: vi.fn().mockResolvedValue(undefined) } as never);
+    const sessionRepo = { findById: vi.fn(), save: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new ConfirmarConsultaUseCase(repo, sessionRepo, { recordAll: vi.fn().mockResolvedValue(undefined) } as never);
     const appointment = await useCase.execute('a1');
     expect(appointment.state).toBe('Confirmada');
+    expect(sessionRepo.save).toHaveBeenCalledOnce();
+    const savedSession = sessionRepo.save.mock.calls[0][0];
+    expect(savedSession.appointmentId).toBe('a1');
+    expect(savedSession.state).toBe('Realizada');
   });
 });
 

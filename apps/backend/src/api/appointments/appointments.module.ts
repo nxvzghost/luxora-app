@@ -11,9 +11,11 @@ import {
 import { CriarAgendamentoRecorrenteUseCase } from '@use-cases/appointment/criar-agendamento-recorrente.use-case';
 import { ListarAgendamentosUseCase } from '@use-cases/appointment/listar-agendamentos.use-case';
 import { APPOINTMENT_REPOSITORY } from '@domain-services/patient-ops/appointment.repository';
+import { SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
 import { THERAPIST_REPOSITORY } from '@domain-services/platform/therapist.repository';
 import { CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { PrismaAppointmentRepository } from '@infrastructure/database/repositories/prisma-appointment.repository';
+import { PrismaSessionRepository } from '@infrastructure/database/repositories/prisma-session.repository';
 import { PrismaTherapistRepository } from '@infrastructure/database/repositories/prisma-therapist.repository';
 import { PrismaClinicRepository } from '@infrastructure/database/repositories/prisma-clinic.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
@@ -42,6 +44,7 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     CriarAgendamentoRecorrenteUseCase,
     ListarAgendamentosUseCase,
     { provide: APPOINTMENT_REPOSITORY, useClass: PrismaAppointmentRepository },
+    { provide: SESSION_REPOSITORY, useClass: PrismaSessionRepository },
     { provide: THERAPIST_REPOSITORY, useClass: PrismaTherapistRepository },
     { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
     PrismaService,

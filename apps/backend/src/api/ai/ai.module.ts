@@ -7,10 +7,12 @@ import { AgendarConsultaUseCase } from '@use-cases/appointment/agendar-consulta.
 import { CancelarConsultaUseCase, ConfirmarConsultaUseCase } from '@use-cases/appointment/gerenciar-consulta.use-case';
 import { ConsultarCobrancaUseCase } from '@use-cases/billing/billing.use-cases';
 import { APPOINTMENT_REPOSITORY } from '@domain-services/patient-ops/appointment.repository';
+import { SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
 import { BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
 import { CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { THERAPIST_REPOSITORY } from '@domain-services/platform/therapist.repository';
 import { PrismaAppointmentRepository } from '@infrastructure/database/repositories/prisma-appointment.repository';
+import { PrismaSessionRepository } from '@infrastructure/database/repositories/prisma-session.repository';
 import { PrismaBillingRepository } from '@infrastructure/database/repositories/prisma-billing.repository';
 import { PrismaClinicRepository } from '@infrastructure/database/repositories/prisma-clinic.repository';
 import { PrismaTherapistRepository } from '@infrastructure/database/repositories/prisma-therapist.repository';
@@ -37,6 +39,7 @@ import { AuditModule } from '../audit/audit.module';
     ConsultarCobrancaUseCase,
     { provide: AI_PROVIDER, useClass: AnthropicAIProvider },
     { provide: APPOINTMENT_REPOSITORY, useClass: PrismaAppointmentRepository },
+    { provide: SESSION_REPOSITORY, useClass: PrismaSessionRepository },
     { provide: BILLING_REPOSITORY, useClass: PrismaBillingRepository },
     { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
     { provide: THERAPIST_REPOSITORY, useClass: PrismaTherapistRepository },

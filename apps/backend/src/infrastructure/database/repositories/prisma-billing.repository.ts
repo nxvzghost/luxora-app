@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { Billing as PrismaBilling, BillingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { Billing, BillingState } from '@domain/billing/billing.entity';
 import { BillingRepository } from '@domain-services/financial/billing.repository';
+
+const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 
 /**
  * Mapeamento de case entre o Domain (PascalCase: 'Criada') e o banco
@@ -63,20 +65,37 @@ export class PrismaBillingRepository implements BillingRepository {
   }
 
   async linkSessions(billingId: string, sessionIds: string[]): Promise<void> {
-    await this.prisma.forTenant(async (tx) => {
-      const billing = await tx.billing.findUniqueOrThrow({ where: { id: billingId } });
-      await tx.billingSession.createMany({
-        data: sessionIds.map((sessionId) => ({
-          tenantId: billing.tenantId,
-          billingId,
-          sessionId,
-        })),
+    try {
+      await this.prisma.forTenant(async (tx) => {
+        const billing = await tx.billing.findUniqueOrThrow({ where: { id: billingId } });
+        await tx.billingSession.createMany({
+          data: sessionIds.map((sessionId) => ({
+            tenantId: billing.tenantId,
+            billingId,
+            sessionId,
+          })),
+        });
+        // UNIQUE(session_id) na tabela billing_session (Módulo 01) já garante
+        // que uma sessão nunca entra em duas cobranças abertas ao mesmo tempo
+        // — createMany lança erro de constraint se isso for tentado, nunca
+        // depende só desta checagem em código.
       });
-      // UNIQUE(session_id) na tabela billing_session (Módulo 01) já garante
-      // que uma sessão nunca entra em duas cobranças abertas ao mesmo tempo
-      // — createMany lança erro de constraint se isso for tentado, nunca
-      // depende só desta checagem em código.
-    });
+    } catch (err) {
+      // BUG REAL ENCONTRADO E CORRIGIDO: sem este catch, a violação da
+      // constraint UNIQUE(session_id) (Teste Crítico #7) vazava como
+      // INTERNAL_SERVER_ERROR genérico em vez de um erro de regra de
+      // negócio claro — mesma categoria de erro que SESSION_CONFLICT já
+      // trata para agendamento duplicado (prisma-appointment.repository.ts),
+      // aplicada aqui pela primeira vez para cobrança.
+      if ((err as Prisma.PrismaClientKnownRequestError)?.code === UNIQUE_CONSTRAINT_VIOLATION) {
+        throw new ConflictException({
+          code: 'SESSION_ALREADY_BILLED',
+          message: 'Uma ou mais sessões já estão vinculadas a outra cobrança em aberto.',
+          category: 'business_rule',
+        });
+      }
+      throw err;
+    }
   }
 
   async findOverdueByTenant(): Promise<Billing[]> {

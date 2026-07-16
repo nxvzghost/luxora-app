@@ -1,5 +1,5 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 
 type ErrorCategory = 'validation' | 'business_rule' | 'authorization' | 'not_found' | 'system';
 

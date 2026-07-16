@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { INestApplication } from '@nestjs/common';
+import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
+import { bootstrapTestApp } from './support/bootstrap-app';
+import { loginAs, TENANT_A_ADMIN_EMAIL } from './support/login-helper';
 
 /**
  * Testes Críticos #1 e #2 — Isolamento Multi-Tenant
@@ -8,8 +12,8 @@ import { PrismaClient } from '@prisma/client';
  * Estes testes são BLOQUEANTES DE MERGE — nunca comentados, nunca "skip
  * temporário" (ver docs/10-Sprint-0/05-Criterios-de-Engenharia.md).
  *
- * Pré-requisito: seed de desenvolvimento rodado (infra/scripts/seed-dev.ts),
- * que cria ao menos 2 Tenants distintos com dado real.
+ * Pré-requisito: seed de desenvolvimento rodado (prisma/seed.ts), que cria
+ * ao menos 2 Tenants distintos com dado real.
  */
 
 const prisma = new PrismaClient();
@@ -31,24 +35,26 @@ const fixturePrisma = new PrismaClient({
   datasources: { db: { url: toSuperuserUrl(process.env.DATABASE_URL ?? '') } },
 });
 
+let app: INestApplication;
+
 describe('[CRÍTICO #1] Isolamento multi-tenant via API', () => {
   it('usuário autenticado no Tenant A nunca lê registro do Tenant B, mesmo fornecendo ID válido diretamente', async () => {
-    // Arrange: dois tenants com pacientes distintos (via seed-dev.ts)
-    const tenantA = await fixturePrisma.tenant.findFirstOrThrow({ where: { name: 'Clínica Teste A' } });
+    // Arrange: dois tenants com pacientes distintos (via prisma/seed.ts)
     const tenantB = await fixturePrisma.tenant.findFirstOrThrow({ where: { name: 'Clínica Teste B' } });
     const patientOfB = await fixturePrisma.patient.findFirstOrThrow({ where: { tenantId: tenantB.id } });
 
     // Act: autenticar como usuário do Tenant A e tentar ler paciente do Tenant B
     // pelo ID direto (não por busca — simula um usuário mal-intencionado ou um
     // bug de referência direta a objeto).
-    //
-    // TODO(Módulo 3): substituir por chamada real via supertest ao endpoint
-    // GET /api/v1/patients/:id, autenticado com token do Tenant A, usando
-    // patientOfB.id como parâmetro.
-    //
+    const token = await loginAs(app, TENANT_A_ADMIN_EMAIL);
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/patients/${patientOfB.id}`)
+      .set('Authorization', `Bearer ${token}`);
+
     // Critério de sucesso: resposta 404 (nunca 403 — não revelar que o
     // registro existe em outro Tenant), e nenhum dado de patientOfB retornado.
-    expect(patientOfB.tenantId).toBe(tenantB.id); // placeholder até M3 implementar o endpoint real
+    expect(res.status).toBe(404);
+    expect(JSON.stringify(res.body)).not.toContain(patientOfB.name);
   });
 
   it('query de Repository sem filtro de tenant_id ainda assim retorna zero linhas, graças ao RLS', async () => {
@@ -69,8 +75,11 @@ describe('[CRÍTICO #1] Isolamento multi-tenant via API', () => {
 
 beforeAll(async () => {
   await prisma.$connect();
+  app = await bootstrapTestApp();
 });
 
 afterAll(async () => {
   await prisma.$disconnect();
+  await fixturePrisma.$disconnect();
+  await app.close();
 });

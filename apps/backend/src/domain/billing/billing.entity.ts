@@ -23,7 +23,15 @@ export type BillingState =
  * apenas os estados possíveis, não a tabela de transição.
  */
 const billingTransitions: Record<BillingState, readonly BillingState[]> = {
-  Criada: ['Enviada', 'Cancelada'],
+  // Quitada a partir de Criada: um pagamento pode ser registrado antes de
+  // qualquer envio de cobrança (ex: paciente paga em mãos/PIX direto no
+  // consultório) — RegistrarPagamentoUseCase quita a Billing sempre que o
+  // Payment confirma, independente de em qual estado de comunicação ela
+  // estava. Bug real encontrado: todo outro estado não-terminal já tinha
+  // caminho até Quitada, só Criada não — descoberto ao rodar o Teste
+  // Crítico #8 (idempotência de pagamento) contra o banco real pela
+  // primeira vez.
+  Criada: ['Enviada', 'Quitada', 'Cancelada'],
   Enviada: ['Visualizada', 'Pendente', 'Cancelada'],
   Visualizada: ['Pendente', 'Quitada', 'Cancelada'],
   Pendente: ['Quitada', 'Atrasada', 'Cancelada'],

@@ -99,6 +99,10 @@ export class Session {
     return this.props.patientId;
   }
 
+  get therapistId(): string {
+    return this.props.therapistId;
+  }
+
   get state(): SessionState {
     return this._state;
   }
