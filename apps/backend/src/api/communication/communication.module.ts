@@ -9,7 +9,6 @@ import { MessageQueueProducer } from '@infrastructure/messaging/message-queue.pr
 import { MessageQueueWorker } from '@infrastructure/messaging/message-queue.worker';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
-import { TenantContext } from '@shared/tenant-context';
 import { WhatsAppController } from './whatsapp.controller';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -37,7 +36,6 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     MessageQueueWorker,
     PrismaService,
     PrismaClientProvider,
-    TenantContext,
     JwtAuthGuard,
     RolesGuard,
   ],

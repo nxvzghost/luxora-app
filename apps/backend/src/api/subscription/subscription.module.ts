@@ -14,7 +14,6 @@ import { PrismaWebhookEventRepository } from '@infrastructure/database/repositor
 import { AsaasPaymentProvider } from '@infrastructure/payment/asaas-payment.provider';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
-import { TenantContext } from '@shared/tenant-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { AuditModule } from '../audit/audit.module';
@@ -32,7 +31,6 @@ import { AuditModule } from '../audit/audit.module';
     { provide: PAYMENT_PROVIDER, useClass: AsaasPaymentProvider },
     PrismaService,
     PrismaClientProvider,
-    TenantContext,
     JwtAuthGuard,
     RolesGuard,
     AsaasWebhookGuard,

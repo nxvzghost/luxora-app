@@ -18,7 +18,6 @@ import { PrismaClinicRepository } from '@infrastructure/database/repositories/pr
 import { PrismaTherapistRepository } from '@infrastructure/database/repositories/prisma-therapist.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
-import { TenantContext } from '@shared/tenant-context';
 import { CommunicationModule } from '../communication/communication.module';
 import { AuditModule } from '../audit/audit.module';
 
@@ -45,7 +44,6 @@ import { AuditModule } from '../audit/audit.module';
     { provide: THERAPIST_REPOSITORY, useClass: PrismaTherapistRepository },
     PrismaService,
     PrismaClientProvider,
-    TenantContext,
   ],
   exports: [ProcessarMensagemUseCase],
 })

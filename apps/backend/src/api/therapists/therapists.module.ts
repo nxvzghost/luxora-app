@@ -15,7 +15,6 @@ import { PrismaClientProvider } from '@infrastructure/database/prisma-client.pro
 import { AuditService } from '@domain-services/platform/audit.service';
 import { AUDIT_LOG_REPOSITORY } from '@domain-services/platform/audit-log.repository';
 import { PrismaAuditLogRepository } from '@infrastructure/database/repositories/prisma-audit-log.repository';
-import { TenantContext } from '@shared/tenant-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
@@ -38,7 +37,6 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     PrismaClientProvider,
     AuditService,
     { provide: AUDIT_LOG_REPOSITORY, useClass: PrismaAuditLogRepository },
-    TenantContext,
     JwtAuthGuard,
   ],
 })

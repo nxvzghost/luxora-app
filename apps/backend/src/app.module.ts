@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { HealthController } from './api/health.controller';
-import { TenantContext } from '@shared/tenant-context';
+import { TenantContextModule } from '@shared/tenant-context.module';
 import { AuthModule } from './api/auth/auth.module';
 import { PatientsModule } from './api/patients/patients.module';
 import { TherapistsModule } from './api/therapists/therapists.module';
@@ -26,6 +26,7 @@ import { SubscriptionModule } from './api/subscription/subscription.module';
       isGlobal: true,
       envFilePath: ['.env'],
     }),
+    TenantContextModule,
     AuthModule,
     PatientsModule,
     TherapistsModule,
@@ -39,6 +40,5 @@ import { SubscriptionModule } from './api/subscription/subscription.module';
     SubscriptionModule,
   ],
   controllers: [HealthController],
-  providers: [TenantContext],
 })
 export class AppModule {}

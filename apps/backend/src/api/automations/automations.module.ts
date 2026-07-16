@@ -16,7 +16,6 @@ import { PrismaPatientRepository } from '@infrastructure/database/repositories/p
 import { PrismaBillingRepository } from '@infrastructure/database/repositories/prisma-billing.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
-import { TenantContext } from '@shared/tenant-context';
 import { CommunicationModule } from '../communication/communication.module';
 
 @Module({
@@ -35,7 +34,6 @@ import { CommunicationModule } from '../communication/communication.module';
     { provide: BILLING_REPOSITORY, useClass: PrismaBillingRepository },
     PrismaService,
     PrismaClientProvider,
-    TenantContext,
   ],
 })
 export class AutomationsModule {}

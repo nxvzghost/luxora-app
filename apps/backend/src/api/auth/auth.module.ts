@@ -6,7 +6,6 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
-import { TenantContext } from '@shared/tenant-context';
 
 @Module({
   imports: [
@@ -18,7 +17,7 @@ import { TenantContext } from '@shared/tenant-context';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, RolesGuard, PrismaService, PrismaClientProvider, TenantContext],
+  providers: [AuthService, JwtAuthGuard, RolesGuard, PrismaService, PrismaClientProvider],
   exports: [JwtAuthGuard, RolesGuard, JwtModule],
 })
 export class AuthModule {}
