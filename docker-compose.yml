@@ -1,0 +1,39 @@
+## Luxora — Postgres + Redis para desenvolvimento local.
+## Só a infraestrutura de dados vive aqui: backend e frontend rodam via
+## `pnpm dev` (ver COMECE_AQUI.md), não como serviço deste compose.
+##
+## As credenciais e o nome do banco abaixo têm que bater com DATABASE_URL e
+## REDIS_URL do seu .env (copiado de .env.example).
+name: luxora
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: luxora_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - luxora_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  luxora_postgres_data:
