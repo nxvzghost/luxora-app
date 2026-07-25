@@ -7,7 +7,10 @@ import { Injectable, Scope } from '@nestjs/common';
  *
  * Regra crítica (nunca violar):
  *   O tenantId NUNCA vem de parâmetro de rota, body ou query string.
- *   Ele é extraído exclusivamente do JWT validado (ver AuthGuard) e injetado aqui.
+ *   Ele é extraído exclusivamente de um dos dois guards autorizados —
+ *   JwtAuthGuard (JWT de usuário logado) ou TenantApiKeyGuard (chave de API
+ *   por Tenant, PD-003, Business/Enterprise) — e injetado aqui. Nenhum
+ *   outro ponto do código deve chamar `set()`.
  *   Qualquer endpoint que aceite tenant_id como input do cliente é falha de segurança
  *   (ver docs/04-API/00-Principios-da-API.md, seção "Autenticação e contexto de Tenant").
  *
@@ -19,7 +22,12 @@ export class TenantContext {
   private _tenantId: string | null = null;
   private _userId: string | null = null;
 
-  set(tenantId: string, userId: string): void {
+  /**
+   * userId é `null` quando a requisição foi autenticada por API key
+   * (TenantApiKeyGuard) — não existe um usuário humano real nesse caso.
+   * AuditService trata isso automaticamente como actorType 'system'.
+   */
+  set(tenantId: string, userId: string | null): void {
     this._tenantId = tenantId;
     this._userId = userId;
   }
@@ -33,8 +41,8 @@ export class TenantContext {
     return this._tenantId;
   }
 
-  get userId(): string {
-    if (!this._userId) {
+  get userId(): string | null {
+    if (!this.isInitialized) {
       throw new Error('TenantContext.userId acessado antes de ser inicializado.');
     }
     return this._userId;

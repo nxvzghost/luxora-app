@@ -8,6 +8,8 @@ import {
 } from '@domain-services/patient-ops/appointment.repository';
 import { SessionRepository, SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
+import { VerificarDisponibilidadeUseCase } from '@use-cases/availability/verificar-disponibilidade.use-case';
+import { SlotNotAvailableError } from '@domain-services/availability/slot-not-available.error';
 
 async function findOrThrow(repo: AppointmentRepository, id: string): Promise<Appointment> {
   const appointment = await repo.findById(id);
@@ -19,16 +21,32 @@ async function findOrThrow(repo: AppointmentRepository, id: string): Promise<App
 
 /**
  * RemarcarConsultaUseCase — RF-052.
+ *
+ * ADR-0040 (PD-001): consulta o Motor de Disponibilidade para o NOVO
+ * horário antes de reagendar — violação confirmada na análise arquitetural,
+ * corrigida aqui. O próprio Appointment sendo movido é excluído da checagem
+ * de conflito (ele ainda ocupa o horário antigo até o `save()`).
  */
 @Injectable()
 export class RemarcarConsultaUseCase {
   constructor(
     @Inject(APPOINTMENT_REPOSITORY) private readonly repo: AppointmentRepository,
+    private readonly verificarDisponibilidade: VerificarDisponibilidadeUseCase,
     private readonly auditService: AuditService,
   ) {}
 
   async execute(id: string, newScheduledAt: Date): Promise<Appointment> {
     const appointment = await findOrThrow(this.repo, id);
+
+    const disponivel = await this.verificarDisponibilidade.execute({
+      therapistId: appointment.therapistId,
+      scheduledAt: newScheduledAt,
+      excludeAppointmentId: appointment.id,
+    });
+    if (!disponivel) {
+      throw new SlotNotAvailableError();
+    }
+
     appointment.transitionTo('ReagendamentoSolicitado');
     appointment.reschedule(newScheduledAt);
     await this.repo.save(appointment);

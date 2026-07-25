@@ -7,8 +7,8 @@ import { StateMachine } from '../shared/state-machine';
  * Diferente de Patient/Appointment/Session/Billing/Payment, "Horário" é
  * modelado como Value Object, não como entidade com identidade própria e
  * persistência direta — ele representa a disponibilidade em um ponto no
- * tempo, derivada de Appointments e bloqueios manuais, consumida pelo Caso
- * de Uso ConsultarDisponibilidade (docs/04-API/01-Contratos-REST.md).
+ * tempo, derivada de Appointments e bloqueios manuais, consumida pelo
+ * Motor de Disponibilidade (ADR-0040) via AvailabilityCalendar.isAvailable().
  * Não gera DomainEvent próprio — mudanças de disponibilidade são reflexo de
  * eventos de Appointment (AgendamentoEstadoAlterado) ou de bloqueio manual.
  */

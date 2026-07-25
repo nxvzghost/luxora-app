@@ -9,7 +9,10 @@ interface LuxoraJwtPayload {
 }
 
 /**
- * JwtAuthGuard — único ponto de entrada do tenantId no sistema.
+ * JwtAuthGuard — um dos dois pontos de entrada autorizados do tenantId no
+ * sistema (o outro é TenantApiKeyGuard, PD-003, Business/Enterprise — API
+ * key por Tenant em vez de login de usuário). Nenhum outro guard deve
+ * chamar `tenantContext.set(...)`.
  *
  * Fonte de verdade: docs/02-Arquitetura/06-Autenticacao.md, docs/04-API/00-Principios-da-API.md.
  *

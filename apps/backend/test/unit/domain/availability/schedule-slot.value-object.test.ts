@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ScheduleSlot } from '@domain/schedule/schedule-slot.value-object';
+import { ScheduleSlot } from '@domain/availability/schedule-slot.value-object';
 
 function slot(startHour: number, endHour: number) {
   return ScheduleSlot.free(

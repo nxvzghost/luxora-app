@@ -8,6 +8,7 @@ describe('ListarAgendamentosUseCase', () => {
       findActiveByTherapistAndRange: vi.fn(),
       findByTenantAndRange: vi.fn().mockResolvedValue([]),
       save: vi.fn(),
+      saveMany: vi.fn(),
     };
     const useCase = new ListarAgendamentosUseCase(repo);
     const from = new Date('2026-08-01');

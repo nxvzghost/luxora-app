@@ -108,4 +108,34 @@ describe('Appointment', () => {
     });
     expect(a.state).toBe('Confirmada');
   });
+
+  // AD-004 — modality nunca era exposta publicamente pela entidade, o que
+  // por sua vez impedia PrismaAppointmentRepository.upsertAll() de gravá-la
+  // (não compilava referenciar appointment.modality sem este getter).
+  it('expõe modality definida em create()', () => {
+    const a = Appointment.create({
+      id: 'a4',
+      tenantId: TENANT_ID,
+      patientId: 'p1',
+      therapistId: 't1',
+      scheduledAt: new Date(),
+      modality: 'online',
+      recurring: false,
+    });
+    expect(a.modality).toBe('online');
+  });
+
+  it('expõe modality restaurada por reconstitute()', () => {
+    const a = Appointment.reconstitute({
+      id: 'a5',
+      tenantId: TENANT_ID,
+      patientId: 'p1',
+      therapistId: 't1',
+      scheduledAt: new Date(),
+      modality: 'online',
+      state: 'Confirmada',
+      recurring: false,
+    });
+    expect(a.modality).toBe('online');
+  });
 });

@@ -48,11 +48,33 @@ export class PrismaClinicSubscriptionRepository implements ClinicSubscriptionRep
         plan: subscription.plan as PlanTier,
         billingCycle: subscription.billingCycle as BillingCycle,
         status: TO_DB_STATUS[subscription.status],
+        pastDueSince: subscription.pastDueSince,
+        pendingPlan: subscription.pendingPlan as PlanTier | undefined,
+        currentPeriodEnd: subscription.currentPeriodEnd,
         asaasCustomerId: subscription.asaasCustomerId,
         asaasSubscriptionId: subscription.asaasSubscriptionId,
       },
       update: {
+        // BUG PRÉ-EXISTENTE CORRIGIDO NESTA SPRINT: `plan` nunca era
+        // incluído aqui — Upgrade/Downgrade mudam `subscription.plan` em
+        // memória, chamam `save()`, mas a mudança nunca chegava ao banco.
+        // Achado ao implementar UpgradeAssinaturaUseCase (Priority 4), não
+        // uma alteração de comportamento aprovada separadamente — apenas a
+        // persistência já esperada por CEO-DEC-002.5/003.6 passando a
+        // funcionar de fato.
+        plan: subscription.plan as PlanTier,
         status: TO_DB_STATUS[subscription.status],
+        // `?? null`, nunca `undefined`, nos campos abaixo: Prisma trata
+        // `undefined` em update() como "não mexer no campo" — mas saída de
+        // PastDue, aplicação de downgrade agendado, e avanço de ciclo
+        // (confirmPayment) precisam explicitamente escrever o novo valor,
+        // não preservar o anterior.
+        pastDueSince: subscription.pastDueSince ?? null,
+        pendingPlan: (subscription.pendingPlan as PlanTier | undefined) ?? null,
+        // BUG PRÉ-EXISTENTE CORRIGIDO NESTA SPRINT: mesmo caso de `plan` —
+        // currentPeriodEnd era lido em toDomain() mas nunca escrito aqui.
+        // Achado ao implementar `confirmPayment()` (Priority 5-bloqueadora).
+        currentPeriodEnd: subscription.currentPeriodEnd ?? null,
         asaasCustomerId: subscription.asaasCustomerId,
         asaasSubscriptionId: subscription.asaasSubscriptionId,
       },
@@ -66,6 +88,8 @@ export class PrismaClinicSubscriptionRepository implements ClinicSubscriptionRep
       plan: record.plan as PlanTier,
       billingCycle: record.billingCycle as BillingCycle,
       status: TO_DOMAIN_STATUS[record.status],
+      pastDueSince: record.pastDueSince ?? undefined,
+      pendingPlan: (record.pendingPlan as PlanTier | null) ?? undefined,
       asaasCustomerId: record.asaasCustomerId ?? undefined,
       asaasSubscriptionId: record.asaasSubscriptionId ?? undefined,
       currentPeriodEnd: record.currentPeriodEnd ?? undefined,

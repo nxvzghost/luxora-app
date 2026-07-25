@@ -38,11 +38,16 @@ export class PrismaService {
 
   /**
    * Exceção deliberada e restrita — ver o comentário completo em
-   * prisma/rls/enable-rls.sql, seção "auth_lookup_by_email".
+   * prisma/rls/enable-rls.sql.
    *
-   * Único uso legítimo: localizar um User por email antes de saber o
-   * tenantId (fluxo de login, ADR-0024). NUNCA usar para qualquer outra
-   * finalidade — isso enxerga usuários de TODOS os Tenants.
+   * Dois usos legítimos, cada um com sua própria policy de RLS estreita:
+   *   1. Localizar um User por email antes de saber o tenantId (fluxo de
+   *      login, ADR-0024) — policy `auth_lookup_by_email`.
+   *   2. Localizar um TenantApiKey pelo hash antes de saber o tenantId
+   *      (TenantApiKeyGuard, PD-003) — policy `api_key_lookup_by_hash`.
+   * NUNCA usar para qualquer outra finalidade sem adicionar uma nova
+   * policy própria e igualmente restrita — isso enxerga linhas de TODOS os
+   * Tenants na tabela consultada.
    */
   async forAuthLookup<T>(fn: (tx: PrismaClient) => Promise<T>): Promise<T> {
     return this.clientProvider.$transaction(async (tx) => {

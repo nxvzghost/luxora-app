@@ -1,6 +1,6 @@
 # ADR-0040 — Motor de Disponibilidade como Bounded Context central, obrigatório para todo módulo (derivado de PD-001)
 
-**Status:** Aprovada como decisão de arquitetura — **implementação NÃO iniciada**, aguardando aprovação de escopo.
+**Status:** Aprovada como decisão de arquitetura — **Fase 1 (Módulo 18 — Centralização) implementada**. Fases 2-4 (Módulos 19-21) continuam não iniciadas, cada uma aguardando aprovação própria de escopo — ver `docs/11-Product-Decisions/PD-001-Motor-de-Disponibilidade/05-Plano-de-Implementacao.md`.
 **Origem:** PD-001 — Motor de Disponibilidade Inteligente (ver `docs/11-Product-Decisions/PD-001-Motor-de-Disponibilidade/`)
 **Data:** Julho de 2026
 
@@ -14,8 +14,8 @@ PD-001 estabelece que toda decisão de disponibilidade deve passar por um compon
 
 1. **Novo Bounded Context de Domínio**: `Availability`, com `AvailabilityCalendar` como Aggregate Root (1 por Terapeuta), substituindo `Therapist.availability`.
 2. `ScheduleSlot` (Value Object já existente desde o Módulo 02) migra para este contexto — é reaproveitado, não recriado.
-3. Único método de decisão real: `AvailabilityCalendar.isAvailable(from, to): boolean` — toda pergunta "esse horário está livre?" passa por aqui.
-4. `AgendarConsultaUseCase`, `RemarcarConsultaUseCase`, `CriarAgendamentoRecorrenteUseCase` e `IntentActionRouter` (Módulo 12) passam a consultar o Motor antes de agir — correção de 4 violações já confirmadas no código atual.
+3. Único método de decisão real: `AvailabilityCalendar.isAvailable(from, to, bookedSlots): boolean` — toda pergunta "esse horário está livre?" passa por aqui. `VerificarDisponibilidadeUseCase` (`use-cases/availability/`) é a fachada de aplicação que carrega o `AvailabilityCalendar`, junta os Appointments ativos do período e chama este método — nenhum outro Caso de Uso monta essa checagem por conta própria.
+4. `AgendarConsultaUseCase`, `RemarcarConsultaUseCase`, `CriarAgendamentoRecorrenteUseCase` e `IntentActionRouter` (Módulo 12) passam a consultar o Motor antes de agir — correção de 4 violações já confirmadas no código atual. **Implementado:** as 3 primeiras chamam `VerificarDisponibilidadeUseCase` diretamente (recusando com erro estruturado `SLOT_NOT_AVAILABLE` quando o horário não está livre); `IntentActionRouter` nunca precisou de nenhuma mudança própria — herda a proteção por construção, porque chama `AgendarConsultaUseCase` por baixo.
 5. Importação de agenda externa (Google/Apple/Outlook/ICS/CSV/Excel) é Infrastructure, não Domain — modelada como `CalendarImportProvider` (porta), mesmo padrão de `PaymentProvider`/`MessageProvider`/`IAIProvider`.
 
 ## Alternativas consideradas
@@ -24,7 +24,7 @@ PD-001 estabelece que toda decisão de disponibilidade deve passar por um compon
 
 ## Consequências
 
-- `Therapist` perde o campo `availability` — mudança de contrato que precisa de migration cuidadosa se já existir dado real.
-- `IntentActionRouter` (Módulo 12) precisa de correção — hoje viola a regra central deste próprio ADR, construído antes dele existir.
+- `Therapist` perde o campo `availability` — mudança de contrato que precisou de migration cuidadosa: dado real existente (seed de desenvolvimento) foi migrado via `INSERT ... SELECT` a partir do JSON antigo antes do `DROP COLUMN` (ver `apps/backend/prisma/migrations/20260717033632_add_availability_calendar/`), não uma reescrita silenciosa.
+- `IntentActionRouter` (Módulo 12) **não precisou de correção própria** — a violação era estrutural em `AgendarConsultaUseCase`, não no roteador em si; corrigir a origem bastou.
 - Trabalho grande o bastante para ser tratado como programa de módulos (18-21 propostos), não um módulo único — ver `Product-Decisions/PD-001-Motor-de-Disponibilidade/05-Plano-de-Implementacao.md`.
-- Nenhum código escrito ainda — este ADR registra a decisão de arquitetura para quando a implementação for aprovada.
+- **Fase 1 (Módulo 18) implementada e testada**: novo Bounded Context em `domain/availability/`, `domain-services/availability/`, `use-cases/availability/`; tabela `availability_calendar` com RLS ativa; 302 testes unitários e 24 Testes Críticos (+1 skip documentado) passando. Fases 2-4 continuam não implementadas.

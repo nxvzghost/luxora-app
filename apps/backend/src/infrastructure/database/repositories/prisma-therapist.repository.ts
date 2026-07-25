@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { Therapist as PrismaTherapist, Prisma } from '@prisma/client';
+import { Therapist as PrismaTherapist } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { Therapist, WeeklyAvailabilitySlot } from '@domain/therapist/therapist.entity';
+import { Therapist } from '@domain/therapist/therapist.entity';
 import { TherapistRepository } from '@domain-services/platform/therapist.repository';
 
 @Injectable()
@@ -29,12 +29,10 @@ export class PrismaTherapistRepository implements TherapistRepository {
           tenantId: therapist.tenantId,
           name: therapist.name,
           specialty: therapist.specialty,
-          availability: therapist.availability as unknown as Prisma.InputJsonValue,
         },
         update: {
           name: therapist.name,
           specialty: therapist.specialty,
-          availability: therapist.availability as unknown as Prisma.InputJsonValue,
         },
       }),
     );
@@ -47,7 +45,6 @@ export class PrismaTherapistRepository implements TherapistRepository {
       name: record.name,
       specialty: record.specialty ?? undefined,
       phone: record.phone ?? undefined,
-      availability: (record.availability as unknown as WeeklyAvailabilitySlot[] | null) ?? [],
     });
   }
 }

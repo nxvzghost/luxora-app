@@ -50,6 +50,15 @@ export interface AppointmentProps {
   modality: 'presencial' | 'online';
   state: AppointmentState;
   recurring: boolean;
+  /**
+   * Referência ao RecurringBlock de origem — PD-001 Fase 2, C3. Preenchido
+   * só para ocorrências materializadas (ver
+   * MaterializarRecurringBlockUseCase); ausente para Appointments avulsos e
+   * para os criados por CriarAgendamentoRecorrenteUseCase (que não foi
+   * alterado nesta etapa). Puramente aditivo — nenhum comportamento
+   * existente de Appointment muda por causa deste campo.
+   */
+  recurringBlockId?: string;
 }
 
 export class Appointment {
@@ -88,12 +97,20 @@ export class Appointment {
     return this.props.scheduledAt;
   }
 
+  get modality(): 'presencial' | 'online' {
+    return this.props.modality;
+  }
+
   get state(): AppointmentState {
     return this._state;
   }
 
   get isRecurring(): boolean {
     return this.props.recurring;
+  }
+
+  get recurringBlockId(): string | undefined {
+    return this.props.recurringBlockId;
   }
 
   transitionTo(newState: AppointmentState): void {

@@ -6,16 +6,21 @@ import { AnthropicAIProvider } from '@infrastructure/ai/anthropic-ai.provider';
 import { AgendarConsultaUseCase } from '@use-cases/appointment/agendar-consulta.use-case';
 import { CancelarConsultaUseCase, ConfirmarConsultaUseCase } from '@use-cases/appointment/gerenciar-consulta.use-case';
 import { ConsultarCobrancaUseCase } from '@use-cases/billing/billing.use-cases';
+import { VerificarDisponibilidadeUseCase } from '@use-cases/availability/verificar-disponibilidade.use-case';
 import { APPOINTMENT_REPOSITORY } from '@domain-services/patient-ops/appointment.repository';
 import { SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
 import { BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
 import { CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { THERAPIST_REPOSITORY } from '@domain-services/platform/therapist.repository';
+import { AVAILABILITY_REPOSITORY } from '@domain-services/availability/availability.repository';
+import { CLINIC_HOLIDAY_REPOSITORY } from '@domain-services/availability/clinic-holiday.repository';
 import { PrismaAppointmentRepository } from '@infrastructure/database/repositories/prisma-appointment.repository';
 import { PrismaSessionRepository } from '@infrastructure/database/repositories/prisma-session.repository';
 import { PrismaBillingRepository } from '@infrastructure/database/repositories/prisma-billing.repository';
 import { PrismaClinicRepository } from '@infrastructure/database/repositories/prisma-clinic.repository';
 import { PrismaTherapistRepository } from '@infrastructure/database/repositories/prisma-therapist.repository';
+import { PrismaAvailabilityRepository } from '@infrastructure/database/repositories/prisma-availability.repository';
+import { PrismaClinicHolidayRepository } from '@infrastructure/database/repositories/prisma-clinic-holiday.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { CommunicationModule } from '../communication/communication.module';
@@ -36,12 +41,15 @@ import { AuditModule } from '../audit/audit.module';
     CancelarConsultaUseCase,
     ConfirmarConsultaUseCase,
     ConsultarCobrancaUseCase,
+    VerificarDisponibilidadeUseCase,
     { provide: AI_PROVIDER, useClass: AnthropicAIProvider },
     { provide: APPOINTMENT_REPOSITORY, useClass: PrismaAppointmentRepository },
     { provide: SESSION_REPOSITORY, useClass: PrismaSessionRepository },
     { provide: BILLING_REPOSITORY, useClass: PrismaBillingRepository },
     { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
     { provide: THERAPIST_REPOSITORY, useClass: PrismaTherapistRepository },
+    { provide: AVAILABILITY_REPOSITORY, useClass: PrismaAvailabilityRepository },
+    { provide: CLINIC_HOLIDAY_REPOSITORY, useClass: PrismaClinicHolidayRepository },
     PrismaService,
     PrismaClientProvider,
   ],

@@ -26,7 +26,18 @@ export class AuditService {
     private readonly tenantContext: TenantContext,
   ) {}
 
-  async recordAll(events: DomainEvent[], actorType: 'user' | 'ai_agent' | 'system' = 'user'): Promise<void> {
+  /**
+   * Sem `explicitActorType`, o actor é inferido do TenantContext: 'system'
+   * quando a requisição foi autenticada por API key (PD-003 —
+   * TenantContext.userId é null nesse caso), 'user' caso contrário. Todo
+   * call site existente (que nunca passava um 2º argumento) continua
+   * funcionando sem mudança — só passa a acertar sozinho quando a
+   * requisição vem de uma API key, sem precisar tocar em nenhum Use Case.
+   */
+  async recordAll(events: DomainEvent[], explicitActorType?: 'user' | 'ai_agent' | 'system'): Promise<void> {
+    const actorType =
+      explicitActorType ?? (this.tenantContext.isInitialized && this.tenantContext.userId === null ? 'system' : 'user');
+
     for (const event of events) {
       await this.repo.record({
         tenantId: event.tenantId,

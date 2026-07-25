@@ -7,6 +7,8 @@ import {
 } from '@domain-services/patient-ops/appointment.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { TenantContext } from '@shared/tenant-context';
+import { VerificarDisponibilidadeUseCase } from '@use-cases/availability/verificar-disponibilidade.use-case';
+import { SlotNotAvailableError } from '@domain-services/availability/slot-not-available.error';
 
 export interface CriarAgendamentoRecorrenteInput {
   patientId: string;
@@ -26,22 +28,30 @@ export interface CriarAgendamentoRecorrenteInput {
  * explícita (ver README do módulo), não implementada silenciosamente pela
  * metade.
  *
- * LIMITAÇÃO CONHECIDA (registrada, não escondida): se a ocorrência N de um
- * lote colidir com um agendamento já existente (SESSION_CONFLICT), as
- * ocorrências 1..N-1 já salvas NÃO são revertidas automaticamente — o
- * Repository ainda não expõe uma transação abrangendo múltiplas linhas de
- * Appointment. Resultado possível hoje: recorrência "pela metade" no
- * banco, com a exceção subindo para o cliente saber que algo falhou.
- * Correção real (envolver o laço inteiro em uma única transação Prisma)
- * fica para quando o Repository ganhar um método `saveMany` transacional —
- * dívida explícita, não interrompe a entrega deste módulo porque o cenário
- * de colisão em agendamento recorrente é raro (checagem de disponibilidade
- * já deveria ter acontecido antes, via ConsultarDisponibilidade).
+ * ADR-0040 (PD-001): TODAS as N ocorrências são validadas contra o Motor de
+ * Disponibilidade ANTES de qualquer uma ser criada — recusa o lote inteiro
+ * (nenhuma linha criada) se qualquer ocorrência não estiver disponível, em
+ * vez de intercalar validação e criação uma a uma. Decisão deliberada: uma
+ * recorrência "pela metade" por recusa do Motor (uma decisão que a própria
+ * aplicação já tinha todos os dados para saber de antemão) é um resultado
+ * pior do que gastar N consultas extras de leitura antes de escrever.
+ *
+ * LIMITAÇÃO CONHECIDA remanescente (registrada, não escondida): a garantia
+ * acima cobre a decisão do Motor, não a escrita em si — se, ENTRE a
+ * validação e o `save()`, uma requisição concorrente ocupar um dos horários
+ * (corrida real, rara), o índice único do banco ainda pode rejeitar uma
+ * ocorrência no meio do laço de criação (SESSION_CONFLICT) com as
+ * ocorrências anteriores já persistidas. Isso não é revertido
+ * automaticamente — o Repository ainda não expõe uma transação abrangendo
+ * múltiplas linhas de Appointment. Correção real (envolver o laço de
+ * criação inteiro em uma única transação Prisma) fica para quando o
+ * Repository ganhar um método `saveMany` transacional.
  */
 @Injectable()
 export class CriarAgendamentoRecorrenteUseCase {
   constructor(
     @Inject(APPOINTMENT_REPOSITORY) private readonly repo: AppointmentRepository,
+    private readonly verificarDisponibilidade: VerificarDisponibilidadeUseCase,
     private readonly tenantContext: TenantContext,
     private readonly auditService: AuditService,
   ) {}
@@ -51,11 +61,22 @@ export class CriarAgendamentoRecorrenteUseCase {
       throw new Error('occurrences deve ser ao menos 1.');
     }
 
+    const occurrenceDates = Array.from({ length: input.occurrences }, (_, i) => new Date(
+      input.firstScheduledAt.getTime() + i * input.intervalDays * 24 * 60 * 60 * 1000,
+    ));
+
+    for (const scheduledAt of occurrenceDates) {
+      const disponivel = await this.verificarDisponibilidade.execute({
+        therapistId: input.therapistId,
+        scheduledAt,
+      });
+      if (!disponivel) {
+        throw new SlotNotAvailableError();
+      }
+    }
+
     const created: Appointment[] = [];
-    for (let i = 0; i < input.occurrences; i++) {
-      const scheduledAt = new Date(
-        input.firstScheduledAt.getTime() + i * input.intervalDays * 24 * 60 * 60 * 1000,
-      );
+    for (const scheduledAt of occurrenceDates) {
       const appointment = Appointment.create({
         id: randomUUID(),
         tenantId: this.tenantContext.tenantId,

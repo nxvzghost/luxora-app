@@ -67,12 +67,38 @@ describe('ProcessarWebhookAssinaturaUseCase — idempotência (entrega at-least-
     expect(webhookRepo.markProcessed).toHaveBeenCalledOnce();
   });
 
-  it('não chama save/audit quando o status já é o mesmo (evita transição redundante)', async () => {
+  it('renovação (PAYMENT_RECEIVED em assinatura já Active) avança o ciclo e persiste — BUG PRÉ-EXISTENTE CORRIGIDO NESTA SPRINT (antes era tratada como redundante e ignorada)', async () => {
     const sub = activeSub('Active');
     const { useCase, subscriptionRepo, auditService } = makeUseCase(sub);
     await useCase.execute({ id: 'evt_7', event: 'PAYMENT_RECEIVED', subscription: { id: 'sub_456' } });
+    expect(subscriptionRepo.save).toHaveBeenCalledOnce();
+    expect(auditService.recordAll).toHaveBeenCalledOnce();
+    expect(sub.currentPeriodEnd).toBeInstanceOf(Date);
+  });
+
+  it('evento não-Active redundante (ex: novo PAYMENT_OVERDUE já em PastDue) continua sem chamar save/audit', async () => {
+    const sub = activeSub('PastDue');
+    const { useCase, subscriptionRepo, auditService } = makeUseCase(sub);
+    await useCase.execute({ id: 'evt_9', event: 'PAYMENT_OVERDUE', subscription: { id: 'sub_456' } });
     expect(subscriptionRepo.save).not.toHaveBeenCalled();
     expect(auditService.recordAll).not.toHaveBeenCalled();
+  });
+
+  it('renovação aplica downgrade agendado quando o ciclo vira (CEO-DEC-002.5, CEO-DEC-003.6)', async () => {
+    const sub = ClinicSubscription.reconstitute({
+      id: 's1',
+      tenantId: TENANT_ID,
+      plan: 'enterprise',
+      billingCycle: 'monthly',
+      status: 'Active',
+      asaasSubscriptionId: 'sub_456',
+      currentPeriodEnd: new Date('2026-08-01'),
+      pendingPlan: 'professional',
+    });
+    const { useCase } = makeUseCase(sub);
+    await useCase.execute({ id: 'evt_10', event: 'PAYMENT_RECEIVED', subscription: { id: 'sub_456' } });
+    expect(sub.plan).toBe('professional');
+    expect(sub.pendingPlan).toBeUndefined();
   });
 
   it('lê o id da assinatura de payment.subscription quando subscription não vem no payload', async () => {

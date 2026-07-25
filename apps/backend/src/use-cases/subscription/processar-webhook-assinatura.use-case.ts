@@ -74,14 +74,27 @@ export class ProcessarWebhookAssinaturaUseCase {
       return;
     }
 
-    if (subscription.status !== newStatus) {
+    // `Active` é tratado à parte, nunca pelo guard `status !== newStatus`
+    // abaixo: DEFEITO REAL ENCONTRADO E CORRIGIDO NESTA SPRINT — antes,
+    // um PAYMENT_CONFIRMED/PAYMENT_RECEIVED chegando para uma assinatura
+    // JÁ Active (uma renovação recorrente real, o caso normal e mais
+    // comum de todos) caía no guard e não fazia nada. `confirmPayment()`
+    // cobre ativação e renovação com o mesmo método, avança
+    // `currentPeriodEnd` (CEO-DEC-003.6) e aplica um downgrade agendado
+    // se o ciclo virou (CEO-DEC-002.5).
+    if (newStatus === 'Active') {
+      subscription.confirmPayment();
+    } else if (subscription.status !== newStatus) {
       subscription.transitionTo(newStatus);
-      await this.subscriptionRepo.save(subscription);
-      // Inicialização manual — ver nota da classe acima.
-      this.tenantContext.set(subscription.tenantId, 'system');
-      await this.auditService.recordAll(subscription.pullDomainEvents(), 'system');
+    } else {
+      await this.webhookRepo.markProcessed(payload.id, payload.event);
+      return;
     }
 
+    await this.subscriptionRepo.save(subscription);
+    // Inicialização manual — ver nota da classe acima.
+    this.tenantContext.set(subscription.tenantId, 'system');
+    await this.auditService.recordAll(subscription.pullDomainEvents(), 'system');
     await this.webhookRepo.markProcessed(payload.id, payload.event);
   }
 }

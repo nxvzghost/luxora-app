@@ -26,8 +26,12 @@ model Tenant {
   aiSettings     AiSettings?
   whatsappIntegration WhatsAppIntegration?
   clinicSubscription  ClinicSubscription?
+  tenantApiKey   TenantApiKey?
   users          User[]
   therapists     Therapist[]
+  availabilityCalendars AvailabilityCalendar[]
+  clinicHolidays ClinicHoliday[]
+  recurringBlocks RecurringBlock[]
   patients       Patient[]
   sessions       Session[]
   appointments   Appointment[]
@@ -80,22 +84,41 @@ model ClinicSettings {
 // camada de comunicação, o mesmo tipo de problema que o Módulo 04 (RLS)
 // resolveu para o banco de dados, mas que nunca tinha sido aplicado aqui.
 //
-// DÍVIDA DE SEGURANÇA REGISTRADA, NÃO RESOLVIDA NESTA CORREÇÃO:
-// accessToken fica em texto plano no banco por ora — o mesmo nível de
-// cuidado que já se aplica a outras credenciais (nunca em código-fonte,
-// sempre variável de ambiente ou banco) ainda não inclui criptografia em
-// repouso para este campo. Precisa de endurecimento antes de produção
-// real com clientes pagantes — ver CONFIGURACAO_AMBIENTE.md.
+// AD-005: accessToken é cifrado em repouso (AES-256-GCM, TokenCipherService,
+// apps/backend/src/shared/token-cipher.service.ts) antes de ser gravado por
+// ConectarWhatsAppUseCase, e decifrado só no momento de uso, em
+// WhatsAppMessageProvider. A coluna continua String — o valor armazenado é
+// o formato versionado `v1:<iv>:<tag>:<ciphertext>`, nunca o token em texto
+// puro. Ver CONFIGURACAO_AMBIENTE.md (WHATSAPP_TOKEN_ENCRYPTION_KEY).
 model WhatsAppIntegration {
   id              String   @id @default(uuid())
   tenantId        String   @unique @map("tenant_id")
   tenant          Tenant   @relation(fields: [tenantId], references: [id])
   phoneNumberId   String   @map("phone_number_id")
-  accessToken     String   @map("access_token") // texto plano — dívida de segurança, ver comentário acima
+  accessToken     String   @map("access_token") // cifrado em repouso (AD-005) — ver comentário acima
   connectedAt     DateTime @default(now()) @map("connected_at")
   active          Boolean  @default(true)
 
   @@map("whatsapp_integration")
+}
+
+// TenantApiKey — 1:1 com Tenant (PD-003, Módulo 17). Gerar uma nova
+// invalida a anterior (upsert) — 1 chave ativa por vez, sem escopo ou
+// nome, suficiente para o MVP. hashedKey é SHA-256 (rápido, determinístico),
+// nunca bcrypt — a chave já é um segredo de alta entropia gerado
+// aleatoriamente, não uma senha escolhida por humano, então o problema que
+// bcrypt resolve (dicionário) não se aplica aqui, e um hash determinístico
+// é o que permite localizar a linha certa por busca indexada direta em vez
+// de escanear a tabela inteira comparando hash a hash.
+model TenantApiKey {
+  id         String    @id @default(uuid())
+  tenantId   String    @unique @map("tenant_id")
+  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  hashedKey  String    @unique @map("hashed_key")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastUsedAt DateTime? @map("last_used_at")
+
+  @@map("tenant_api_key")
 }
 
 model AiSettings {
@@ -146,23 +169,84 @@ model Therapist {
   name      String
   specialty String?
   phone     String?
-  // Disponibilidade semanal recorrente — Módulo 06 (RF-019 a RF-022).
-  // Formato: [{ dayOfWeek: 0-6, startTime: "HH:mm", endTime: "HH:mm" }].
-  // Decisão pragmática de MVP: JSON em vez de tabela própria de slots —
-  // slots individuais concretos (ScheduleSlot, ver domain/schedule) são
-  // derivados disso + Appointments existentes, calculados em runtime pelo
-  // Caso de Uso ConsultarDisponibilidade (Módulo 07 — Agenda), não
-  // persistidos um a um.
-  availability Json?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  user         User?
-  sessions     Session[]
-  appointments Appointment[]
+  user                 User?
+  sessions             Session[]
+  appointments         Appointment[]
+  availabilityCalendar AvailabilityCalendar?
+  recurringBlocks      RecurringBlock[]
 
   @@map("therapist")
+}
+
+// Bounded Context `Availability` (ADR-0040, derivado de PD-001) — 1 por
+// Terapeuta, referenciado por therapistId, nunca possuído por Therapist.
+// Substitui o antigo Therapist.availability (Json?).
+model AvailabilityCalendar {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  therapistId String    @unique @map("therapist_id")
+  therapist   Therapist @relation(fields: [therapistId], references: [id])
+  // Formato: [{ dayOfWeek: 0-6, startTime: "HH:mm", endTime: "HH:mm",
+  // sessionDurationMinutes: number }]. Duração por janela/terapeuta —
+  // decisão de produto (ver docs/11-Product-Decisions/PD-001-Motor-de-Disponibilidade).
+  windows     Json
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("availability_calendar")
+}
+
+// Bounded Context `Availability` (ADR-0040, derivado de PD-001), PD-001
+// Fase 2 (B3) — entidade própria, referenciada por tenantId, nunca aninhada
+// em Clinic (decisão arquitetural: feriado é regra de disponibilidade, não
+// configuração administrativa da Clínica — mantém o Bounded Context coeso
+// junto de AvailabilityCalendar/AvailabilityException).
+model ClinicHoliday {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  fromDate  DateTime @map("from_date")
+  toDate    DateTime @map("to_date")
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, fromDate, toDate])
+  @@map("clinic_holiday")
+}
+
+// Bounded Context `Availability` (ADR-0040, derivado de PD-001), PD-001
+// Fase 2 (C1/C2) — Aggregate Root independente, decisão registrada após
+// análise comparativa formal (ver relatório da C1): referencia patientId e
+// therapistId, nunca é possuído por AvailabilityCalendar. Índice composto
+// (tenantId, therapistId) antecipa a consulta mais provável do primeiro
+// consumidor real (Motor/materialização, C3) sem implementar esse
+// consumidor agora — é estrutura de schema, não uma nova query no
+// Repository desta etapa (C2 expõe só save()/findById()).
+model RecurringBlock {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  patientId       String   @map("patient_id")
+  patient         Patient  @relation(fields: [patientId], references: [id])
+  therapistId     String   @map("therapist_id")
+  therapist       Therapist @relation(fields: [therapistId], references: [id])
+  firstOccurrence DateTime @map("first_occurrence")
+  intervalDays    Int      @map("interval_days")
+  modality        String
+  renewalMode     String   @map("renewal_mode")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  appointments Appointment[]
+
+  @@index([tenantId, therapistId])
+  @@map("recurring_block")
 }
 
 // ─────────────────────────────────────────────
@@ -202,6 +286,7 @@ model Patient {
   sessions     Session[]
   appointments Appointment[]
   billings     Billing[]
+  recurringBlocks RecurringBlock[]
 
   @@map("patient")
 }
@@ -231,6 +316,12 @@ model Appointment {
   modality    String            @default("presencial")
   state       AppointmentState  @default(Criada)
   recurring   Boolean           @default(false)
+  // PD-001 Fase 2, C3 — referência ao RecurringBlock de origem, só para
+  // ocorrências materializadas. Nullable: Appointments avulsos e os
+  // criados por CriarAgendamentoRecorrenteUseCase (não alterado nesta
+  // etapa) não têm este campo preenchido.
+  recurringBlockId String?         @map("recurring_block_id")
+  recurringBlock   RecurringBlock? @relation(fields: [recurringBlockId], references: [id])
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
 
@@ -243,6 +334,15 @@ model Appointment {
   // o Prisma Schema DSL não suporta unique index condicional. Um @@unique
   // simples aqui bloquearia incorretamente reagendar um horário já
   // cancelado — por isso não está declarado nesta sintaxe.
+  //
+  // Já (recurringBlockId, scheduledAt) abaixo PODE usar @@unique nativo: é
+  // uma garantia diferente (idempotência de materialização, PD-001 Fase 2,
+  // C3), sem a mesma ressalva de estado — decisão arquitetural registrada:
+  // não exclui `Cancelada` deliberadamente (ver relatório da C3), então não
+  // precisa de índice condicional/SQL bruto. `recurringBlockId` nulo nunca
+  // colide consigo mesmo (semântica padrão de UNIQUE com NULL no Postgres),
+  // então Appointments avulsos nunca são afetados por esta constraint.
+  @@unique([recurringBlockId, scheduledAt])
   @@map("appointment")
 }
 
@@ -408,6 +508,12 @@ enum PlanTier {
   professional
   business
   enterprise
+  // PD-003 (Modelo Comercial), CEO-DEC-002.1 — novo catálogo oficial.
+  // Priority 5: apenas estrutura, sem preço nem benefício configurado
+  // ainda (CEO-DEC-002.3). Os três valores acima permanecem ativos,
+  // exigido por CEO-DEC-002.6 para clientes já contratados.
+  individual
+  completo
 }
 
 enum BillingCycle {
@@ -432,6 +538,13 @@ model ClinicSubscription {
   plan               PlanTier
   billingCycle       BillingCycle       @map("billing_cycle")
   status             SubscriptionStatus @default(trialing)
+  // Marco de início do estado PastDue — base do período de tolerância de 7
+  // dias (PD-004, CEO-DEC-003.1/003.2). Nulo fora de PastDue.
+  pastDueSince       DateTime?          @map("past_due_since")
+  // Downgrade agendado (CEO-DEC-002.5, CEO-DEC-003.6) — plano que entrará
+  // em vigor no próximo ciclo de cobrança. Nulo quando não há downgrade
+  // pendente.
+  pendingPlan        PlanTier?          @map("pending_plan")
   // IDs do lado Asaas — nunca o contrário (Asaas nunca conhece nosso id
   // interno como chave primária dele; nós guardamos os dois lados do link).
   asaasCustomerId    String?            @map("asaas_customer_id")

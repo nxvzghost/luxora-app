@@ -6,17 +6,19 @@ Numeração de módulo proposta: **Módulo 18 — Motor de Disponibilidade**, pr
 
 O PD-001 descreve um sistema completo. Implementar tudo de uma vez tem alto risco de regressão (mexe em Agenda, IA e Terapeuta ao mesmo tempo) e mistura "correção de arquitetura" com "capacidade nova". Proponho 4 fases, cada uma entregável e testável isoladamente.
 
-## Fase 1 — Centralização (corrige as violações já existentes)
+## Fase 1 — Centralização (corrige as violações já existentes) — ✅ IMPLEMENTADA
 
 **Objetivo:** nenhum módulo cria/altera agendamento sem consultar o Motor. Sem capacidade nova ainda, só reorganização + obrigatoriedade.
 
-- Criar `domain/availability/` (Bounded Context, ver doc 04)
-- Migrar `WeeklyAvailabilitySlot` de `Therapist` para `AvailabilityCalendar`
-- `ConsultarDisponibilidadeUseCase` passa a ser implementado sobre `AvailabilityCalendar.isAvailable()`
-- Corrigir `AgendarConsultaUseCase`, `RemarcarConsultaUseCase`, `CriarAgendamentoRecorrenteUseCase` para consultar o Motor antes de agir
-- Corrigir `IntentActionRouter` (M12) — a IA passa a consultar disponibilidade antes de confirmar agendamento, nunca decide sozinha
+- [x] Criar `domain/availability/` (Bounded Context, ver doc 04) — `AvailabilityCalendar` (Aggregate Root), `AvailabilityWindow` (com `sessionDurationMinutes` por janela — decisão de Frederico), `ScheduleSlot` migrado de `domain/schedule/`
+- [x] Migrar disponibilidade de `Therapist` para `AvailabilityCalendar` — campo `availability` removido de `Therapist`; tabela dedicada `availability_calendar` (RLS ativa), com migration real (backfill do dado existente antes do `DROP COLUMN`)
+- [x] `VerificarDisponibilidadeUseCase` (`use-cases/availability/`) criado como o gate central — combina `AvailabilityCalendar.isAvailable()` com os Appointments ativos do período
+- [x] `ConsultarDisponibilidadeUseCase` (`use-cases/appointment/`) reescrito sobre o Motor — lista horários livres reais, sem mais depender de `Clinic.defaultSessionDurationMinutes`
+- [x] `AgendarConsultaUseCase`, `RemarcarConsultaUseCase`, `CriarAgendamentoRecorrenteUseCase` corrigidos — consultam `VerificarDisponibilidadeUseCase` antes de agir, recusando com `SLOT_NOT_AVAILABLE` (erro estruturado, distinto de `SESSION_CONFLICT`)
+- [x] `IntentActionRouter` (M12) — **nenhuma mudança própria necessária**: a proteção vive em `AgendarConsultaUseCase`, herdada automaticamente por construção
+- [x] `DefinirDisponibilidadeUseCase` migrado de `use-cases/therapist/` para `use-cases/availability/gerenciar-disponibilidade.use-case.ts`, junto de `ConsultarCalendarioUseCase` (novo)
 
-**Critério de pronto:** teste automatizado prova que é impossível criar um `Appointment` fora da disponibilidade real sem passar pelo Motor — mesmo padrão de "teste de aceite" já usado no ADR-0021 (n8n) e no gate de acesso de assinatura (M17).
+**Critério de pronto:** ✅ atendido — `VerificarDisponibilidadeUseCase` é consultado por todo caminho de criação/alteração de Appointment (Controller HTTP e IA), testado em `test/unit/use-cases/availability/` e `test/unit/use-cases/appointment/gerenciar-consulta.use-case.test.ts` (casos de recusa incluídos). 302 testes unitários e 24 Testes Críticos (+1 skip documentado) passando, incluindo o Teste Crítico #10 (concorrência) atualizado para refletir as duas camadas de defesa agora existentes (Motor + índice único do banco).
 
 ## Fase 2 — Exceções e recorrência como conceito próprio
 

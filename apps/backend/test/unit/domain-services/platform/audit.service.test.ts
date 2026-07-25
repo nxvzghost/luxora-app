@@ -48,6 +48,19 @@ describe('AuditService', () => {
     expect(call.userId).toBeNull();
   });
 
+  it('actorType inferido automaticamente como system quando TenantContext.userId é null (PD-003 — requisição via API key), sem precisar passar explicitamente', async () => {
+    const repo = { record: vi.fn().mockResolvedValue(undefined), findByTenant: vi.fn() };
+    const tenantContext = new TenantContext();
+    tenantContext.set(TENANT_ID, null);
+    const service = new AuditService(repo, tenantContext);
+
+    await service.recordAll([new PatientStateChangedEvent('p1', TENANT_ID, 'Novo', 'Identificado')]);
+
+    const call = repo.record.mock.calls[0][0];
+    expect(call.actorType).toBe('system');
+    expect(call.userId).toBeNull();
+  });
+
   it('persiste múltiplos eventos em sequência', async () => {
     const repo = { record: vi.fn().mockResolvedValue(undefined), findByTenant: vi.fn() };
     const tenantContext = new TenantContext();

@@ -6,10 +6,12 @@ import {
   ConsultarTerapeutaUseCase,
   ListarTerapeutasUseCase,
   AtualizarTerapeutaUseCase,
-  DefinirDisponibilidadeUseCase,
 } from '@use-cases/therapist/therapist.use-cases';
+import { DefinirDisponibilidadeUseCase } from '@use-cases/availability/gerenciar-disponibilidade.use-case';
 import { THERAPIST_REPOSITORY } from '@domain-services/platform/therapist.repository';
+import { AVAILABILITY_REPOSITORY } from '@domain-services/availability/availability.repository';
 import { PrismaTherapistRepository } from '@infrastructure/database/repositories/prisma-therapist.repository';
+import { PrismaAvailabilityRepository } from '@infrastructure/database/repositories/prisma-availability.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { AuditService } from '@domain-services/platform/audit.service';
@@ -33,6 +35,7 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     AtualizarTerapeutaUseCase,
     DefinirDisponibilidadeUseCase,
     { provide: THERAPIST_REPOSITORY, useClass: PrismaTherapistRepository },
+    { provide: AVAILABILITY_REPOSITORY, useClass: PrismaAvailabilityRepository },
     PrismaService,
     PrismaClientProvider,
     AuditService,
