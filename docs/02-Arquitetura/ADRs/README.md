@@ -98,6 +98,13 @@ As ADRs foram organizadas em uma sequência lógica.
 
 | ADR-0021 | Fronteira entre Motor Operacional e n8n |
 | ADR-0040 | Motor de Disponibilidade como Bounded Context central (derivado de PD-001) — ver nota de numeração no próprio arquivo |
+| ADR-0041 | WhatsApp é a interface oficial do paciente |
+| ADR-0042 | Painel Web é a interface oficial da clínica |
+| ADR-0043 | Contact representa identidade de comunicação |
+| ADR-0044 | Patient representa vínculo clínico |
+| ADR-0045 | Primeiro agendamento promove Contact para Patient |
+| ADR-0046 | Ambiguidades devem ser resolvidas antes de executar qualquer ação clínica |
+| ADR-0047 | Docker Engine nativo no WSL2 como ambiente oficial de desenvolvimento (Windows) — decisão de continuidade, não de causa raiz |
 
 
 

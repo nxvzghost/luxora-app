@@ -35,6 +35,26 @@ Todo documento, todo nome de classe, toda tabela, todo endpoint de API e todo pr
 | Motor de Disponibilidade | `AvailabilityCalendar.isAvailable()` (Bounded Context `Availability`) | Componente central que decide "esse horário está livre?" para todo o sistema (PD-001 / ADR-0040). Delegado pelo Motor Operacional, mesmo padrão de delegação já usado para o Policy Engine (ver ADR-0001). Nenhum módulo consulta agenda diretamente. |
 | Agente | `AI Agent` | Componente de IA que interpreta linguagem natural e consulta o Motor Operacional — nunca decide sozinho (ADR-0006). |
 | Tenant | `tenant` | Sinônimo técnico de Clínica, usado especificamente no contexto de isolamento multi-tenant. |
+| Contato | `Contact` (Aggregate Root, mesmo Bounded Context de Paciente — ver `01-Domain/08-Contact-e-Identidade-de-Comunicacao.md`) | Identidade de comunicação — quem está conversando por um canal, antes (ou independente) de haver vínculo clínico confirmado. Nunca confundir com Paciente. |
+| Identidade de Canal | `ChannelIdentity` (Value Object dentro de Contact) | Telefone normalizado pelo qual um Contact é reconhecido. Hoje só WhatsApp. Nunca é, sozinho, prova suficiente de identidade permanente de uma pessoa. |
+| Papel (da associação Contact-Paciente) | `papel`: `proprio_paciente` \| `responsavel_por` | Define se quem conversa é o próprio paciente atendido, ou fala em nome de outro (responsável por um dependente). |
+| Promoção | `ContatoPromovidoParaPaciente` (evento) | Momento em que um Contact passa a se associar a um Patient real — disparado pelo evento de negócio "primeira consulta agendada", nunca por um critério vago de "cadastro mínimo". |
+| Qualificação | Estado do Contact | Fase de coleta de informação de um Contact, anterior à promoção — nunca carrega dado clínico. |
+
+---
+
+# Resolução de fronteira: Contact vs. Patient
+
+A leitura conjunta das fases de Arquitetura de Domínio revelou uma tensão equivalente à já registrada abaixo para Sessão/Agendamento: o domínio presumia que todo `Patient` já existe antes de qualquer interação — presunção que deixou de valer quando o WhatsApp passou a ser a porta oficial de entrada do paciente (ADR-0041).
+
+Definição oficial, a partir desta versão:
+
+- **`Contact`** representa **quem está conversando**, por um canal (hoje, telefone/WhatsApp) — identidade de comunicação, nunca dado clínico.
+- **`Patient`** representa **quem recebe o cuidado clínico** — vínculo, histórico, cobrança.
+- As duas nunca são fundidas: a relação entre elas é uma associação explícita e nomeada (papel), nunca uma transformação de um objeto no outro. Um Contact pode se associar a mais de um Patient (casal); um Patient pode ser alcançado por mais de um Contact ao longo do tempo (troca de número).
+- A identidade permanente e estável do sistema é sempre `Patient.id` — telefone nunca é usado como chave de identidade de uma pessoa, só como dado de contato de um Contact.
+
+Detalhe completo: `01-Domain/08-Contact-e-Identidade-de-Comunicacao.md`, ADR-0043, ADR-0044, ADR-0045.
 
 ---
 
@@ -71,5 +91,6 @@ Os nomes de eventos já definidos em `01-Domain/04-Eventos-de-Dominio.txt` segue
 - 01-Domain/02-Relacionamentos.md
 - 01-Domain/03-Maquina-de-Estados.md
 - 01-Domain/04-Eventos-de-Dominio.txt
+- 01-Domain/06-Decisoes-de-Dominio-WhatsApp.md a 13-Process-Managers.md (Marco 1 — WhatsApp/Contact)
 - 02-Arquitetura/Glossario-Tecnico.md
 - 03-Database/02-Tabelas.md

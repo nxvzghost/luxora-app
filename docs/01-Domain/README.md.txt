@@ -118,6 +118,38 @@ Exemplos:
 
 ---
 
+## Marco 1 — WhatsApp como Interface Oficial do Paciente
+
+A partir da decisão de que o WhatsApp é a jornada oficial do paciente (ADR-0041), a pasta ganhou uma extensão dedicada, documentando a Arquitetura de Domínio dessa fase — congelada, qualquer mudança exige nova ADR.
+
+## 06 – Decisões de Domínio: WhatsApp
+
+Síntese executiva do que foi decidido e do que foi descartado nesta fase.
+
+## 07 – Event Storming: WhatsApp
+
+Fluxo completo de Comandos, Aggregates, Eventos, Políticas e Process Managers da jornada do paciente pelo WhatsApp, incluindo os 15 cenários validados (primeiro contato, agendamento, reagendamento, cancelamento, cobrança, pagamento, reativação, responsável falando por dependente, casal com telefone compartilhado, troca de número, cadastro pelo painel, contato que nunca qualificou).
+
+## 08 – Contact e Identidade de Comunicação
+
+Define o Aggregate `Contact` — identidade de quem conversa, distinta de `Patient` — seu ciclo de vida, os casos especiais e a política de LGPD/retenção.
+
+## 09 – Jornada do Paciente e do Contato
+
+As duas jornadas lado a lado, e o evento que as conecta (promoção).
+
+## 10 – Arquitetura WhatsApp e Painel
+
+Princípio conceitual de que painel e WhatsApp compartilham o mesmo backend e domínio — sem entrar em infraestrutura.
+
+## 11 – Aggregates e Limites
+
+## 12 – Domain Events (extensão desta fase)
+
+## 13 – Process Managers
+
+---
+
 # Regras Gerais
 
 1. O domínio não depende de tecnologia.
@@ -189,3 +221,10 @@ Quando houver divergência entre implementação e domínio, a documentação de
 * Criação da estrutura inicial do domínio.
 * Definição dos documentos fundamentais.
 * Estabelecimento das responsabilidades da camada de domínio.
+
+**v1.1**
+
+* Marco 1 — Arquitetura de Domínio do WhatsApp como interface oficial do paciente.
+* Adição do Aggregate `Contact` (documentos 06 a 13).
+* Extensão da Linguagem Ubíqua (05) com os termos Contato, Identidade de Canal, Papel, Promoção, Qualificação.
+* ADR-0041 a ADR-0046 registradas em `02-Arquitetura/ADRs/`.
