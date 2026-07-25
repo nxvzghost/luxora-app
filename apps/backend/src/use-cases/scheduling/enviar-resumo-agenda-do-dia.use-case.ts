@@ -25,7 +25,7 @@ export class EnviarResumoAgendaDoDiaUseCase {
     private readonly messageQueue: MessageQueueProducer,
   ) {}
 
-  async execute(tenantId: string, therapistId: string, therapistPhone: string): Promise<void> {
+  async execute(tenantId: string, therapistId: string, therapistPhone: string, correlationId?: string): Promise<void> {
     const therapist = await this.therapistRepo.findById(therapistId);
     if (!therapist) throw new NotFoundException('Terapeuta não encontrado.');
 
@@ -38,6 +38,7 @@ export class EnviarResumoAgendaDoDiaUseCase {
       toPhoneNumber: therapistPhone,
       body,
       idempotencyKey: `agenda-summary-${therapistId}-${from.toISOString().slice(0, 10)}`,
+      correlationId,
     });
   }
 }

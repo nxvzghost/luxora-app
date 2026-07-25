@@ -4,6 +4,8 @@ export interface SendMessageInput {
   body: string;
   /** Chave de idempotência do envio — nunca reenviar a mesma mensagem por retry de fila. */
   idempotencyKey: string;
+  /** AD-016 — propagado até o header da chamada externa (ver WhatsAppMessageProvider). */
+  correlationId?: string;
 }
 
 export interface SendMessageResult {

@@ -350,7 +350,7 @@ Resposta
 
 Todos os logs utilizarão o mesmo Correlation ID.
 
-
+\*\*Implementação concreta (AD-016):\*\* todo request HTTP recebe um Correlation ID (aceito de \`X-Correlation-Id\` do cliente/proxy, ou gerado como UUID) via um middleware Express dedicado (\`correlationIdMiddleware\`, \`apps/backend/src/shared/correlation-id.middleware.ts\`), registrado antes de qualquer Guard — inclusive respostas de erro (401/403/429) já saem com o Correlation ID. Um \`CorrelationContext\` próprio (\`Scope.REQUEST\`, nunca uma extensão de \`TenantContext\`) disponibiliza o valor em qualquer camada via injeção do Nest. Na fronteira do BullMQ, o valor é serializado explicitamente no payload do job (\`MessageJobData.correlationId\`) — nunca via contexto ambiente/DI, que não sobrevive a essa fronteira. Decisão completa, incluindo a limitação estrutural pré-existente que motivou essa escolha, em \`\[ADR-0051\]\(./ADRs/ADR-0051-observabilidade-correlation-id-otel-prometheus.md\)\`.
 
 \---
 
@@ -726,7 +726,7 @@ Exemplos:
 
 A implementação poderá ser substituída sem alterar os princípios definidos neste documento.
 
-
+\*\*Implementação concreta (AD-016):\*\* OpenTelemetry instrumentado explicitamente (HTTP, Express, ioredis — nunca \`auto-instrumentations-node\`, decisão deliberada para evitar overhead e ruído de módulos irrelevantes), com métricas exportadas em \`GET /metrics\` no formato Prometheus (protegido por token, \`MetricsAccessGuard\`) e traces exportados via console (nenhum backend de tracing provisionado ainda). Instrumentação de queries do Prisma foi deliberadamente adiada — exigiria um recurso Preview do Prisma. Grafana/Loki/Sentry seguem não adotados nesta fase. Decisão completa, incluindo todas as limitações conhecidas, em \`\[ADR-0051\]\(./ADRs/ADR-0051-observabilidade-correlation-id-otel-prometheus.md\)\`.
 
 \---
 

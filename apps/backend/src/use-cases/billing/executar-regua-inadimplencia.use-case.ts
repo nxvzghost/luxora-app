@@ -30,7 +30,7 @@ export class ExecutarReguaInadimplenciaUseCase {
     private readonly messageQueue: MessageQueueProducer,
   ) {}
 
-  async execute(tenantId: string): Promise<{ d1: number; d7: number; d40Signaled: number }> {
+  async execute(tenantId: string, correlationId?: string): Promise<{ d1: number; d7: number; d40Signaled: number }> {
     const segmented = await this.segmentacao.execute();
     let d1 = 0;
     let d7 = 0;
@@ -46,6 +46,7 @@ export class ExecutarReguaInadimplenciaUseCase {
           toPhoneNumber: patient.phone,
           body: buildD1ReminderMessage(patient.name.split(' ')[0], 'ontem'),
           idempotencyKey: `billing-overdue-${item.billingId}-d1`,
+          correlationId,
         });
         d1++;
       } else if (item.daysOverdue === 7) {
@@ -54,6 +55,7 @@ export class ExecutarReguaInadimplenciaUseCase {
           toPhoneNumber: patient.phone,
           body: buildD7ReminderMessage(patient.name.split(' ')[0]),
           idempotencyKey: `billing-overdue-${item.billingId}-d7`,
+          correlationId,
         });
         d7++;
       } else if (item.daysOverdue === 40) {

@@ -70,6 +70,20 @@ Por não haver sandbox, nenhum teste automatizado (`test:unit`, `test:integratio
 
 Diferente do Asaas (uma única conta da Luxora), o WhatsApp **não tem variável de ambiente global** — cada clínica conecta seu próprio número e token, armazenados por Tenant no banco de dados (`whatsapp_integration`), nunca em `.env`. A Luxora não possui número de WhatsApp próprio — cada clínica preserva sua identidade no canal.
 
+**AD-005 — `WHATSAPP_TOKEN_ENCRYPTION_KEY`:** o `accessToken` de cada clínica é cifrado em repouso (AES-256-GCM, `TokenCipherService`) antes de ser gravado — nunca fica em texto puro no banco. A chave de cifragem vem desta variável, com a mesma UX de `JWT_SECRET` (qualquer string aleatória longa serve, não precisa ser uma chave exata em base64 — uma derivação via `scrypt` produz os 32 bytes necessários para AES-256 a partir de qualquer segredo). **Trocar este valor torna todo `accessToken` já cifrado irrecuperável** — tratar com o mesmo cuidado de backup dado a `JWT_SECRET`/credenciais da Asaas: nunca perder, nunca rotacionar sem um plano de re-cifragem.
+
+---
+
+## Rate limit de login (AD-006)
+
+`POST /auth/login` é protegido por `@nestjs/throttler` — `AUTH_THROTTLE_LIMIT` (padrão `5`) tentativas a cada `AUTH_THROTTLE_TTL_MS` (padrão `60000`, 60s), por IP do cliente. Em produção, atrás do proxy do Railway, isso só funciona corretamente porque `main.ts` chama `app.set('trust proxy', 1)` — sem isso, o backend enxergaria o IP do proxy para todo mundo, e um único usuário errando a senha bloquearia o login de todas as clínicas simultaneamente. A Suíte Crítica sobrescreve estas duas variáveis para valores muito mais altos (`test/critical/support/global-setup.ts`) — sem isso, os ~18 arquivos de teste fazendo login real quebrariam a suíte inteira.
+
+---
+
+## Observabilidade — Correlation ID, OpenTelemetry, Prometheus (AD-016)
+
+`GET /metrics` (fora do prefixo `api/v1`, convenção de scrapers Prometheus) expõe métricas HTTP/Express/ioredis coletadas pelo OpenTelemetry — protegido por `METRICS_ACCESS_TOKEN`, comparado ao header `X-Metrics-Token`. Sem essa variável configurada, a rota lança erro em vez de responder sem autenticação (mesmo padrão de `AUTOMATION_API_KEY`). Todo request HTTP recebe um `X-Correlation-Id` (aceito do cliente/proxy ou gerado como UUID) desde o primeiro middleware do processo — nenhuma variável de ambiente nova é necessária para isso. Traces são exportados via `ConsoleSpanExporter` (nenhum backend de tracing provisionado ainda — ver ADR-0051). Detalhes completos, incluindo por que a instrumentação do Prisma foi adiada, em [ADR-0051](docs/02-Arquitetura/ADRs/ADR-0051-observabilidade-correlation-id-otel-prometheus.md).
+
 ---
 
 ## `.gitignore` obrigatório

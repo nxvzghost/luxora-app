@@ -7,7 +7,7 @@ const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 describe('ReenviarAgendaAtualizadaUseCase', () => {
   it('enfileira com idempotencyKey diferente do resumo original (cada reenvio é mensagem nova)', async () => {
     const therapist = Therapist.create({ id: 't1', tenantId: TENANT_ID, name: 'Dra. Ana' });
-    const appointmentRepo = { findById: vi.fn(), findActiveByTherapistAndRange: vi.fn().mockResolvedValue([]), findByTenantAndRange: vi.fn(), save: vi.fn() };
+    const appointmentRepo = { findById: vi.fn(), findActiveByTherapistAndRange: vi.fn().mockResolvedValue([]), findByTenantAndRange: vi.fn(), save: vi.fn(), saveMany: vi.fn() };
     const therapistRepo = { findById: vi.fn().mockResolvedValue(therapist), findAllByTenant: vi.fn(), save: vi.fn() };
     const messageQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
 

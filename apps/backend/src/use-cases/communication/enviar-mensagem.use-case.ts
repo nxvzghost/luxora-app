@@ -7,6 +7,8 @@ export interface EnviarMensagemInput {
   toPhoneNumber: string;
   body: string;
   idempotencyKey: string;
+  /** AD-016 — propagado explicitamente desde o payload do job da fila (ver MessageQueueWorker). */
+  correlationId?: string;
 }
 
 /**
@@ -37,6 +39,7 @@ export class EnviarMensagemUseCase {
       toPhoneNumber: input.toPhoneNumber,
       body: input.body,
       idempotencyKey: input.idempotencyKey,
+      correlationId: input.correlationId,
     });
 
     await this.logRepo.record({

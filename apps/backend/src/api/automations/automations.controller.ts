@@ -25,20 +25,24 @@ export class AutomationsController {
   ) {}
 
   @Post('agenda-summary/send')
-  async sendAgendaSummary(@Body() dto: { tenantId: string; therapistId: string; therapistPhone: string }) {
-    await this.enviarResumoAgenda.execute(dto.tenantId, dto.therapistId, dto.therapistPhone);
+  async sendAgendaSummary(
+    @Body() dto: { tenantId: string; therapistId: string; therapistPhone: string; correlationId?: string },
+  ) {
+    await this.enviarResumoAgenda.execute(dto.tenantId, dto.therapistId, dto.therapistPhone, dto.correlationId);
     return { status: 'enqueued' };
   }
 
   @Post('agenda-summary/resend')
-  async resendAgendaSummary(@Body() dto: { tenantId: string; therapistId: string; therapistPhone: string }) {
-    await this.reenviarAgendaAtualizada.execute(dto.tenantId, dto.therapistId, dto.therapistPhone);
+  async resendAgendaSummary(
+    @Body() dto: { tenantId: string; therapistId: string; therapistPhone: string; correlationId?: string },
+  ) {
+    await this.reenviarAgendaAtualizada.execute(dto.tenantId, dto.therapistId, dto.therapistPhone, dto.correlationId);
     return { status: 'enqueued' };
   }
 
   @Post('inadimplencia/execute')
-  async executeOverdueRoutine(@Body() dto: { tenantId: string }) {
-    return this.executarReguaInadimplencia.execute(dto.tenantId);
+  async executeOverdueRoutine(@Body() dto: { tenantId: string; correlationId?: string }) {
+    return this.executarReguaInadimplencia.execute(dto.tenantId, dto.correlationId);
   }
 
   @Post('fechamento-mensal/generate')

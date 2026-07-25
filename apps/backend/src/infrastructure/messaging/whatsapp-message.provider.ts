@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { MessageProvider, SendMessageInput, SendMessageResult } from '@domain-services/communication/message-provider';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
+import { TokenCipherService } from '@shared/token-cipher.service';
 
 /**
  * WhatsAppMessageProvider — CORRIGIDO.
@@ -18,12 +19,19 @@ import { PrismaClientProvider } from '@infrastructure/database/prisma-client.pro
  * tenantId.
  *
  * NÃO TESTADO CONTRA A API REAL — sem rede neste ambiente.
+ *
+ * AD-005: accessToken é lido cifrado do banco e decifrado via
+ * TokenCipherService antes de ser usado no header Authorization — este
+ * Provider nunca sabe (nem precisa saber) qual é o formato de cifragem.
  */
 @Injectable()
 export class WhatsAppMessageProvider implements MessageProvider {
   private readonly apiUrl = 'https://graph.facebook.com/v19.0';
 
-  constructor(private readonly prismaClient: PrismaClientProvider) {}
+  constructor(
+    private readonly prismaClient: PrismaClientProvider,
+    private readonly tokenCipher: TokenCipherService,
+  ) {}
 
   async send(input: SendMessageInput): Promise<SendMessageResult> {
     const integration = await this.prismaClient.whatsAppIntegration.findUnique({
@@ -36,11 +44,16 @@ export class WhatsAppMessageProvider implements MessageProvider {
       );
     }
 
+    const accessToken = this.tokenCipher.decrypt(integration.accessToken);
     const response = await fetch(`${this.apiUrl}/${integration.phoneNumberId}/messages`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${integration.accessToken}`,
+        Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
+        // AD-016 — permite correlacionar esta chamada externa com o restante
+        // dos logs da requisição/job de origem. Ausente quando input não
+        // trouxe um (nunca bloqueia o envio por isso).
+        ...(input.correlationId ? { 'X-Correlation-Id': input.correlationId } : {}),
       },
       body: JSON.stringify({
         messaging_product: 'whatsapp',

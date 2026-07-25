@@ -7,6 +7,14 @@ export interface MessageJobData {
   toPhoneNumber: string;
   body: string;
   idempotencyKey: string;
+  /**
+   * AD-016 — opcional, propagado explicitamente no payload do job (nunca via
+   * contexto ambiente/DI): Scope.REQUEST não sobrevive à fronteira do
+   * BullMQ (mesma limitação estrutural já existente para TenantContext —
+   * ver ADR-0051). Quando ausente, MessageQueueWorker gera um novo, próprio
+   * daquele job.
+   */
+  correlationId?: string;
 }
 
 /**

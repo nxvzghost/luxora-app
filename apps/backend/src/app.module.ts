@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { HealthController } from './api/health.controller';
+import { MetricsController } from './api/metrics/metrics.controller';
+import { MetricsAccessGuard } from './api/metrics/metrics-access.guard';
 import { TenantContextModule } from '@shared/tenant-context.module';
+import { CorrelationContextModule } from '@shared/correlation-context.module';
 import { AuthModule } from './api/auth/auth.module';
 import { PatientsModule } from './api/patients/patients.module';
 import { TherapistsModule } from './api/therapists/therapists.module';
@@ -27,6 +30,7 @@ import { SubscriptionModule } from './api/subscription/subscription.module';
       envFilePath: ['.env'],
     }),
     TenantContextModule,
+    CorrelationContextModule,
     AuthModule,
     PatientsModule,
     TherapistsModule,
@@ -39,6 +43,7 @@ import { SubscriptionModule } from './api/subscription/subscription.module';
     AutomationsModule,
     SubscriptionModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, MetricsController],
+  providers: [MetricsAccessGuard],
 })
 export class AppModule {}

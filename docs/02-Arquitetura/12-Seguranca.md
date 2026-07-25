@@ -266,6 +266,10 @@ Quando aplicável, arquivos armazenados também deverão permanecer protegidos.
 
 
 
+\*\*Implementação concreta (AD-005):\*\* \`WhatsAppIntegration.accessToken\` é cifrado em repouso com AES-256-GCM, via \`TokenCipherService\` (\`apps/backend/src/shared/token-cipher.service.ts\`) — toda a lógica de formato/versão/compatibilidade fica encapsulada nesse serviço, nunca espalhada pelo código chamador. Decisão completa, com formato armazenado e estratégia de rotação de chave, em \`\[ADR-0049\]\(./ADRs/ADR-0049-criptografia-token-whatsapp.md\)\`.
+
+
+
 \---
 
 
@@ -365,6 +369,10 @@ A plataforma deverá possuir mecanismos para reduzir riscos de:
 
 
 As estratégias poderão evoluir conforme a necessidade da plataforma.
+
+
+
+\*\*Implementação concreta (AD-006):\*\* \`POST /auth/login\` possui rate limit via \`@nestjs/throttler\` (padrão: 5 tentativas por 60s, por IP do cliente), escopado só a esta rota — nunca aplicado globalmente à API. Decisão completa, incluindo por que a chave é só IP (não IP+email) e a configuração de \`trust proxy\` necessária em produção, em \`\[ADR-0050\]\(./ADRs/ADR-0050-rate-limit-login.md\)\`.
 
 
 

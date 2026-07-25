@@ -1,7 +1,8 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import type { Response } from 'express';
+import { CORRELATION_ID_REQUEST_KEY, type RequestWithCorrelationId } from './correlation-context';
 
-type ErrorCategory = 'validation' | 'business_rule' | 'authorization' | 'not_found' | 'system';
+type ErrorCategory = 'validation' | 'business_rule' | 'authorization' | 'not_found' | 'rate_limit' | 'system';
 
 /**
  * LuxoraExceptionFilter — Módulo 08 (API Layer).
@@ -19,6 +20,12 @@ export class LuxoraExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+    // AD-016 — este filtro é instanciado manualmente em main.ts
+    // (`new LuxoraExceptionFilter()`), não via DI do Nest, então não pode
+    // injetar CorrelationContext (Scope.REQUEST). Lê direto do req cru, já
+    // preenchido pelo correlationIdMiddleware antes de qualquer Guard rodar.
+    const request = ctx.getRequest<RequestWithCorrelationId>();
+    const correlationId = request[CORRELATION_ID_REQUEST_KEY] ?? null;
     const { status, code, message, category } = this.normalize(exception);
 
     // BUG REAL ENCONTRADO E CORRIGIDO: a mensagem "Nossa equipe foi
@@ -27,11 +34,11 @@ export class LuxoraExceptionFilter implements ExceptionFilter {
     // nenhum para diagnosticar depois.
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
-        exception instanceof Error ? exception.stack ?? exception.message : String(exception),
+        `[correlationId=${correlationId ?? 'desconhecido'}] ${exception instanceof Error ? exception.stack ?? exception.message : String(exception)}`,
       );
     }
 
-    response.status(status).json({ error: { code, message, category, timestamp: new Date().toISOString() } });
+    response.status(status).json({ error: { code, message, category, timestamp: new Date().toISOString(), correlationId } });
   }
 
   private normalize(exception: unknown): { status: number; code: string; message: string; category: ErrorCategory } {
@@ -65,6 +72,8 @@ export class LuxoraExceptionFilter implements ExceptionFilter {
     if (status === HttpStatus.UNAUTHORIZED || status === HttpStatus.FORBIDDEN) return 'authorization';
     if (status === HttpStatus.NOT_FOUND) return 'not_found';
     if (status === HttpStatus.CONFLICT) return 'business_rule';
+    // AD-006 — ThrottlerException (@nestjs/throttler) sempre usa este status.
+    if (status === HttpStatus.TOO_MANY_REQUESTS) return 'rate_limit';
     return 'system';
   }
 
@@ -75,6 +84,7 @@ export class LuxoraExceptionFilter implements ExceptionFilter {
       [HttpStatus.FORBIDDEN]: 'FORBIDDEN',
       [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
       [HttpStatus.CONFLICT]: 'CONFLICT',
+      [HttpStatus.TOO_MANY_REQUESTS]: 'TOO_MANY_REQUESTS',
     };
     return known[status] ?? exceptionClassName.replace('Exception', '').toUpperCase();
   }
