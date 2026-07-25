@@ -2,7 +2,8 @@ import { Body, Controller, Get, Param, Post, Patch, Query, UseGuards } from '@ne
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
-import { TenantContext } from '@shared/tenant-context';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { CreateAppointmentDto, RescheduleAppointmentDto, RecurringAppointmentDto } from './dto/appointment.dto';
 import { ConsultarDisponibilidadeUseCase } from '@use-cases/appointment/consultar-disponibilidade.use-case';
 import { AgendarConsultaUseCase } from '@use-cases/appointment/agendar-consulta.use-case';
@@ -19,10 +20,12 @@ import { Appointment } from '@domain/appointment/appointment.entity';
  * AppointmentsController — ver 02 - CTO/clinicos/docs/04-API/01-Contratos-REST.md,
  * seção "Agenda e Agendamento". A rota de disponibilidade fica sob
  * /therapists por decisão já documentada no contrato original.
+ *
+ * Política de papel por rota: docs/02-Arquitetura/16-Politica-RBAC.md (AD-003).
  */
 @ApiTags('appointments')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, SubscriptionAccessGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, SubscriptionAccessGuard)
 @Controller()
 export class AppointmentsController {
   constructor(
@@ -33,7 +36,6 @@ export class AppointmentsController {
     private readonly confirmarConsulta: ConfirmarConsultaUseCase,
     private readonly criarAgendamentoRecorrente: CriarAgendamentoRecorrenteUseCase,
     private readonly listarAgendamentos: ListarAgendamentosUseCase,
-    private readonly tenantContext: TenantContext,
   ) {}
 
   @Get('appointments')
@@ -44,16 +46,12 @@ export class AppointmentsController {
 
   @Get('therapists/:id/availability')
   async availability(@Param('id') therapistId: string, @Query('from') from: string, @Query('to') to: string) {
-    const slots = await this.consultarDisponibilidade.execute(
-      therapistId,
-      this.tenantContext.tenantId,
-      new Date(from),
-      new Date(to),
-    );
+    const slots = await this.consultarDisponibilidade.execute(therapistId, new Date(from), new Date(to));
     return { data: slots };
   }
 
   @Post('appointments')
+  @Roles('admin', 'therapist')
   async create(@Body() dto: CreateAppointmentDto) {
     const appointment = await this.agendarConsulta.execute({
       ...dto,
@@ -63,22 +61,26 @@ export class AppointmentsController {
   }
 
   @Patch('appointments/:id/reschedule')
+  @Roles('admin', 'therapist')
   async reschedule(@Param('id') id: string, @Body() dto: RescheduleAppointmentDto) {
     const appointment = await this.remarcarConsulta.execute(id, new Date(dto.newScheduledAt));
     return this.toResponse(appointment);
   }
 
   @Post('appointments/:id/cancel')
+  @Roles('admin', 'therapist')
   async cancel(@Param('id') id: string) {
     return this.toResponse(await this.cancelarConsulta.execute(id));
   }
 
   @Post('appointments/:id/confirm')
+  @Roles('admin', 'therapist')
   async confirm(@Param('id') id: string) {
     return this.toResponse(await this.confirmarConsulta.execute(id));
   }
 
   @Post('appointments/recurring')
+  @Roles('admin', 'therapist')
   async recurring(@Body() dto: RecurringAppointmentDto) {
     const appointments = await this.criarAgendamentoRecorrente.execute({
       ...dto,

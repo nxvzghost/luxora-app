@@ -6,6 +6,8 @@ Este documento define os endpoints da API para os módulos já especificados no 
 
 Escopo: módulos do MVP (Clínica, Terapeuta, Paciente, Agenda/Agendamento, Sessão, Financeiro, Dashboard, Auth). IA, WhatsApp e Follow-up avançado seguem o mesmo padrão e serão detalhados quando esses módulos entrarem em desenvolvimento (ver plano de implementação do relatório de arquitetura).
 
+Qual papel (`admin`/`therapist`/`super_admin`) cada rota mutante exige não é repetido aqui — fonte única: `docs/02-Arquitetura/16-Politica-RBAC.md`.
+
 ---
 
 # Auth

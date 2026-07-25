@@ -364,6 +364,18 @@ Ao expirar:
 
 
 
+\# Política de RBAC por Rota
+
+
+
+A matriz completa de qual papel é exigido em cada rota da API — Controller, método HTTP, endpoint, papel(is) autorizado(s) e justificativa — vive em um único lugar: \`docs/02-Arquitetura/16-Politica-RBAC.md\`. Este documento não a repete, para evitar divergência entre duas cópias da mesma informação.
+
+
+
+\---
+
+
+
 \# Controle de Permissões
 
 

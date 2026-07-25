@@ -2,6 +2,8 @@ import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Query
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { CreateBillingDto, CreatePaymentDto } from './dto/billing.dto';
 import {
   GerarCobrancaUseCase,
@@ -17,9 +19,12 @@ import {
 import { Billing } from '@domain/billing/billing.entity';
 import { Payment } from '@domain/payment/payment.entity';
 
+/**
+ * BillingController — política de papel por rota: docs/02-Arquitetura/16-Politica-RBAC.md (AD-003).
+ */
 @ApiTags('billings')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, SubscriptionAccessGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, SubscriptionAccessGuard)
 @Controller('billings')
 export class BillingController {
   constructor(
@@ -36,6 +41,7 @@ export class BillingController {
   }
 
   @Post()
+  @Roles('admin')
   async create(@Body() dto: CreateBillingDto) {
     const billing = await this.gerarCobranca.execute({ ...dto, dueDate: new Date(dto.dueDate) });
     return this.toResponse(billing);
@@ -47,6 +53,7 @@ export class BillingController {
   }
 
   @Post(':id/send')
+  @Roles('admin')
   async send(@Param('id') id: string) {
     return this.toResponse(await this.enviarCobranca.execute(id));
   }
@@ -63,7 +70,7 @@ export class BillingController {
  */
 @ApiTags('payments')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, SubscriptionAccessGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, SubscriptionAccessGuard)
 @Controller('payments')
 export class PaymentController {
   constructor(
@@ -73,6 +80,7 @@ export class PaymentController {
   ) {}
 
   @Post()
+  @Roles('admin')
   async create(@Body() dto: CreatePaymentDto, @Headers('idempotency-key') idempotencyKey?: string) {
     if (!idempotencyKey) {
       throw new BadRequestException('Header Idempotency-Key é obrigatório (RNF-008).');
@@ -87,6 +95,7 @@ export class PaymentController {
   }
 
   @Post(':id/refund')
+  @Roles('admin')
   async refund(@Param('id') id: string) {
     return this.toResponse(await this.estornarPagamento.execute(id));
   }

@@ -2,6 +2,8 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@ne
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
 import { CadastrarPacienteUseCase } from '@use-cases/patient/cadastrar-paciente.use-case';
 import { ConsultarPacienteUseCase } from '@use-cases/patient/consultar-paciente.use-case';
@@ -19,10 +21,12 @@ import {
  *
  * Todo endpoint protegido por JwtAuthGuard — nenhum aqui aceita tenant_id
  * como parâmetro (Princípio já reforçado desde o Módulo 01).
+ *
+ * Política de papel por rota: docs/02-Arquitetura/16-Politica-RBAC.md (AD-003).
  */
 @ApiTags('patients')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, SubscriptionAccessGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, SubscriptionAccessGuard)
 @Controller('patients')
 export class PatientsController {
   constructor(
@@ -48,6 +52,7 @@ export class PatientsController {
   }
 
   @Post()
+  @Roles('admin', 'therapist')
   async create(@Body() dto: CreatePatientDto) {
     const patient = await this.cadastrarPaciente.execute(dto);
     return this.toResponse(patient);
@@ -60,24 +65,28 @@ export class PatientsController {
   }
 
   @Patch(':id')
+  @Roles('admin', 'therapist')
   async update(@Param('id') id: string, @Body() dto: UpdatePatientDto) {
     const patient = await this.atualizarPaciente.execute({ id, ...dto });
     return this.toResponse(patient);
   }
 
   @Post(':id/deactivate')
+  @Roles('admin', 'therapist')
   async deactivate(@Param('id') id: string) {
     const patient = await this.inativarPaciente.execute(id);
     return this.toResponse(patient);
   }
 
   @Post(':id/reactivate')
+  @Roles('admin', 'therapist')
   async reactivate(@Param('id') id: string) {
     const patient = await this.reativarPaciente.execute(id);
     return this.toResponse(patient);
   }
 
   @Post(':id/discharge')
+  @Roles('admin', 'therapist')
   async discharge(@Param('id') id: string) {
     const patient = await this.darAltaPaciente.execute(id);
     return this.toResponse(patient);
