@@ -3,51 +3,41 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
-import { loginAs, TENANT_A_ADMIN_EMAIL } from './support/login-helper';
 import { uniqueSlot } from './support/unique-slot';
+import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
  * [CRÍTICO #4-7] Modelo de Cobrança Agregada — Módulo 09.
  * Fonte: docs/09-Testes/01-Testes-Criticos.md.
  *
- * Depende de ConfirmarConsultaUseCase criar a Sessão real (gap fechado
- * nesta mesma revisão — ver gerenciar-consulta.use-case.ts) — sem isso,
+ * Depende de ConfirmarConsultaUseCase criar a Sessão real — sem isso,
  * nenhum destes cenários é alcançável pela API real (billing_session.session_id
  * é FK para session.id).
+ *
+ * Infraestrutura de teste (Etapa 1 da correção de estabilidade da Suíte
+ * Crítica): Tenant/Terapeuta/Paciente dedicados, não mais o Tenant A
+ * seedado compartilhado — elimina o acúmulo indefinido de Appointment.
  */
 
 let app: INestApplication;
-let token: string;
-let patientId: string;
-let therapistId: string;
-
-// Arrange/verificação de dados apenas — luxora_app (role real) está sujeita
-// a RLS, e session/billing_session são protegidas; a asserção que importa
-// de verdade é a resposta HTTP em si (respeitando RLS via TenantContext do
-// próprio token), isto aqui só confirma a contagem de linhas no banco.
-function toSuperuserUrl(databaseUrl: string): string {
-  const url = new URL(databaseUrl);
-  url.username = 'postgres';
-  url.password = 'postgres';
-  return url.toString();
-}
-const fixturePrisma = new PrismaClient({
-  datasources: { db: { url: toSuperuserUrl(process.env.DATABASE_URL ?? '') } },
-});
+let fixturePrisma: PrismaClient;
+let fixture: DedicatedFixture;
 
 async function createConfirmedSession(scheduledAt: string = uniqueSlot()): Promise<string> {
   const apptRes = await request(app.getHttpServer())
     .post('/api/v1/appointments')
-    .set('Authorization', `Bearer ${token}`)
-    .send({ patientId, therapistId, scheduledAt, modality: 'presencial' });
+    .set('Authorization', `Bearer ${fixture.token}`)
+    .send({ patientId: fixture.patientId, therapistId: fixture.therapistId, scheduledAt, modality: 'presencial' });
   expect(apptRes.status).toBe(201);
+  fixture.appointmentIds.push(apptRes.body.id);
 
   const confirmRes = await request(app.getHttpServer())
     .post(`/api/v1/appointments/${apptRes.body.id}/confirm`)
-    .set('Authorization', `Bearer ${token}`);
+    .set('Authorization', `Bearer ${fixture.token}`);
   expect(confirmRes.status).toBe(201);
 
   const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: apptRes.body.id } });
+  fixture.sessionIds.push(session.id);
   return session.id;
 }
 
@@ -57,10 +47,11 @@ describe('[CRÍTICO #4] Cobrança por sessão avulsa: 1 session gera exatamente 
 
     const res = await request(app.getHttpServer())
       .post('/api/v1/billings')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ patientId, amount: 400, dueDate: '2026-09-08', sessionIds: [sessionId] });
+      .set('Authorization', `Bearer ${fixture.token}`)
+      .send({ patientId: fixture.patientId, amount: 400, dueDate: '2026-09-08', sessionIds: [sessionId] });
 
     expect(res.status).toBe(201);
+    fixture.billingIds.push(res.body.id);
     const linkedCount = await fixturePrisma.billingSession.count({ where: { billingId: res.body.id } });
     expect(linkedCount).toBe(1);
   });
@@ -72,10 +63,11 @@ describe('[CRÍTICO #5] Cobrança semanal: N sessions da mesma semana geram exat
 
     const res = await request(app.getHttpServer())
       .post('/api/v1/billings')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ patientId, amount: 1200, dueDate: '2026-09-15', sessionIds });
+      .set('Authorization', `Bearer ${fixture.token}`)
+      .send({ patientId: fixture.patientId, amount: 1200, dueDate: '2026-09-15', sessionIds });
 
     expect(res.status).toBe(201);
+    fixture.billingIds.push(res.body.id);
     const linkedCount = await fixturePrisma.billingSession.count({ where: { billingId: res.body.id } });
     expect(linkedCount).toBe(3);
   });
@@ -92,10 +84,11 @@ describe('[CRÍTICO #6] Cobrança mensal: N sessions do mesmo mês geram exatame
 
     const res = await request(app.getHttpServer())
       .post('/api/v1/billings')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ patientId, amount: 1600, dueDate: '2026-11-05', sessionIds });
+      .set('Authorization', `Bearer ${fixture.token}`)
+      .send({ patientId: fixture.patientId, amount: 1600, dueDate: '2026-11-05', sessionIds });
 
     expect(res.status).toBe(201);
+    fixture.billingIds.push(res.body.id);
     const linkedCount = await fixturePrisma.billingSession.count({ where: { billingId: res.body.id } });
     expect(linkedCount).toBe(4);
   });
@@ -107,38 +100,46 @@ describe('[CRÍTICO #7] Uma session já vinculada a uma billing em aberto não p
 
     const first = await request(app.getHttpServer())
       .post('/api/v1/billings')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ patientId, amount: 400, dueDate: '2026-09-09', sessionIds: [sessionId] });
+      .set('Authorization', `Bearer ${fixture.token}`)
+      .send({ patientId: fixture.patientId, amount: 400, dueDate: '2026-09-09', sessionIds: [sessionId] });
     expect(first.status).toBe(201);
+    fixture.billingIds.push(first.body.id);
 
     const second = await request(app.getHttpServer())
       .post('/api/v1/billings')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ patientId, amount: 400, dueDate: '2026-09-09', sessionIds: [sessionId] });
+      .set('Authorization', `Bearer ${fixture.token}`)
+      .send({ patientId: fixture.patientId, amount: 400, dueDate: '2026-09-09', sessionIds: [sessionId] });
 
     expect(second.status).toBe(409);
     expect(second.body.error.code).toBe('SESSION_ALREADY_BILLED');
     expect(second.body.error.category).toBe('business_rule');
+    // second nunca foi criada (409) — nada a registrar para cleanup.
   });
 });
 
+function toSuperuserUrl(databaseUrl: string): string {
+  const url = new URL(databaseUrl);
+  url.username = 'postgres';
+  url.password = 'postgres';
+  return url.toString();
+}
+
 beforeAll(async () => {
+  fixturePrisma = new PrismaClient({
+    datasources: { db: { url: toSuperuserUrl(process.env.DATABASE_URL ?? '') } },
+  });
   await fixturePrisma.$connect();
+
   app = await bootstrapTestApp();
-  token = await loginAs(app, TENANT_A_ADMIN_EMAIL);
-
-  const patientsRes = await request(app.getHttpServer())
-    .get('/api/v1/patients')
-    .set('Authorization', `Bearer ${token}`);
-  patientId = patientsRes.body.data[0].id;
-
-  const therapistsRes = await request(app.getHttpServer())
-    .get('/api/v1/therapists')
-    .set('Authorization', `Bearer ${token}`);
-  therapistId = therapistsRes.body.data[0].id;
+  fixture = await createDedicatedFixture(fixturePrisma, 'BILLAGG', {
+    withActiveSubscription: true,
+    withAvailabilityCalendar: true,
+  });
+  await createDedicatedUserAndLogin(fixturePrisma, app, fixture, 'BILLAGG');
 });
 
 afterAll(async () => {
+  await cleanupDedicatedFixture(fixturePrisma, fixture);
   await fixturePrisma.$disconnect();
   await app.close();
 });

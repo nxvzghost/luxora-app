@@ -298,6 +298,10 @@ CREATE POLICY tenant_isolation ON patient
 
 \- **Exceção única e documentada:** a tabela `user` possui uma segunda política de SELECT (`auth_lookup_by_email`), ativada apenas quando a aplicação define explicitamente `app.bypass_tenant_check = 'true'` dentro de uma transação — usada exclusivamente pelo fluxo de login (`PrismaService.forAuthLookup()`), nunca por padrão. Ver ADR-0024 (e-mail de usuário globalmente único) e Teste Crítico #17.
 
+### Scripts administrativos e seeds (AD-033)
+
+Todo processo que escreve em tabela multi-tenant fora de uma requisição HTTP (seeds, scripts administrativos) — ou seja, fora do fluxo normal de `PrismaService.forTenant()` — deve abrir sua própria transação e definir `app.tenant_id` via `set_config('app.tenant_id', $1, true)`, nunca por interpolação de string SQL. `apps/backend/prisma/seed.ts` (função `withTenantContext()`) é a implementação de referência para qualquer script novo com a mesma necessidade — nunca conceder `BYPASSRLS` nem usar o superusuário do Postgres como atalho.
+
 
 
 ### Justificativa

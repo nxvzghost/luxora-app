@@ -7,8 +7,8 @@ import { ConsultarSegmentacaoFinanceiraUseCase } from '@use-cases/billing/consul
 import { buildD1ReminderMessage, buildD7ReminderMessage } from '@use-cases/communication/templates/overdue-reminder.template';
 import { buildBillingMessage } from '@use-cases/communication/templates/billing-message.template';
 import { bootstrapTestApp } from './support/bootstrap-app';
-import { loginAs, TENANT_A_ADMIN_EMAIL } from './support/login-helper';
 import { uniqueSlot } from './support/unique-slot';
+import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
  * [CRÍTICO #14-16] Gestão de Inadimplência — Módulo 13.
@@ -56,39 +56,24 @@ describe('[CRÍTICO #14] Nenhuma mensagem automática ameaça, cobra juros/multa
 });
 
 describe('[CRÍTICO #15] Paciente com cobrança Atrasada continua agendável normalmente', () => {
+  // Infraestrutura de teste (Etapa 1 da correção de estabilidade da Suíte
+  // Crítica): Tenant/Terapeuta/Paciente dedicados, não mais o Tenant A
+  // seedado compartilhado — elimina o acúmulo indefinido de Appointment.
   let app: INestApplication;
-  let token: string;
-  let patientId: string;
-  let therapistId: string;
+  let fixturePrisma: PrismaClient;
+  let fixture: DedicatedFixture;
 
   it('POST /appointments é aceito sem nenhuma trava técnica de inadimplência', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/appointments')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ patientId, therapistId, scheduledAt: uniqueSlot(), modality: 'presencial' });
+      .set('Authorization', `Bearer ${fixture.token}`)
+      .send({ patientId: fixture.patientId, therapistId: fixture.therapistId, scheduledAt: uniqueSlot(), modality: 'presencial' });
     expect(res.status).toBe(201);
+    fixture.appointmentIds.push(res.body.id);
   });
 
   beforeAll(async () => {
-    app = await bootstrapTestApp();
-    token = await loginAs(app, TENANT_A_ADMIN_EMAIL);
-
-    const patientsRes = await request(app.getHttpServer())
-      .get('/api/v1/patients')
-      .set('Authorization', `Bearer ${token}`);
-    patientId = patientsRes.body.data[0].id;
-
-    const therapistsRes = await request(app.getHttpServer())
-      .get('/api/v1/therapists')
-      .set('Authorization', `Bearer ${token}`);
-    therapistId = therapistsRes.body.data[0].id;
-
-    // Marca esse paciente com uma cobrança Atrasada real no banco — não
-    // existe endpoint para forçar esse estado diretamente (a régua/cron é
-    // quem normalmente faz essa transição), então este teste escreve via
-    // Repository direto, o mesmo padrão de "arrange" já usado nos outros
-    // arquivos deste diretório.
-    const fixturePrisma = new PrismaClient({
+    fixturePrisma = new PrismaClient({
       datasources: {
         db: {
           url: (() => {
@@ -101,20 +86,34 @@ describe('[CRÍTICO #15] Paciente com cobrança Atrasada continua agendável nor
       },
     });
     await fixturePrisma.$connect();
-    const tenantA = await fixturePrisma.tenant.findFirstOrThrow({ where: { name: 'Clínica Teste A' } });
-    await fixturePrisma.billing.create({
+
+    app = await bootstrapTestApp();
+    fixture = await createDedicatedFixture(fixturePrisma, 'INADIMPL15', {
+      withActiveSubscription: true,
+      withAvailabilityCalendar: true,
+    });
+    await createDedicatedUserAndLogin(fixturePrisma, app, fixture, 'INADIMPL15');
+
+    // Marca esse paciente com uma cobrança Atrasada real no banco — não
+    // existe endpoint para forçar esse estado diretamente (a régua/cron é
+    // quem normalmente faz essa transição), então este teste escreve via
+    // Repository direto, o mesmo padrão de "arrange" já usado nos outros
+    // arquivos deste diretório.
+    const overdueBilling = await fixturePrisma.billing.create({
       data: {
-        tenantId: tenantA.id,
-        patientId,
+        tenantId: fixture.tenantId,
+        patientId: fixture.patientId,
         amount: 400,
         dueDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
         status: 'atrasada',
       },
     });
-    await fixturePrisma.$disconnect();
+    fixture.billingIds.push(overdueBilling.id);
   });
 
   afterAll(async () => {
+    await cleanupDedicatedFixture(fixturePrisma, fixture);
+    await fixturePrisma.$disconnect();
     await app.close();
   });
 });

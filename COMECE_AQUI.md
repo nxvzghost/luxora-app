@@ -6,14 +6,20 @@ Oi, Pedro. Isso aqui é o backend + frontend da Luxora, construído com Claude a
 
 Módulos 1 a 17: fundação técnica, domínio, autenticação, multi-tenant, pacientes, clínica/terapeuta, agenda, API, financeiro, auditoria, WhatsApp, IA (agente que conversa e age), follow-up/inadimplência, automações (n8n), frontend (login, dashboard, agenda, checkout de assinatura), e assinatura da Luxora via Asaas.
 
+## Ambiente oficial (se você está no Windows)
+
+Todo o projeto — código, `node_modules`, Git, e todo comando abaixo (`pnpm`, `git`, `docker`, `prisma`, testes) — roda de dentro do **WSL2**, em filesystem `ext4` nativo (ex.: `/root/luxora-app` ou `~/luxora-app`), **não** em `C:\Users\...` acessado via `/mnt/c`. Abra o VS Code de dentro do WSL2 (`cd ~/luxora-app && code .`, modo Remote-WSL) — nunca apontando para `\\wsl.localhost\...`/`\\wsl$\...` de um VS Code do lado Windows. Motivo e evidências: [`docs/02-Arquitetura/ADRs/ADR-0048-repositorio-ext4-wsl2.md`](./docs/02-Arquitetura/ADRs/ADR-0048-repositorio-ext4-wsl2.md) (resumo: rodar em `/mnt/c` chegou a ser ~94x mais lento para carregar módulos Node do que em `ext4`).
+
 ## O que você precisa instalar primeiro
 
-- Node.js (versão 20 ou mais recente)
-- pnpm (`npm install -g pnpm`)
-- PostgreSQL (local via Docker é o mais simples, ou já direto uma instância)
-- Redis (mesma lógica — Docker ou instância)
+- Node.js (versão 20 ou mais recente) — instalado nativamente dentro do WSL2 (ex.: via NVM), não a versão do Windows
+- pnpm (`corepack enable` ou `npm install -g pnpm`, também dentro do WSL2)
+- PostgreSQL (via Docker Engine nativo no WSL2 é o mais simples — ver [`ADR-0047`](./docs/02-Arquitetura/ADRs/ADR-0047-docker-engine-nativo-wsl2.md), não Docker Desktop — ou já direto uma instância)
+- Redis (mesma lógica — Docker no WSL2 ou instância)
 
 ## Passo a passo
+
+Rode tudo a partir de uma shell WSL2, dentro do diretório onde o repositório vive em ext4:
 
 ```bash
 # 1. instalar as dependências

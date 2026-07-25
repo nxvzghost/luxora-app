@@ -1,6 +1,11 @@
 -- Luxora — Row-Level Security (defesa em profundidade multi-tenant)
 -- Fonte de verdade: docs/03-Database/09-Multi-Tenant.md
 --
+-- AD-002 (23/07/2026): este conteúdo foi incorporado à migration versionada
+-- prisma/migrations/20260723190000_enable_rls/migration.sql — é isso que
+-- roda de fato hoje, via `prisma migrate deploy`. Este arquivo é mantido só
+-- como referência histórica; não edite um sem replicar no outro.
+--
 -- COMO APLICAR (ordem obrigatória):
 --   1. `pnpm --filter @luxora/backend exec prisma migrate dev --name init`
 --      → gera a migration inicial real a partir de schema.prisma, com timestamp
@@ -28,11 +33,21 @@ DECLARE
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'clinic_settings', 'ai_settings', 'user', 'therapist', 'patient',
-    'appointment', 'session', 'billing', 'billing_session', 'payment', 'audit_log'
+    'appointment', 'session', 'billing', 'billing_session', 'payment', 'audit_log',
+    'availability_calendar', 'clinic_holiday', 'recurring_block', 'tenant_api_key'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t); -- força mesmo para o owner da tabela
+    -- DROP POLICY IF EXISTS antes do CREATE — PD-001 Fase 2 (C2). Este
+    -- script cresce a cada tabela nova do Bounded Context Availability
+    -- (clinic_holiday em B3, recurring_block em C2); sem o DROP, reaplicar
+    -- o array inteiro (necessário sempre que uma tabela nova entra na
+    -- lista) falha com "policy already exists" em toda tabela já coberta
+    -- por uma execução anterior, não só na tabela nova. Torna o script
+    -- inteiro re-executável a qualquer momento, closing um gap que só
+    -- tinha sido corrigido ad-hoc (fora deste arquivo) durante a B3.
+    EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     -- tenant_id é TEXT no schema Prisma (String @id @default(uuid()) não vira
     -- o tipo nativo `uuid` do Postgres) — current_setting já retorna text,
     -- então SEM cast é o comportamento correto; ::uuid aqui quebrava com
@@ -48,8 +63,11 @@ END $$;
 -- a policy acima cobre normalmente porque a coluna tenant_id existe na tabela.
 
 -- ─────────────────────────────────────────────────────────────────────────
--- Exceção deliberada e restrita: lookup de login por email
+-- Exceções deliberadas e restritas (2, ambas usando o mesmo mecanismo de
+-- opt-in explícito por transação — PrismaService.forAuthLookup())
 -- ─────────────────────────────────────────────────────────────────────────
+
+-- 1) Lookup de login por email
 -- O fluxo de autenticação (AuthService.login, ver ADR-0024 — email é
 -- globalmente único, não por Tenant) precisa localizar um usuário por email
 -- ANTES de conhecer o tenantId — a policy `tenant_isolation` padrão
@@ -67,6 +85,20 @@ END $$;
 -- enxerga usuários de qualquer Tenant (necessário), enquanto toda leitura
 -- comum de `user` continua restrita pela tenant_isolation normal.
 CREATE POLICY auth_lookup_by_email ON "user"
+  FOR SELECT
+  USING (current_setting('app.bypass_tenant_check', true) = 'true');
+
+-- 2) Lookup de API key por hash (PD-003, Módulo 17)
+-- ─────────────────────────────────────────────────────────────────────────
+-- TenantApiKeyGuard precisa localizar qual Tenant uma requisição pertence
+-- a partir do hash da chave enviada no header — mesmo problema estrutural
+-- do login por email (não dá pra saber o tenantId antes de já ter
+-- encontrado a linha). Reaproveita o mesmo bypass, nunca abre um mecanismo
+-- novo. Segunda e última exceção documentada — qualquer nova precisa do
+-- mesmo nível de justificativa e revisão explícita, nunca generalizar isto
+-- para "várias tabelas podem pedir bypass".
+DROP POLICY IF EXISTS api_key_lookup_by_hash ON tenant_api_key;
+CREATE POLICY api_key_lookup_by_hash ON tenant_api_key
   FOR SELECT
   USING (current_setting('app.bypass_tenant_check', true) = 'true');
 

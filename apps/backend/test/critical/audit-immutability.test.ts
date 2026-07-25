@@ -45,34 +45,65 @@ describe('[CRÍTICO #11] audit_log é imutável e cada ação gera exatamente um
   });
 
   it('uma ação real (atualizar disponibilidade do terapeuta) gera exatamente 1 novo registro em audit_log', async () => {
-    // Escopado por entityId (o próprio therapistId) em vez de contar o feed
-    // inteiro do Tenant — test/critical/ roda vários arquivos em paralelo,
-    // todos autenticados como Tenant A e gerando eventos de auditoria reais
-    // simultaneamente (agendamentos, cobranças, pagamentos); contar o total
-    // do Tenant colide com esses outros arquivos e não mede o que este
-    // teste realmente quer validar.
+    // Escopado por action ('CalendarioDisponibilidadeAtualizado', ver ADR-0040
+    // — AvailabilityCalendar é quem emite o evento agora, não mais Therapist,
+    // então o entityId é o id do calendário, desconhecido antes do 1º PUT) em
+    // vez de contar o feed inteiro do Tenant — test/critical/ roda vários
+    // arquivos em paralelo, todos autenticados como Tenant A e gerando
+    // eventos de auditoria reais simultaneamente (agendamentos, cobranças,
+    // pagamentos); contar o total do Tenant colide com esses outros arquivos
+    // e não mede o que este teste realmente quer validar. Nenhum outro teste
+    // crítico dispara essa action, então contar por action sozinha é seguro.
+    //
+    // Usa um Terapeuta PRÓPRIO, criado aqui, em vez do terapeuta seedado
+    // compartilhado (`therapistId`, usado por outros arquivos de teste
+    // crítico para criar Appointments de verdade) — desde o Motor de
+    // Disponibilidade (ADR-0040), este PUT passou a ter efeito real sobre
+    // que horários ficam disponíveis; reusar o terapeuta compartilhado
+    // sobrescreveria a janela ampla que os outros arquivos, rodando em
+    // paralelo, dependem para conseguir agendar.
     const client = new PrismaClientProvider();
     await client.$connect();
     const tenantContext = new TenantContext();
     tenantContext.set(tenantAId, 'admin-a');
     const prismaAsTenantA = new PrismaService(client, tenantContext);
 
-    const countBefore = await prismaAsTenantA.forTenant((tx) =>
-      tx.auditLog.count({ where: { entityId: therapistId, action: 'TerapeutaAtualizado' } }),
-    );
-
-    const res = await request(app.getHttpServer())
-      .put(`/api/v1/therapists/${therapistId}/availability`)
+    const dedicatedTherapistRes = await request(app.getHttpServer())
+      .post('/api/v1/therapists')
       .set('Authorization', `Bearer ${token}`)
-      .send({ slots: [{ dayOfWeek: 2, startTime: '10:00', endTime: '13:00' }] });
-    expect(res.status).toBe(200);
+      .send({ name: 'Terapeuta Dedicado — Teste de Auditoria' });
+    const dedicatedTherapistId = dedicatedTherapistRes.body.id;
 
-    const countAfter = await prismaAsTenantA.forTenant((tx) =>
-      tx.auditLog.count({ where: { entityId: therapistId, action: 'TerapeutaAtualizado' } }),
-    );
-    expect(countAfter).toBe(countBefore + 1);
+    try {
+      const countBefore = await prismaAsTenantA.forTenant((tx) =>
+        tx.auditLog.count({ where: { action: 'CalendarioDisponibilidadeAtualizado' } }),
+      );
 
-    await client.$disconnect();
+      const res = await request(app.getHttpServer())
+        .put(`/api/v1/therapists/${dedicatedTherapistId}/availability`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ windows: [{ dayOfWeek: 2, startTime: '10:00', endTime: '13:00', sessionDurationMinutes: 60 }] });
+      expect(res.status).toBe(200);
+
+      const countAfter = await prismaAsTenantA.forTenant((tx) =>
+        tx.auditLog.count({ where: { action: 'CalendarioDisponibilidadeAtualizado' } }),
+      );
+      expect(countAfter).toBe(countBefore + 1);
+    } finally {
+      // Sem isso, cada execução deste teste deixava um Therapist real (+
+      // AvailabilityCalendar) para sempre em Tenant A — inofensivo enquanto
+      // o plano era "ilimitado", mas passou a quebrar a Suíte Crítica depois
+      // de ~4 execuções assim que o teto de terapeutas por plano (Módulo 17,
+      // PLAN_BENEFITS) foi implementado. Limpeza por id conhecido, na ordem
+      // que respeita a FK (calendário antes do terapeuta) — 70 registros
+      // órfãos acumulados até 2026-07-18 foram removidos manualmente uma
+      // vez; este finally impede que voltem a acumular.
+      if (dedicatedTherapistId) {
+        await prismaAsTenantA.forTenant((tx) => tx.availabilityCalendar.deleteMany({ where: { therapistId: dedicatedTherapistId } }));
+        await prismaAsTenantA.forTenant((tx) => tx.therapist.delete({ where: { id: dedicatedTherapistId } }));
+      }
+      await client.$disconnect();
+    }
   });
 });
 
