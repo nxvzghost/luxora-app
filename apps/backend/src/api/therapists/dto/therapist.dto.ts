@@ -1,4 +1,16 @@
-import { IsString, IsOptional, MinLength, IsArray, ValidateNested, Min, Max, Matches, IsInt, IsPositive } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  MinLength,
+  IsArray,
+  ValidateNested,
+  Min,
+  Max,
+  Matches,
+  IsInt,
+  IsPositive,
+  IsISO8601,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateTherapistDto {
@@ -43,4 +55,24 @@ export class SetAvailabilityDto {
   @ValidateNested({ each: true })
   @Type(() => AvailabilityWindowDto)
   windows!: AvailabilityWindowDto[];
+}
+
+/** AD-008 — `from`/`to` como string ISO 8601; conversão para `Date` acontece no Controller, mesmo padrão de `CreateAppointmentDto.scheduledAt`. */
+export class AvailabilityExceptionDto {
+  @IsISO8601()
+  from!: string;
+
+  @IsISO8601()
+  to!: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class SetAvailabilityExceptionsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AvailabilityExceptionDto)
+  exceptions!: AvailabilityExceptionDto[];
 }

@@ -195,6 +195,12 @@ model AvailabilityCalendar {
   // sessionDurationMinutes: number }]. Duração por janela/terapeuta —
   // decisão de produto (ver docs/11-Product-Decisions/PD-001-Motor-de-Disponibilidade).
   windows     Json
+  // AD-008 — bloqueios pontuais do terapeuta (férias, licença, bloqueio
+  // manual), formato [{ from: ISO date, to: ISO date, reason?: string }].
+  // Mesmo tratamento de `windows`: coluna JSON no próprio Aggregate
+  // (AvailabilityCalendar), nunca uma tabela própria — AvailabilityException
+  // não tem existência independente do calendário que a possui.
+  exceptions  Json      @default("[]")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 

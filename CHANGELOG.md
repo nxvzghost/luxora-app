@@ -4,6 +4,27 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Encerramento — AD-008 (Persistência de AvailabilityException) (2026-07-25)
+
+**AD-008 formalmente encerrada — bloqueios pontuais de disponibilidade do terapeuta (`AvailabilityException`) deixam de ser descartados a cada nova leitura do `AvailabilityCalendar`.**
+
+**Achado real na fase de descoberta (auditoria prévia à implementação):** o gap era maior do que "não sobrevive a um restart" — não existia nenhum caminho de aplicação (use case, DTO ou rota) para sequer *definir* uma exceção; `setExceptions()` só era exercitado por teste de unidade da entidade, isoladamente. `VerificarDisponibilidadeUseCase`/`ConsultarDisponibilidadeUseCase` já consultavam `calendar.exceptions` corretamente — a lacuna era 100% de infraestrutura/aplicação, nunca de regra de negócio.
+
+**Arquitetura adotada:**
+- Coluna `exceptions Json @default("[]")` em `AvailabilityCalendar` — mesmo tratamento de `windows`, no mesmo Aggregate, nunca uma tabela dedicada (decisão explícita: `AvailabilityException` não tem existência independente do calendário que a possui, diferente de `ClinicHoliday`/`RecurringBlock`, que são Aggregate Roots próprios).
+- `DefinirExcecoesDisponibilidadeUseCase` (novo), mesmo shape de `DefinirDisponibilidadeUseCase` — substitui a lista inteira, nunca faz merge parcial, mesma semântica já validada em `setExceptions()`.
+- `PUT /therapists/:id/availability/exceptions`, `@Roles('admin')` — mesma política de RBAC da rota irmã de janelas, sem abrir nova decisão de política.
+- **Achado corrigido durante a implementação, não hipotético:** `PrismaAvailabilityRepository.toDomain()` fazia apenas um cast de tipo (`as unknown as AvailabilityException[]`) sem converter `from`/`to` de string ISO (formato de retorno de uma coluna JSON) para `Date` — `isExcepted()` compara com `<`/`>`, que entre um `Date` e uma `string` não numérica sempre resulta em `false` (a string vira `NaN` na coerção). Sem a conversão explícita, a exceção seria persistida e lida do banco, mas nunca teria efeito real na decisão do Motor — bug pego pelo próprio teste crítico desta AD (a asserção de "horário bloqueado" só passou depois da correção).
+
+**Evidência quantitativa:**
+- 1 migration nova (`20260725235742_add_availability_calendar_exceptions`), validada (`prisma migrate status`: schema em dia, sem drift).
+- 4 arquivos modificados de produção (`schema.prisma`, `prisma-availability.repository.ts`, `gerenciar-disponibilidade.use-case.ts`, `therapist.dto.ts`, `therapists.controller.ts`, `therapists.module.ts`) + 1 arquivo crítico novo (`availability-calendar-persistence.test.ts`, 6 testes) + 1 arquivo unitário estendido (`gerenciar-disponibilidade.use-case.test.ts`, +4 testes).
+- Suíte unitária completa: 54 arquivos, 441 testes, 0 falhas (era 54/437 antes desta AD).
+- Suíte crítica completa (`/root/luxora-app`, Postgres real): 21/22 arquivos (1 skip documentado, não relacionado), 152/153 testes, 0 falhas (era 20/21 arquivos, 146/147 antes desta AD).
+- `nest build` limpo (exit 0). `eslint src/**/*.ts --fix` limpo (exit 0).
+
+**Confirmações:** nenhuma regra de negócio alterada (`isAvailable()`/`isExcepted()`/`generateCandidateSlots()` intocados, exceto para consumir a persistência corretamente); nenhum endpoint existente mudou de contrato (rota nova, `windows`/janelas inalteradas); nenhuma tabela nova criada; sem impacto em RLS (policy já cobre a linha inteira por `tenant_id`, independente de coluna). Nenhum ADR novo foi criado — esta AD implementa uma decisão arquitetural já registrada em `ADR-0040`/PD-001, não introduz uma nova, mesmo critério já aplicado à AD-004.
+
 ### Encerramento — AD-016 (Observabilidade de Base — Correlation ID, OpenTelemetry, Prometheus) (2026-07-25)
 
 **AD-016 formalmente encerrada — a plataforma passa a ter Correlation ID ponta a ponta, instrumentação OpenTelemetry explícita e métricas Prometheus reais.** Decisão completa em [`ADR-0051`](./docs/02-Arquitetura/ADRs/ADR-0051-observabilidade-correlation-id-otel-prometheus.md).

@@ -4,14 +4,17 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
-import { CreateTherapistDto, UpdateTherapistDto, SetAvailabilityDto } from './dto/therapist.dto';
+import { CreateTherapistDto, UpdateTherapistDto, SetAvailabilityDto, SetAvailabilityExceptionsDto } from './dto/therapist.dto';
 import {
   CadastrarTerapeutaUseCase,
   ConsultarTerapeutaUseCase,
   ListarTerapeutasUseCase,
   AtualizarTerapeutaUseCase,
 } from '@use-cases/therapist/therapist.use-cases';
-import { DefinirDisponibilidadeUseCase } from '@use-cases/availability/gerenciar-disponibilidade.use-case';
+import {
+  DefinirDisponibilidadeUseCase,
+  DefinirExcecoesDisponibilidadeUseCase,
+} from '@use-cases/availability/gerenciar-disponibilidade.use-case';
 import { Therapist } from '@domain/therapist/therapist.entity';
 import { AvailabilityCalendar } from '@domain/availability/availability-calendar.entity';
 
@@ -29,6 +32,7 @@ export class TherapistsController {
     private readonly listarTerapeutas: ListarTerapeutasUseCase,
     private readonly atualizarTerapeuta: AtualizarTerapeutaUseCase,
     private readonly definirDisponibilidade: DefinirDisponibilidadeUseCase,
+    private readonly definirExcecoesDisponibilidade: DefinirExcecoesDisponibilidadeUseCase,
   ) {}
 
   @Get()
@@ -63,6 +67,14 @@ export class TherapistsController {
     return this.toCalendarResponse(calendar);
   }
 
+  @Put(':id/availability/exceptions')
+  @Roles('admin')
+  async setAvailabilityExceptions(@Param('id') id: string, @Body() dto: SetAvailabilityExceptionsDto) {
+    const exceptions = dto.exceptions.map((e) => ({ from: new Date(e.from), to: new Date(e.to), reason: e.reason }));
+    const calendar = await this.definirExcecoesDisponibilidade.execute(id, exceptions);
+    return this.toCalendarResponse(calendar);
+  }
+
   private toResponse(therapist: Therapist) {
     return {
       id: therapist.id,
@@ -75,6 +87,7 @@ export class TherapistsController {
     return {
       therapistId: calendar.therapistId,
       windows: calendar.windows,
+      exceptions: calendar.exceptions,
     };
   }
 }

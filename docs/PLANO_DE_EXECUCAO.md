@@ -145,16 +145,18 @@
 **Dependências:** Epic 1
 
 **Tarefas:**
-- AD-008 — Persistência de `AvailabilityException` (campo/tabela + repositório)
+- ~~AD-008 — Persistência de `AvailabilityException` (campo/tabela + repositório)~~ **CONCLUÍDA (2026-07-25)** — ver Kanban/CHANGELOG.
 
 **Critério objetivo de conclusão:**
-- Migration nova adicionando persistência de exceções (campo `exceptions` em `AvailabilityCalendar` ou tabela própria — decisão de implementação, não de arquitetura, já que o domínio já existe)
-- Repositório atualizado para reconstituir `exceptions` a partir do banco, não mais sempre `[]`
-- Teste crítico de "restart-survival": criar exceção, reiniciar o processo (ou nova instância do repositório), exceção continua ativa
+- ✅ Migration nova adicionando persistência de exceções (`exceptions Json @default("[]")` em `AvailabilityCalendar` — coluna, mesmo tratamento de `windows`, decisão registrada na descoberta desta AD)
+- ✅ Repositório atualizado para reconstituir `exceptions` a partir do banco, não mais sempre `[]`
+- ✅ Teste crítico de "restart-survival": exceção definida via API sobrevive a uma nova instância do repositório, e o Motor de Disponibilidade real para de oferecer o horário bloqueado
 
-**Riscos:** baixo — domínio já modelado e testado (`availability-calendar.entity.test.ts`), é puramente a metade de infraestrutura que falta.
+**Riscos:** baixo — domínio já modelado e testado (`availability-calendar.entity.test.ts`), era puramente a metade de infraestrutura que faltava. **Achado real durante a descoberta:** o gap também incluía a ausência total de um caminho de aplicação (use case/DTO/rota) para definir exceções — não só a persistência.
 
 **Resultado esperado:** bloqueios de agenda configurados (feriado individual do terapeuta, etc.) não desaparecem silenciosamente.
+
+**Epic 7 — CONCLUÍDO INTEGRALMENTE (2026-07-25).** Os 3 critérios objetivos de conclusão estão marcados. Próximo Epic a considerar: ver Kanban.
 
 ---
 
@@ -399,10 +401,10 @@ A ordem segue dependência real, não facilidade nem urgência de negócio: fund
 ## 4. Kanban
 
 **BACKLOG**
-AD-001, AD-007, AD-008, AD-009, AD-010, AD-011, AD-012, AD-013, AD-014, AD-015, AD-017, AD-018, AD-019, AD-020, AD-021, AD-022, AD-023, AD-024, AD-025, AD-027, AD-028, AD-029, AD-030, AD-031, AD-032, AD-035
+AD-001, AD-007, AD-009, AD-010, AD-011, AD-012, AD-013, AD-014, AD-015, AD-017, AD-018, AD-019, AD-020, AD-021, AD-022, AD-023, AD-024, AD-025, AD-027, AD-028, AD-029, AD-030, AD-031, AD-032, AD-035
 
 **PRÓXIMO**
-Epic 4 (Observabilidade de Base) concluído com a AD-016. Próximo item do backlog a definir.
+Epic 7 (Motor de Disponibilidade — Persistência de Exceções) concluído com a AD-008. Próximo item do backlog a definir (auditoria de priorização indicou AD-009/Epic 6 como maior alavancagem, pendente de decisão de produto sobre o gatilho de `Faturada`).
 
 **EM EXECUÇÃO**
 _(vazio)_
@@ -411,6 +413,7 @@ _(vazio)_
 _(vazio)_
 
 **CONCLUÍDO**
+- AD-008 — Persistência de `AvailabilityException` em `AvailabilityCalendar` (coluna JSON `exceptions`, mesmo padrão de `windows` — nunca uma tabela dedicada). Novo `DefinirExcecoesDisponibilidadeUseCase` + `PUT /therapists/:id/availability/exceptions` (`admin`, mesma política RBAC da rota de janelas). Achado corrigido durante a implementação: conversão de string ISO para `Date` na reconstituição, sem a qual a exceção persistiria mas nunca teria efeito real no Motor. 10 testes novos (4 unitários + 6 críticos, Postgres real), suíte unitária 441/441, suíte crítica 152/153 (1 skip documentado), 0 falhas. Epic 7 (Motor de Disponibilidade — Persistência de Exceções) **concluído integralmente** com este item. Evidência completa no CHANGELOG.
 - AD-016 — Observabilidade de Base: Correlation ID ponta a ponta (middleware dedicado + `CorrelationContext` próprio, nunca uma extensão de `TenantContext`), OpenTelemetry com instrumentações registradas explicitamente (HTTP, Express, ioredis — nunca `auto-instrumentations-node`), `GET /metrics` protegido por token (Prometheus). Instrumentação de queries do Prisma deliberadamente adiada (exigiria `previewFeatures = ["tracing"]`, recurso experimental). 13 testes novos (5 unitários + 8 críticos, Postgres/Redis reais, incluindo o smoke de 3 fluxos exigido pelo critério de conclusão), suíte unitária 437/437, suíte crítica 146/147 (1 skip documentado), 0 falhas. Epic 4 (Observabilidade de Base) **concluído integralmente** com este item. Ver `ADR-0051` e evidência completa no CHANGELOG.
 - AD-006 — `POST /auth/login` protegido por rate limit (`@nestjs/throttler`, 5 tentativas/60s, por IP, `trust proxy` configurado para produção atrás do Railway). Chave por IP puro, deliberadamente sem compor com email (decisão registrada). 4 testes novos (3 críticos, Postgres real + 1 unitário), suíte unitária 430/430, suíte crítica 138/139 (1 skip documentado), 0 falhas. Epic 3 (Segurança Fundamental) **concluído integralmente** com este item. Ver `ADR-0050` e evidência completa no CHANGELOG.
 - AD-005 — `WhatsAppIntegration.accessToken` cifrado em repouso (AES-256-GCM, `TokenCipherService`, formato versionado `v1:iv:tag:ciphertext`, sem migration de schema, compatibilidade retroativa com tokens legados em texto puro). 8 testes novos (6 unitários + 2 críticos, Postgres real), suíte unitária 429/429, suíte crítica 135/136 (1 skip documentado), 0 falhas. Ver `ADR-0049` e evidência completa no CHANGELOG.
