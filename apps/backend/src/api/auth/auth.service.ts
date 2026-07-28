@@ -63,7 +63,13 @@ export class AuthService {
     return this.issueTokens(payload.sub, payload.tenantId, payload.role);
   }
 
-  private async issueTokens(userId: string, tenantId: string, role: LuxoraJwtPayload['role']) {
+  /**
+   * AD-001 — visibilidade elevada de `private` para `public` (nenhuma
+   * mudança de comportamento) para que `ProvisionarPrimeiroAdminUseCase`
+   * reaproveite a emissão de tokens exatamente como `login()` já faz, em
+   * vez de duplicar a lógica de assinatura de JWT.
+   */
+  async issueTokens(userId: string, tenantId: string, role: LuxoraJwtPayload['role']) {
     const basePayload = { sub: userId, tenantId, role };
 
     const accessToken = await this.jwtService.signAsync(

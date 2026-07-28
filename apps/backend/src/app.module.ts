@@ -16,6 +16,7 @@ import { CommunicationModule } from './api/communication/communication.module';
 import { AIModule } from './api/ai/ai.module';
 import { AutomationsModule } from './api/automations/automations.module';
 import { SubscriptionModule } from './api/subscription/subscription.module';
+import { UsersModule } from './api/users/users.module';
 
 /**
  * AppModule — módulo raiz.
@@ -42,6 +43,7 @@ import { SubscriptionModule } from './api/subscription/subscription.module';
     AIModule,
     AutomationsModule,
     SubscriptionModule,
+    UsersModule,
   ],
   controllers: [HealthController, MetricsController],
   providers: [MetricsAccessGuard],

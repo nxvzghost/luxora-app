@@ -105,16 +105,18 @@
 **Dependências:** Epic 1 (RLS deve cobrir a tabela `user`), Epic 3 (as novas rotas de `User` já nascem com `@Roles` correto, evitando reabrir o Epic 3 depois)
 
 **Tarefas:**
-- AD-001 — Controller + Use Cases de criar/listar/atualizar/desativar `User`, incluindo provisionamento do primeiro admin de uma clínica nova
+- ~~AD-001 — Controller + Use Cases de criar/listar/atualizar/desativar `User`, incluindo provisionamento do primeiro admin de uma clínica nova~~ **CONCLUÍDA (2026-07-28)** — ver Kanban/CHANGELOG.
 
 **Critério objetivo de conclusão:**
-- Rotas de `User` funcionais, protegidas por `@Roles('admin')` onde aplicável, cobrindo criar/listar/atualizar/desativar
-- Teste cobrindo happy path, e-mail duplicado (já `@unique` globalmente no schema) e 404
-- Fluxo de provisionamento do primeiro usuário de uma clínica nova documentado e testado (via API, não via seed)
+- [x] Rotas de `User` funcionais, protegidas por `@Roles('admin')` onde aplicável, cobrindo criar/listar/atualizar/desativar
+- [x] Teste cobrindo happy path, e-mail duplicado (já `@unique` globalmente no schema) e 404
+- [x] Fluxo de provisionamento do primeiro usuário de uma clínica nova documentado e testado (via API, não via seed)
 
-**Riscos:** não reabrir o fluxo de assinatura/Asaas já existente — este epic é só sobre `User`, não sobre `ClinicSubscription`.
+**Riscos:** não reabrir o fluxo de assinatura/Asaas já existente — este epic é só sobre `User`, não sobre `ClinicSubscription`. **Confirmado sem reabertura** — nenhum arquivo de `subscription`/`billing`/`payment` foi tocado por esta AD.
 
-**Resultado esperado:** `prisma/seed.ts` deixa de ser o único caminho para o sistema ter um primeiro usuário.
+**Resultado esperado:** `prisma/seed.ts` deixa de ser o único caminho para o sistema ter um primeiro usuário. **Alcançado** — `POST /users/bootstrap-admin` é agora esse caminho via API.
+
+**Epic 5 — CONCLUÍDO INTEGRALMENTE (2026-07-28).** Os 3 critérios objetivos de conclusão estão marcados. Próximo Epic a considerar: ver Kanban.
 
 ---
 
@@ -401,10 +403,10 @@ A ordem segue dependência real, não facilidade nem urgência de negócio: fund
 ## 4. Kanban
 
 **BACKLOG**
-AD-001, AD-007, AD-009, AD-010, AD-011, AD-012, AD-013, AD-014, AD-015, AD-017, AD-018, AD-019, AD-020, AD-021, AD-022, AD-023, AD-024, AD-025, AD-027, AD-028, AD-029, AD-030, AD-031, AD-032, AD-035
+AD-007, AD-009, AD-010, AD-011, AD-012, AD-013, AD-014, AD-015, AD-017, AD-018, AD-019, AD-020, AD-021, AD-022, AD-023, AD-024, AD-025, AD-027, AD-028, AD-029, AD-030, AD-031, AD-032, AD-035
 
 **PRÓXIMO**
-Epic 7 (Motor de Disponibilidade — Persistência de Exceções) concluído com a AD-008. Próximo item do backlog a definir (auditoria de priorização indicou AD-009/Epic 6 como maior alavancagem, pendente de decisão de produto sobre o gatilho de `Faturada`).
+Epic 5 (Gestão de Usuários) concluído com a AD-001; Epic 7 concluído com a AD-008. Próximo item do backlog a definir (auditoria de priorização indicou AD-009/Epic 6 como maior alavancagem, pendente de decisão de produto sobre o gatilho de `Faturada`).
 
 **EM EXECUÇÃO**
 _(vazio)_
@@ -413,6 +415,7 @@ _(vazio)_
 _(vazio)_
 
 **CONCLUÍDO**
+- AD-001 — CRUD de `User` (criar/listar/atualizar/desativar/reativar) + `POST /users/bootstrap-admin` para provisionar o primeiro admin de um Tenant recém-criado, sem `JwtAuthGuard` (não pode haver JWT ainda), protegido por garantia atômica de "Tenant com 0 usuários" (`SELECT ... FOR UPDATE`, validada sob concorrência real) em vez de checagem de aplicação. `super_admin` bloqueado em 3 camadas independentes. 3 achados reais corrigidos durante a implementação: (1) `AuditService` incompatível com o fluxo de bootstrap por depender de `TenantContext`, corrigido gravando o evento de auditoria dentro da própria transação do repositório; (2) regressão real no rate limit de `/auth/login` (AD-006) por dois registros independentes de `ThrottlerModule.forRootAsync()` — causa raiz confirmada lendo o pacote instalado (`ThrottlerModule` já é `@Global()` internamente, `isGlobal` nunca foi uma opção válida), corrigido consolidando em um único registro com throttlers nomeados; (3) gap de fixture de teste (Tenant dedicado sem assinatura ativa), não de produção. 35 testes novos (25 unitários + 10 críticos, Postgres real, incluindo concorrência real do bootstrap), suíte unitária 466/466, suíte crítica 162/163 (1 skip documentado pré-existente), 0 falhas — inclui a suíte de AD-006 passando, confirmando a regressão corrigida sem reintrodução. Nenhuma migration criada. Epic 5 (Gestão de Usuários) **concluído integralmente** com este item. Evidência completa no CHANGELOG.
 - AD-008 — Persistência de `AvailabilityException` em `AvailabilityCalendar` (coluna JSON `exceptions`, mesmo padrão de `windows` — nunca uma tabela dedicada). Novo `DefinirExcecoesDisponibilidadeUseCase` + `PUT /therapists/:id/availability/exceptions` (`admin`, mesma política RBAC da rota de janelas). Achado corrigido durante a implementação: conversão de string ISO para `Date` na reconstituição, sem a qual a exceção persistiria mas nunca teria efeito real no Motor. 10 testes novos (4 unitários + 6 críticos, Postgres real), suíte unitária 441/441, suíte crítica 152/153 (1 skip documentado), 0 falhas. Epic 7 (Motor de Disponibilidade — Persistência de Exceções) **concluído integralmente** com este item. Evidência completa no CHANGELOG.
 - AD-016 — Observabilidade de Base: Correlation ID ponta a ponta (middleware dedicado + `CorrelationContext` próprio, nunca uma extensão de `TenantContext`), OpenTelemetry com instrumentações registradas explicitamente (HTTP, Express, ioredis — nunca `auto-instrumentations-node`), `GET /metrics` protegido por token (Prometheus). Instrumentação de queries do Prisma deliberadamente adiada (exigiria `previewFeatures = ["tracing"]`, recurso experimental). 13 testes novos (5 unitários + 8 críticos, Postgres/Redis reais, incluindo o smoke de 3 fluxos exigido pelo critério de conclusão), suíte unitária 437/437, suíte crítica 146/147 (1 skip documentado), 0 falhas. Epic 4 (Observabilidade de Base) **concluído integralmente** com este item. Ver `ADR-0051` e evidência completa no CHANGELOG.
 - AD-006 — `POST /auth/login` protegido por rate limit (`@nestjs/throttler`, 5 tentativas/60s, por IP, `trust proxy` configurado para produção atrás do Railway). Chave por IP puro, deliberadamente sem compor com email (decisão registrada). 4 testes novos (3 críticos, Postgres real + 1 unitário), suíte unitária 430/430, suíte crítica 138/139 (1 skip documentado), 0 falhas. Epic 3 (Segurança Fundamental) **concluído integralmente** com este item. Ver `ADR-0050` e evidência completa no CHANGELOG.

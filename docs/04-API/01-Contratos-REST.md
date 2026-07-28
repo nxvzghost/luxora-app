@@ -21,6 +21,27 @@ Qual papel (`admin`/`therapist`/`super_admin`) cada rota mutante exige não é r
 
 ---
 
+# Usuários (`/api/v1/users`) — AD-001 (Epic 5, Gestão de Usuários)
+
+Papel exigido por rota: fonte única `docs/02-Arquitetura/16-Politica-RBAC.md` (seções 1 e 3). Resumo: `GET` é aberto a qualquer autenticado do Tenant; `POST`/`PATCH`/`deactivate`/`reactivate` exigem `admin`; `bootstrap-admin` é a única rota pública deste recurso.
+
+| Método | Rota | Caso de Uso | RF relacionado |
+|---|---|---|---|
+| POST | `/api/v1/users/bootstrap-admin` | ProvisionarPrimeiroAdminUseCase | — (provisionamento do primeiro administrador de um Tenant recém-criado; sem `JwtAuthGuard` — ver justificativa em `16-Politica-RBAC.md`, seção 3) |
+| GET | `/api/v1/users` | ListarUsuariosUseCase | — |
+| POST | `/api/v1/users` | CriarUsuarioUseCase | — |
+| PATCH | `/api/v1/users/:id` | AtualizarUsuarioUseCase | — |
+| POST | `/api/v1/users/:id/deactivate` | DesativarUsuarioUseCase | — |
+| POST | `/api/v1/users/:id/reactivate` | ReativarUsuarioUseCase | — |
+
+Notas de contrato:
+- `POST /users/bootstrap-admin` — body `{ tenantId, email, password }`; só é aceito se o Tenant existir e tiver exatamente 0 usuários (garantido atomicamente, não por checagem de aplicação); retorna `201` com `{ accessToken, refreshToken }` (login imediato, sem passo extra); `404` se o Tenant não existir; `409` se o Tenant já tiver um admin (nunca cria um segundo, mesmo sob concorrência); protegido por rate limit dedicado (throttler nomeado `users-bootstrap-admin`, ver `docs/02-Arquitetura/06-Autenticacao.md`).
+- `role` aceito em `POST`/`PATCH`: somente `admin` ou `therapist` — `super_admin` é sempre rejeitado com `400`, em 3 camadas independentes (tipo TypeScript, `class-validator`, invariante de domínio). `therapistId` é obrigatório quando `role: therapist` e deve referenciar um Terapeuta existente no mesmo Tenant (`400`/`404` caso contrário).
+- Resposta de usuário nunca inclui `passwordHash`, em nenhuma rota.
+- `deactivate`/`reactivate` são exclusão lógica (`deletedAt`), reaproveitando o mesmo padrão já usado por `Therapist`/`Patient` — um usuário desativado não consegue mais autenticar via `/auth/login`.
+
+---
+
 # Clínica (`/api/v1/clinic`)
 
 Recurso singular por Tenant — cada Clínica só acessa os próprios dados via contexto do JWT, sem necessidade de `{id}` na rota.

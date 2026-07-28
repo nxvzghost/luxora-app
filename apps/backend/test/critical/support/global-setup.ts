@@ -68,4 +68,14 @@ export function setup(): void {
   // acessar /metrics teria que sobrescrever a variável no próprio
   // beforeAll. Valor fixo e não-secreto, só para a Suíte Crítica.
   process.env.METRICS_ACCESS_TOKEN ??= 'critical-suite-metrics-token';
+
+  // AD-001 — mesmo raciocínio do AUTH_THROTTLE_LIMIT acima: sem elevar o
+  // limite de POST /users/bootstrap-admin, qualquer arquivo que precise
+  // provisionar um Tenant novo via API (em vez do fixture direto via
+  // Prisma) esbarraria no limite de produção rapidamente. Um teste que
+  // precise validar o 409 de segundo bootstrap ou o rate limit de verdade
+  // sobrescreve estas variáveis no próprio beforeAll, como já feito para
+  // AUTH_THROTTLE_*.
+  process.env.USERS_BOOTSTRAP_THROTTLE_LIMIT ??= '10000';
+  process.env.USERS_BOOTSTRAP_THROTTLE_TTL_MS ??= '1000';
 }

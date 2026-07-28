@@ -36,6 +36,24 @@ import { PrismaClientProvider } from '@infrastructure/database/prisma-client.pro
     // sobrescrever o limite ANTES de bootstrapTestApp() e ver esse valor
     // refletido (descoberto na prática: com forRoot(), a sobrescrita nunca
     // tinha efeito nenhum, o valor de global-setup.ts sempre prevalecia).
+    // AD-001 — achado real durante a implementação: duas instâncias
+    // independentes de ThrottlerModule.forRootAsync() (uma aqui, outra em
+    // UsersModule) causaram uma regressão confirmada no rate limit de
+    // /auth/login (quebrou a suíte crítica de AD-006). Causa raiz: a classe
+    // `ThrottlerModule` já é decorada com `@Global()` internamente pelo
+    // próprio pacote (@nestjs/throttler 6.5.0, ver throttler.module.js) —
+    // não existe (nem nunca existiu) uma opção `isGlobal` em
+    // `ThrottlerAsyncOptions` (só `imports`/`useExisting`/`useClass`/
+    // `useFactory`/`inject` — confirmado lendo throttler-module-options.
+    // interface.d.ts). Ou seja, CADA registro de forRootAsync() já nasce
+    // global — dois registros = dois providers globais concorrentes para o
+    // mesmo token THROTTLER_OPTIONS, e um sobrescrevia o outro. A correção
+    // não é declarar `isGlobal` (isso nem compila — TS2353), é nunca ter um
+    // segundo registro: consolidado em UM único ThrottlerModule.forRootAsync()
+    // em todo o app, com os dois throttlers nomeados ('auth-login',
+    // 'users-bootstrap-admin'), cada rota selecionando explicitamente só o
+    // seu via @Throttle()/@SkipThrottle() nos respectivos Controllers —
+    // nenhum dos dois limites afeta o outro.
     ThrottlerModule.forRootAsync({
       useFactory: () => ({
         throttlers: [
@@ -43,6 +61,11 @@ import { PrismaClientProvider } from '@infrastructure/database/prisma-client.pro
             name: 'auth-login',
             ttl: Number(process.env.AUTH_THROTTLE_TTL_MS ?? 60000),
             limit: Number(process.env.AUTH_THROTTLE_LIMIT ?? 5),
+          },
+          {
+            name: 'users-bootstrap-admin',
+            ttl: Number(process.env.USERS_BOOTSTRAP_THROTTLE_TTL_MS ?? 60000),
+            limit: Number(process.env.USERS_BOOTSTRAP_THROTTLE_LIMIT ?? 5),
           },
         ],
       }),

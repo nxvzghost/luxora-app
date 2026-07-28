@@ -44,14 +44,18 @@ Toda rota desta tabela tem `RolesGuard` na cadeia de `@UseGuards()` do seu Contr
 | `AppointmentsController` | POST | `/appointments/:id/confirm` | `admin`, `therapist` | Idem. | **AD-003** |
 | `AppointmentsController` | POST | `/appointments/recurring` | `admin`, `therapist` | Idem. | **AD-003** |
 | `RecurringBlocksController` | POST | `/recurring-blocks` | `admin`, `therapist` | Gestão da própria agenda (bloqueios recorrentes). | **AD-003** |
+| `UsersController` | POST | `/users` | `admin` | Gestão de usuários — criar outro usuário (admin ou therapist) é decisão administrativa. | **AD-001** |
+| `UsersController` | PATCH | `/users/:id` | `admin` | Alterar papel/vínculo de um usuário existente. | **AD-001** |
+| `UsersController` | POST | `/users/:id/deactivate` | `admin` | Desativação lógica de usuário — ação sensível de acesso. | **AD-001** |
+| `UsersController` | POST | `/users/:id/reactivate` | `admin` | Idem. | **AD-001** |
 
-**Total: 29 rotas** (8 pré-existentes + 21 adicionadas pela AD-003).
+**Total: 33 rotas** (8 pré-existentes + 21 da AD-003 + 4 da AD-001).
 
 Resumo da política, conforme aprovado no Design Review:
-- **Financeiro e gestão de equipe** (`Clinic`, `Therapists`, `Billing`, `Payment`, `Subscription`, `AuditLog`, `WhatsApp`) permanecem exclusivos de `admin`.
+- **Financeiro e gestão de equipe** (`Clinic`, `Therapists`, `Billing`, `Payment`, `Subscription`, `AuditLog`, `WhatsApp`, `Users`) permanecem exclusivos de `admin`.
 - **Agenda e gestão clínica operacional** (`Appointments`, `RecurringBlocks`, a maioria de `Patients`) ficam acessíveis a `admin` **e** `therapist`.
 - **`discharge`** (alta de paciente) foi classificado deliberadamente como decisão clínica, não administrativa — por isso `admin`+`therapist`, mesmo estando em `PatientsController`.
-- `super_admin` passa em todas as 29 rotas, sempre — comportamento do `RolesGuard`, não uma exceção desta matriz.
+- `super_admin` passa em todas as 33 rotas, sempre — comportamento do `RolesGuard`, não uma exceção desta matriz. **`super_admin` nunca pode ser criado nem atribuído via `UsersController`** — validado em 3 camadas independentes (tipo `AssignableUserRole` no TypeScript, `@IsIn(['admin','therapist'])` no DTO, invariante no domínio `User`), ver `docs/PLANO_DE_EXECUCAO.md` (AD-001).
 
 ---
 
@@ -72,8 +76,9 @@ Leitura (`GET`) dentro do próprio Tenant — qualquer usuário autenticado do T
 | `BillingController` | GET | `/billings/:id` |
 | `PaymentController` | GET | `/payments/:id` |
 | `RecurringBlocksController` | GET | `/recurring-blocks` |
+| `UsersController` | GET | `/users` |
 
-**Total: 11 rotas.**
+**Total: 12 rotas.** Adição da AD-001: `GET /users` lista os usuários do próprio Tenant — qualquer autenticado, não só `admin`.
 
 ---
 
@@ -87,23 +92,24 @@ Estas rotas não representam um usuário humano com papel — a política de pap
 | `AutomationsController` | 4 rotas (`agenda-summary/*`, `inadimplencia/execute`, `fechamento-mensal/generate`) | `AutomationApiKeyGuard` | Chamado por automação/cron interno, não por um usuário logado — não há `role` de usuário no contexto. |
 | `HealthController` | `GET /health` | nenhum | Probe de infraestrutura. |
 | `WebhookController` | `POST /webhooks/asaas` | `AsaasWebhookGuard` | Chamado pela Asaas externamente; autenticação por assinatura do payload, não por sessão de usuário. |
+| `UsersController` | `POST /users/bootstrap-admin` | nenhum (`ThrottlerGuard` só limita taxa, não autentica) | **AD-001** — provisionamento do primeiro admin de um Tenant recém-criado: por definição não pode exigir `JwtAuthGuard`, pois ainda não existe nenhum usuário para emitir o JWT. Único caso do sistema em que um Controller mistura rotas `JwtAuthGuard` (as outras 5 de `UsersController`, seção 1 e 2) com uma rota pública — a segurança não vem de RBAC aqui, vem da regra de negócio "Tenant com 0 usuários", garantida atomicamente em `PrismaUserRepository.provisionFirstAdmin()` (lock de linha + `SELECT ... FOR UPDATE`), nunca no Controller. |
 
-**Total: 9 rotas fora de escopo.**
+**Total: 10 rotas fora de escopo.**
 
 ---
 
 ## 4. Auditoria de completude
 
-Contagem sobre os 13 Controllers de `apps/backend/src/api/**/*.controller.ts`, sem amostragem — todos.
+Contagem sobre os 14 Controllers de `apps/backend/src/api/**/*.controller.ts`, sem amostragem — todos (13 + `UsersController`, adicionado pela AD-001).
 
 | Métrica | Valor |
 |---|---|
-| Total de Controllers na API | 13 |
-| Controllers autenticados via `JwtAuthGuard` (usuário humano) | 10 |
+| Total de Controllers na API | 14 |
+| Controllers autenticados via `JwtAuthGuard` (usuário humano) | 11 (inclui `UsersController` — 5 de suas 6 rotas usam `JwtAuthGuard`; a 6ª, `bootstrap-admin`, é a única rota pública dentro de um Controller majoritariamente autenticado, ver seção 3) |
 | Controllers fora do escopo RBAC (auth não-JWT ou pública, por desenho documentado no próprio arquivo) | 4 |
-| Total de rotas autenticadas via `JwtAuthGuard` | **40** |
-| Rotas com `@Roles()` explícito (seção 1) | **29** (8 pré-existentes + 21 da AD-003) |
-| Rotas intencionalmente abertas a qualquer autenticado — leitura (seção 2) | **11** |
+| Total de rotas autenticadas via `JwtAuthGuard` | **45** |
+| Rotas com `@Roles()` explícito (seção 1) | **33** (8 pré-existentes + 21 da AD-003 + 4 da AD-001) |
+| Rotas intencionalmente abertas a qualquer autenticado — leitura (seção 2) | **12** (11 pré-existentes + 1 da AD-001) |
 | Rotas mutantes sem nenhuma política — o gap original da AD-003 | **0** (eram 21 antes da implementação) |
 
 `29 + 11 = 40` — reconcilia exatamente com o total de rotas `JwtAuthGuard`. Nenhuma rota mutante autenticada ficou sem política explícita.
