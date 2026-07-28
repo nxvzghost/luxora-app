@@ -6,6 +6,8 @@ import { AuditService } from '@domain-services/platform/audit.service';
 import { TenantContext } from '@shared/tenant-context';
 import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { ClinicRepository, CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
+import { SessionRepository, SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
+import { DomainEvent } from '@domain/shared/domain-event';
 import { MessageQueueProducer } from '@infrastructure/messaging/message-queue.producer';
 import { buildBillingMessage } from '@use-cases/communication/templates/billing-message.template';
 
@@ -20,11 +22,19 @@ export interface GerarCobrancaInput {
  * GerarCobrancaUseCase — RF-071. Aceita sessionIds com 1 ou N elementos,
  * refletindo a correção de modelagem já feita antes deste módulo (cobrança
  * por sessão avulsa = N:1; semanal/mensal = N:N via billing_session).
+ *
+ * AD-009 (ADR-0052): logo após linkSessions(), cada Session vinculada
+ * transiciona Realizada → Faturada, na mesma execução — nunca em
+ * EnviarCobrancaUseCase. Decisão registrada na ADR: Billing já suporta
+ * Criada → Quitada direto (pagamento antes de qualquer envio), e disparar
+ * Faturada só no envio deixaria esse caminho pular Faturada, o que a própria
+ * máquina de estados de Session rejeita (Realizada só vai para Faturada).
  */
 @Injectable()
 export class GerarCobrancaUseCase {
   constructor(
     @Inject(BILLING_REPOSITORY) private readonly repo: BillingRepository,
+    @Inject(SESSION_REPOSITORY) private readonly sessionRepo: SessionRepository,
     private readonly auditService: AuditService,
     private readonly tenantContext: TenantContext,
   ) {}
@@ -43,8 +53,21 @@ export class GerarCobrancaUseCase {
     await this.repo.save(billing);
     await this.repo.linkSessions(billing.id, input.sessionIds); // UNIQUE(session_id) protege contra dupla-cobrança da mesma sessão
 
+    const sessionEvents: DomainEvent[] = [];
+    for (const sessionId of input.sessionIds) {
+      const session = await this.sessionRepo.findById(sessionId);
+      if (!session) {
+        throw new NotFoundException(`Sessão ${sessionId} não encontrada.`);
+      }
+      session.transitionTo('Faturada');
+      await this.sessionRepo.save(session);
+      sessionEvents.push(...session.pullDomainEvents());
+    }
+
     // Módulo 10: eventos agora persistidos de verdade, não mais descartados.
-    await this.auditService.recordAll(billing.pullDomainEvents());
+    // AD-009: eventos da Billing e das Sessions vinculadas mesclados num
+    // único recordAll(), mesmo precedente já usado em ConfirmarConsultaUseCase.
+    await this.auditService.recordAll([...billing.pullDomainEvents(), ...sessionEvents]);
 
     return billing;
   }

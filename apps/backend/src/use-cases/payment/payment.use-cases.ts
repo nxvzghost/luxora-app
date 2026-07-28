@@ -5,6 +5,8 @@ import { PaymentRepository, PAYMENT_REPOSITORY } from '@domain-services/financia
 import { BillingRepository, BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { TenantContext } from '@shared/tenant-context';
+import { SessionRepository, SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
+import { DomainEvent } from '@domain/shared/domain-event';
 
 export interface RegistrarPagamentoInput {
   billingId: string;
@@ -31,6 +33,7 @@ export class RegistrarPagamentoUseCase {
   constructor(
     @Inject(PAYMENT_REPOSITORY) private readonly paymentRepo: PaymentRepository,
     @Inject(BILLING_REPOSITORY) private readonly billingRepo: BillingRepository,
+    @Inject(SESSION_REPOSITORY) private readonly sessionRepo: SessionRepository,
     private readonly auditService: AuditService,
     private readonly tenantContext: TenantContext,
   ) {}
@@ -62,7 +65,23 @@ export class RegistrarPagamentoUseCase {
     if (payment.state === 'Confirmado') {
       billing.transitionTo('Quitada'); // dar baixa é automático, junto da confirmação — nunca passo manual à parte
       await this.billingRepo.save(billing);
-      await this.auditService.recordAll(billing.pullDomainEvents()); // Módulo 10
+
+      // AD-009 (ADR-0052): exatamente no mesmo gatilho que quita a Billing,
+      // todas as Sessions vinculadas transicionam Faturada → Recebida —
+      // nunca antes (payment Divergente não quita Billing nem Session).
+      const sessionEvents: DomainEvent[] = [];
+      const sessionIds = await this.billingRepo.findSessionIdsByBillingId(billing.id);
+      for (const sessionId of sessionIds) {
+        const session = await this.sessionRepo.findById(sessionId);
+        if (!session) {
+          throw new NotFoundException(`Sessão ${sessionId} não encontrada.`);
+        }
+        session.transitionTo('Recebida');
+        await this.sessionRepo.save(session);
+        sessionEvents.push(...session.pullDomainEvents());
+      }
+
+      await this.auditService.recordAll([...billing.pullDomainEvents(), ...sessionEvents]); // Módulo 10
     }
 
     return payment;

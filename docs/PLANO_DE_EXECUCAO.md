@@ -127,16 +127,18 @@
 **Dependências:** Epic 1, Epic 2 (mesma área de domínio de `Appointment`/`Session` — evita conflito de merge fazendo os dois em sequência)
 
 **Tarefas:**
-- AD-009 — Transicionar `Session` para `Faturada` ao gerar cobrança e para `Recebida` ao confirmar pagamento
+- ~~AD-009 — Transicionar `Session` para `Faturada` ao gerar cobrança e para `Recebida` ao confirmar pagamento~~ **CONCLUÍDA (2026-07-28)** — ver Kanban/CHANGELOG/ADR-0052.
 
 **Critério objetivo de conclusão:**
-- `GerarCobrancaUseCase` transiciona toda `Session` vinculada para `Faturada`
-- Confirmação de pagamento (via `RegistrarPagamentoUseCase`) transiciona a(s) `Session` correspondente(s) para `Recebida`
-- Teste cobrindo o ciclo completo: `Realizada → Faturada → Recebida`
+- [x] `GerarCobrancaUseCase` transiciona toda `Session` vinculada para `Faturada`
+- [x] Confirmação de pagamento (via `RegistrarPagamentoUseCase`) transiciona a(s) `Session` correspondente(s) para `Recebida`
+- [x] Teste cobrindo o ciclo completo: `Realizada → Faturada → Recebida`
 
-**Riscos:** exige decisão de produto sobre o exato gatilho de `Faturada` (na criação da `Billing` ou só no envio via `EnviarCobrancaUseCase`?) — confirmar antes de implementar, não assumir.
+**Riscos:** exigia decisão de produto sobre o exato gatilho de `Faturada` (na criação da `Billing` ou só no envio via `EnviarCobrancaUseCase`?) — **resolvido**: decisão registrada e aprovada em `ADR-0052` (na criação, dentro de `GerarCobrancaUseCase`; nunca no envio — justificativa técnica completa na ADR).
 
-**Resultado esperado:** o estado de uma sessão no banco corresponde à realidade financeira, sem depender de inferência externa.
+**Resultado esperado:** o estado de uma sessão no banco corresponde à realidade financeira, sem depender de inferência externa. **Alcançado.**
+
+**Epic 6 — CONCLUÍDO INTEGRALMENTE (2026-07-28).** Os 3 critérios objetivos de conclusão estão marcados. Próximo Epic a considerar: ver Kanban.
 
 ---
 
@@ -403,10 +405,10 @@ A ordem segue dependência real, não facilidade nem urgência de negócio: fund
 ## 4. Kanban
 
 **BACKLOG**
-AD-007, AD-009, AD-010, AD-011, AD-012, AD-013, AD-014, AD-015, AD-017, AD-018, AD-019, AD-020, AD-021, AD-022, AD-023, AD-024, AD-025, AD-027, AD-028, AD-029, AD-030, AD-031, AD-032, AD-035
+AD-007, AD-010, AD-011, AD-012, AD-013, AD-014, AD-015, AD-017, AD-018, AD-019, AD-020, AD-021, AD-022, AD-023, AD-024, AD-025, AD-027, AD-028, AD-029, AD-030, AD-031, AD-032, AD-035
 
 **PRÓXIMO**
-Epic 5 (Gestão de Usuários) concluído com a AD-001; Epic 7 concluído com a AD-008. Próximo item do backlog a definir (auditoria de priorização indicou AD-009/Epic 6 como maior alavancagem, pendente de decisão de produto sobre o gatilho de `Faturada`).
+Epic 5 (Gestão de Usuários) concluído com a AD-001; Epic 6 (Fechamento do Ciclo Financeiro) concluído com a AD-009; Epic 7 concluído com a AD-008. Próximo item do backlog a definir — Epic 8 (Canal WhatsApp, AD-007/AD-010/AD-027) tem agora todas as suas dependências de Epic satisfeitas (Epic 1, Epic 3, Epic 6), mas depende de credenciais reais da Meta/WhatsApp Business API (bloqueio de ambiente externo, não de decisão de produto).
 
 **EM EXECUÇÃO**
 _(vazio)_
@@ -415,6 +417,7 @@ _(vazio)_
 _(vazio)_
 
 **CONCLUÍDO**
+- AD-009 — `Session.state` passa a acompanhar o ciclo financeiro real: `Realizada → Faturada` dentro de `GerarCobrancaUseCase` (logo após `linkSessions()`, nunca em `EnviarCobrancaUseCase`); `Faturada → Recebida` dentro de `RegistrarPagamentoUseCase`, no mesmo gatilho que já quita a `Billing`. Decisão de produto (gatilho exato) registrada e aprovada em `ADR-0052`, com justificativa técnica: `Billing` já suporta `Criada → Quitada` direto (pagamento antes do envio), e disparar `Faturada` só no envio deixaria esse caminho já-suportado pular `Faturada`, o que a própria máquina de estados de `Session` rejeita. Único requisito técnico novo: `BillingRepository.findSessionIdsByBillingId()`. Cancelamento/estorno/reversão explicitamente fora de escopo (aprovado, não esquecido — nem `Billing` nem `Payment` tinham caminho de reversão funcional antes desta AD). Nenhuma migration, nenhuma alteração em `schema.prisma` — `SessionState` já incluía `Faturada`/`Recebida`, nunca usado. 9 testes novos (4 unitários + 5 críticos, Postgres real, incluindo cobrança agregada de 3 sessões), suíte unitária 470/470, suíte crítica 167/168 (1 skip documentado pré-existente), 0 falhas. Epic 6 (Fechamento do Ciclo Financeiro) **concluído integralmente** com este item. Ver `ADR-0052` e evidência completa no CHANGELOG.
 - AD-001 — CRUD de `User` (criar/listar/atualizar/desativar/reativar) + `POST /users/bootstrap-admin` para provisionar o primeiro admin de um Tenant recém-criado, sem `JwtAuthGuard` (não pode haver JWT ainda), protegido por garantia atômica de "Tenant com 0 usuários" (`SELECT ... FOR UPDATE`, validada sob concorrência real) em vez de checagem de aplicação. `super_admin` bloqueado em 3 camadas independentes. 3 achados reais corrigidos durante a implementação: (1) `AuditService` incompatível com o fluxo de bootstrap por depender de `TenantContext`, corrigido gravando o evento de auditoria dentro da própria transação do repositório; (2) regressão real no rate limit de `/auth/login` (AD-006) por dois registros independentes de `ThrottlerModule.forRootAsync()` — causa raiz confirmada lendo o pacote instalado (`ThrottlerModule` já é `@Global()` internamente, `isGlobal` nunca foi uma opção válida), corrigido consolidando em um único registro com throttlers nomeados; (3) gap de fixture de teste (Tenant dedicado sem assinatura ativa), não de produção. 35 testes novos (25 unitários + 10 críticos, Postgres real, incluindo concorrência real do bootstrap), suíte unitária 466/466, suíte crítica 162/163 (1 skip documentado pré-existente), 0 falhas — inclui a suíte de AD-006 passando, confirmando a regressão corrigida sem reintrodução. Nenhuma migration criada. Epic 5 (Gestão de Usuários) **concluído integralmente** com este item. Evidência completa no CHANGELOG.
 - AD-008 — Persistência de `AvailabilityException` em `AvailabilityCalendar` (coluna JSON `exceptions`, mesmo padrão de `windows` — nunca uma tabela dedicada). Novo `DefinirExcecoesDisponibilidadeUseCase` + `PUT /therapists/:id/availability/exceptions` (`admin`, mesma política RBAC da rota de janelas). Achado corrigido durante a implementação: conversão de string ISO para `Date` na reconstituição, sem a qual a exceção persistiria mas nunca teria efeito real no Motor. 10 testes novos (4 unitários + 6 críticos, Postgres real), suíte unitária 441/441, suíte crítica 152/153 (1 skip documentado), 0 falhas. Epic 7 (Motor de Disponibilidade — Persistência de Exceções) **concluído integralmente** com este item. Evidência completa no CHANGELOG.
 - AD-016 — Observabilidade de Base: Correlation ID ponta a ponta (middleware dedicado + `CorrelationContext` próprio, nunca uma extensão de `TenantContext`), OpenTelemetry com instrumentações registradas explicitamente (HTTP, Express, ioredis — nunca `auto-instrumentations-node`), `GET /metrics` protegido por token (Prometheus). Instrumentação de queries do Prisma deliberadamente adiada (exigiria `previewFeatures = ["tracing"]`, recurso experimental). 13 testes novos (5 unitários + 8 críticos, Postgres/Redis reais, incluindo o smoke de 3 fluxos exigido pelo critério de conclusão), suíte unitária 437/437, suíte crítica 146/147 (1 skip documentado), 0 falhas. Epic 4 (Observabilidade de Base) **concluído integralmente** com este item. Ver `ADR-0051` e evidência completa no CHANGELOG.

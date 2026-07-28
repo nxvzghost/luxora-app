@@ -4,6 +4,30 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Encerramento — AD-009 (Fechamento do Ciclo Financeiro — Epic 6) (2026-07-28)
+
+**AD-009 formalmente encerrada — `Session.state` passa a refletir a realidade financeira de verdade.** `Faturada`/`Recebida` eram código morto desde sempre (máquina de estados completa e testada na entidade, mas nenhum Use Case jamais os alcançava — achado original de `docs/AUDITORIA_TECNICA_DEFINITIVA.md`, seção 3.4). Decisão completa em [`ADR-0052`](./docs/02-Arquitetura/ADRs/ADR-0052-fechamento-ciclo-financeiro-sessao-faturada-recebida.md).
+
+**Decisão de produto aprovada — gatilhos exatos:**
+- `Session` transiciona `Realizada → Faturada` dentro do próprio `GerarCobrancaUseCase`, imediatamente após `linkSessions()` — nunca em `EnviarCobrancaUseCase`. Justificativa registrada na ADR: `Billing` já suporta `Criada → Quitada` direto (pagamento antes de qualquer envio, ex. PIX no consultório); se `Faturada` só disparasse no envio, esse caminho já-suportado pularia `Faturada` inteiramente, o que a própria máquina de estados de `Session` rejeita (`Realizada` só transiciona para `Faturada`, nunca direto para `Recebida` — testado).
+- `Session` transiciona `Faturada → Recebida` dentro de `RegistrarPagamentoUseCase`, no mesmo bloco condicional que já quita a `Billing` (`payment.state === 'Confirmado'`) — nunca antes. Pagamento `Divergente` não transiciona nem `Billing` nem `Session`, comportamento que já existia para `Billing` e se estende naturalmente.
+- Cobrança agregada (N sessões numa única `Billing`) transiciona todas as sessões vinculadas juntas, atomicamente com a `Billing` — consistente com o modelo já existente (pagamento é reconciliado contra o valor total, não por sessão).
+
+**Escopo explicitamente excluído (aprovado como fora de escopo, não esquecido):** cancelamento de `Billing` (`CancelarCobrancaUseCase` continua não existindo — já era código morto antes desta AD), estorno financeiro (`EstornarPagamentoUseCase` já não revertia `Billing` de `Quitada`, e `Session` não ganhou reversão para não criar uma inconsistência nova entre as três entidades), e nenhum estado novo em nenhuma máquina de estados.
+
+**Requisito técnico mínimo aprovado:** `BillingRepository` ganhou `findSessionIdsByBillingId(billingId)` — único método novo, lê `billing_session` (só escrita existia antes, via `linkSessions()`/`countLinkedSessions()`).
+
+**Evidência quantitativa:**
+- Nenhuma migration criada; nenhuma alteração em `schema.prisma` — `SessionState` (Prisma) já incluía `Faturada`/`Recebida` desde antes, nunca usado.
+- 5 arquivos de produção modificados (`domain-services/financial/billing.repository.ts`, `infrastructure/database/repositories/prisma-billing.repository.ts`, `use-cases/billing/billing.use-cases.ts`, `use-cases/payment/payment.use-cases.ts`, `api/billing/billing.module.ts` — registro de `SESSION_REPOSITORY`).
+- 4 testes unitários novos (`GerarCobrancaUseCase`: transição em lote + 404 de sessão inexistente; `RegistrarPagamentoUseCase`: transição em lote + 404 de sessão inexistente) + 4 arquivos de teste unitário pré-existentes ajustados só para incluir o novo membro `findSessionIdsByBillingId` em mocks de `BillingRepository` (`billing.use-cases.test.ts`, `gerar-fechamento-mensal.use-case.test.ts`, `regua-inadimplencia.test.ts`, `payment.use-cases.test.ts`).
+- 5 testes críticos novos contra Postgres real (`session-billing-lifecycle.test.ts`): ciclo completo `Realizada → Faturada → Recebida`; pagamento divergente não avança a Session; cobrança agregada de 3 sessões transicionando juntas em ambos os gatilhos.
+- Suíte unitária completa: 56 arquivos, **470/470 testes, 0 falhas** (era 466/466 antes desta AD).
+- Suíte crítica completa (`/root/luxora-app`, Postgres real): 25 arquivos (24 passaram, 1 skip documentado pré-existente e não relacionado), **167/168 testes, 0 falhas** (era 162/163 antes desta AD).
+- `nest build` limpo (exit 0). `eslint` limpo (exit 0).
+
+**Confirmações:** nenhuma migration; nenhuma alteração em `schema.prisma`; `SessionStateChangedEvent` continua sendo o único evento emitido (nenhum evento novo); padrão de auditoria `recordAll()` mantido, com eventos de `Billing`/`Payment` e `Session` mesclados num único `recordAll()` por operação (mesmo precedente já usado em `ConfirmarConsultaUseCase`); nenhum contrato de API alterado (`POST /billings`, `POST /payments` mantêm o mesmo formato de entrada/saída — o efeito em `Session` é interno). Epic 6 (Fechamento do Ciclo Financeiro) **concluído integralmente** com este item.
+
 ### Encerramento — AD-001 (Gestão de Usuários — Epic 5, Onboarding) (2026-07-28)
 
 **AD-001 formalmente encerrada — a API ganha CRUD completo de usuários e um caminho de bootstrap para o primeiro administrador de um Tenant recém-criado, cobrindo a única lacuna que impedia qualquer clínica nova de sequer logar pela primeira vez (não existia, até aqui, nenhum caminho de aplicação para criar o primeiro `User`).**

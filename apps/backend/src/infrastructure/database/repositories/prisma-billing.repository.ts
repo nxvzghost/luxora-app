@@ -109,6 +109,13 @@ export class PrismaBillingRepository implements BillingRepository {
     return this.prisma.forTenant((tx) => tx.billingSession.count({ where: { billingId } }));
   }
 
+  async findSessionIdsByBillingId(billingId: string): Promise<string[]> {
+    const rows = await this.prisma.forTenant((tx) =>
+      tx.billingSession.findMany({ where: { billingId }, select: { sessionId: true } }),
+    );
+    return rows.map((r) => r.sessionId);
+  }
+
   private toDomain(record: PrismaBilling): Billing {
     return Billing.reconstitute({
       id: record.id,

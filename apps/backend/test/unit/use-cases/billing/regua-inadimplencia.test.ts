@@ -13,28 +13,28 @@ function overdueBilling(id: string, daysAgo: number) {
 
 describe('ConsultarSegmentacaoFinanceiraUseCase — limiares 7 e 40 dias', () => {
   it('classifica 7 dias como em_atraso (fronteira inclusiva)', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 7)]), countLinkedSessions: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 7)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
     const useCase = new ConsultarSegmentacaoFinanceiraUseCase(repo);
     const [result] = await useCase.execute();
     expect(result.segment).toBe('em_atraso');
   });
 
   it('classifica 8 dias como em_atraso, não um terceiro estágio', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 8)]), countLinkedSessions: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 8)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
     const useCase = new ConsultarSegmentacaoFinanceiraUseCase(repo);
     const [result] = await useCase.execute();
     expect(result.segment).toBe('em_atraso');
   });
 
   it('classifica 40 dias como em_atraso (fronteira exata — só vira inadimplente ACIMA de 40)', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 40)]), countLinkedSessions: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 40)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
     const useCase = new ConsultarSegmentacaoFinanceiraUseCase(repo);
     const [result] = await useCase.execute();
     expect(result.segment).toBe('em_atraso');
   });
 
   it('classifica 41 dias como inadimplente', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 41)]), countLinkedSessions: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 41)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
     const useCase = new ConsultarSegmentacaoFinanceiraUseCase(repo);
     const [result] = await useCase.execute();
     expect(result.segment).toBe('inadimplente');

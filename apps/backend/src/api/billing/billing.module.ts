@@ -23,6 +23,8 @@ import { AUDIT_LOG_REPOSITORY } from '@domain-services/platform/audit-log.reposi
 import { PrismaAuditLogRepository } from '@infrastructure/database/repositories/prisma-audit-log.repository';
 import { PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { PrismaPatientRepository } from '@infrastructure/database/repositories/prisma-patient.repository';
+import { SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
+import { PrismaSessionRepository } from '@infrastructure/database/repositories/prisma-session.repository';
 import { CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { PrismaClinicRepository } from '@infrastructure/database/repositories/prisma-clinic.repository';
 import { ConsultarSegmentacaoFinanceiraUseCase } from '@use-cases/billing/consultar-segmentacao-financeira.use-case';
@@ -57,6 +59,7 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     { provide: AUDIT_LOG_REPOSITORY, useClass: PrismaAuditLogRepository },
     { provide: PATIENT_REPOSITORY, useClass: PrismaPatientRepository },
     { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
+    { provide: SESSION_REPOSITORY, useClass: PrismaSessionRepository },
     JwtAuthGuard,
   ],
 })

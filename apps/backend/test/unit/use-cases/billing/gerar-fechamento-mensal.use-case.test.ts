@@ -24,6 +24,7 @@ describe('GerarFechamentoMensalUseCase', () => {
       linkSessions: vi.fn(),
       findOverdueByTenant: vi.fn(),
       countLinkedSessions: vi.fn(),
+      findSessionIdsByBillingId: vi.fn(),
     };
     const useCase = new GerarFechamentoMensalUseCase(repo);
     const result = await useCase.execute();
@@ -42,6 +43,7 @@ describe('GerarFechamentoMensalUseCase', () => {
       linkSessions: vi.fn(),
       findOverdueByTenant: vi.fn(),
       countLinkedSessions: vi.fn(),
+      findSessionIdsByBillingId: vi.fn(),
     };
     const useCase = new GerarFechamentoMensalUseCase(repo);
     const result = await useCase.execute();
@@ -58,6 +60,7 @@ describe('GerarFechamentoMensalUseCase', () => {
       linkSessions: vi.fn(),
       findOverdueByTenant: vi.fn(),
       countLinkedSessions: vi.fn(),
+      findSessionIdsByBillingId: vi.fn(),
     };
     const useCase = new GerarFechamentoMensalUseCase(repo);
     const result = await useCase.execute();
@@ -73,6 +76,7 @@ describe('GerarFechamentoMensalUseCase', () => {
       linkSessions: vi.fn(),
       findOverdueByTenant: vi.fn(),
       countLinkedSessions: vi.fn(),
+      findSessionIdsByBillingId: vi.fn(),
     };
     const useCase = new GerarFechamentoMensalUseCase(repo);
     const result = await useCase.execute();
