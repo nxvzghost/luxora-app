@@ -1,8 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { IntentResult } from '@domain-services/ai/ai-provider';
 import { AgendarConsultaUseCase } from '@use-cases/appointment/agendar-consulta.use-case';
-import { CancelarConsultaUseCase, ConfirmarConsultaUseCase } from '@use-cases/appointment/gerenciar-consulta.use-case';
+import {
+  CancelarConsultaUseCase,
+  ConfirmarConsultaUseCase,
+  RemarcarConsultaUseCase,
+} from '@use-cases/appointment/gerenciar-consulta.use-case';
 import { ConsultarCobrancaUseCase } from '@use-cases/billing/billing.use-cases';
+import { ConsultarDisponibilidadeUseCase } from '@use-cases/appointment/consultar-disponibilidade.use-case';
 
 export interface IntentActionResult {
   actionTaken: boolean;
@@ -23,11 +28,13 @@ export interface IntentActionResult {
  * `actionTaken: false`, tratado como equivalente a precisar de mais
  * informação. A IA nunca "adivinha" um ID de agendamento ou terapeuta.
  *
- * ESCOPO DESTA IMPLEMENTAÇÃO: 4 intents roteados de verdade
+ * ESCOPO DESTA IMPLEMENTAÇÃO: 6 intents roteados de verdade
  * (agendar_consulta, cancelar_consulta, confirmar_presenca,
- * consultar_cobranca). `duvida_geral`, `enviar_comprovante`, `outro`
- * permanecem apenas conversacionais — registrado como próximo passo, não
- * crítico como as ações que mutam dado.
+ * consultar_cobranca, remarcar_consulta, consultar_disponibilidade —
+ * os 2 últimos adicionados pela AD-010/ADR-0053; os Use Cases já
+ * existiam prontos em AppointmentsModule, só não estavam conectados
+ * aqui). `duvida_geral`, `enviar_comprovante`, `outro` permanecem apenas
+ * conversacionais.
  */
 @Injectable()
 export class IntentActionRouter {
@@ -38,6 +45,8 @@ export class IntentActionRouter {
     private readonly cancelarConsulta: CancelarConsultaUseCase,
     private readonly confirmarConsulta: ConfirmarConsultaUseCase,
     private readonly consultarCobranca: ConsultarCobrancaUseCase,
+    private readonly remarcarConsulta: RemarcarConsultaUseCase,
+    private readonly consultarDisponibilidade: ConsultarDisponibilidadeUseCase,
   ) {}
 
   async route(intent: IntentResult, context: { tenantId: string; patientId?: string }): Promise<IntentActionResult> {
@@ -51,6 +60,10 @@ export class IntentActionRouter {
           return await this.routeConfirmarConsulta(intent);
         case 'consultar_cobranca':
           return await this.routeConsultarCobranca(intent);
+        case 'remarcar_consulta':
+          return await this.routeRemarcarConsulta(intent);
+        case 'consultar_disponibilidade':
+          return await this.routeConsultarDisponibilidade(intent);
         default:
           return { actionTaken: false };
       }
@@ -112,5 +125,45 @@ export class IntentActionRouter {
       actionTaken: true,
       actionSummary: `Cobrança de R$ ${billing.amount.toFixed(2)}, status: ${billing.state}.`,
     };
+  }
+
+  /** AD-010 — RemarcarConsultaUseCase já existia pronto, só não conectado aqui. */
+  private async routeRemarcarConsulta(intent: IntentResult): Promise<IntentActionResult> {
+    const { appointmentId, newScheduledAt } = intent.entities as { appointmentId?: string; newScheduledAt?: string };
+    if (!appointmentId || !newScheduledAt) return { actionTaken: false };
+
+    const appointment = await this.remarcarConsulta.execute(appointmentId, new Date(newScheduledAt));
+    return {
+      actionTaken: true,
+      actionSummary: `Consulta reagendada para ${appointment.scheduledAt.toLocaleString('pt-BR')}.`,
+    };
+  }
+
+  /**
+   * AD-010 — ConsultarDisponibilidadeUseCase já existia pronto, só não
+   * conectado aqui. `therapistId` é obrigatório (mesma regra de segurança
+   * das demais rotas — nunca adivinha um ID); `from`/`to` têm um default
+   * de "próximos 7 dias a partir de agora" quando ausentes, porque esta é
+   * uma consulta pura de leitura, sem efeito colateral — diferente de
+   * `appointmentId`/`therapistId`, uma janela de tempo aproximada não
+   * corre o risco de mutar o dado errado.
+   */
+  private async routeConsultarDisponibilidade(intent: IntentResult): Promise<IntentActionResult> {
+    const { therapistId, from, to } = intent.entities as { therapistId?: string; from?: string; to?: string };
+    if (!therapistId) return { actionTaken: false };
+
+    const fromDate = from ? new Date(from) : new Date();
+    const toDate = to ? new Date(to) : new Date(fromDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const slots = await this.consultarDisponibilidade.execute(therapistId, fromDate, toDate);
+    if (slots.length === 0) {
+      return { actionTaken: true, actionSummary: 'Nenhum horário disponível no período consultado.' };
+    }
+
+    const preview = slots
+      .slice(0, 3)
+      .map((s) => s.startsAt.toLocaleString('pt-BR'))
+      .join(', ');
+    return { actionTaken: true, actionSummary: `Horários disponíveis: ${preview}${slots.length > 3 ? '...' : ''}.` };
   }
 }

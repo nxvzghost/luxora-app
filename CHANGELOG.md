@@ -4,6 +4,37 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Encerramento — AD-007/AD-010 (Canal WhatsApp — Entrada Real) (2026-07-28)
+
+**Epic 8 (Canal WhatsApp) ganha seu primeiro ponto de entrada HTTP real — o gap que o próprio `AIModule` documentava como dívida explícita.** `POST /webhooks/whatsapp` recebe mensagens reais, resolve o Tenant, persiste de forma idempotente e despacha o pipeline de IA já existente (`ProcessarMensagemUseCase`/`IntentActionRouter`) de forma assíncrona. `IntentActionRouter` passa de 4 para 6 intents roteados (`remarcar_consulta`, `consultar_disponibilidade` — AD-010). Decisão completa em [`ADR-0053`](./docs/02-Arquitetura/ADRs/ADR-0053-canal-whatsapp-entrada-real.md).
+
+**Arquitetura adotada (Opção A da descoberta, aprovada integralmente):**
+- **PD-007 implementado** — resolução de Tenant via `phoneNumberId`: índice único em `WhatsAppIntegration.phoneNumberId` (antes sem `@unique`/`@@index`, nada impedia dois Tenants com o mesmo número).
+- **PD-008 implementado em versão mínima** — novo Bounded Context `Conversation`/`Message` (`domain/communication/`), deliberadamente **sem máquina de estados** (sem `Ativa`/`Escalada`/`Encerrada`) e **sem escalonamento humano** — restrições explicitamente aprovadas, cortando o desenho mais rico que a descoberta original havia esboçado. `MessageLog` permanece intocado, responsável só pelos fluxos automáticos já existentes (lembrete, cobrança).
+- Autenticação de entrada via HMAC-SHA256 (`X-Hub-Signature-256`) sobre o corpo bruto (`WhatsAppWebhookGuard`) — estruturalmente diferente do único precedente existente (`AsaasWebhookGuard`, string estática). `rawBody: true` habilitado globalmente em `NestFactory.create()`.
+- Handshake de verificação (`GET /webhooks/whatsapp`) — mecanismo sem precedente no código antes desta AD.
+- Idempotência de entrada via WAMID (`Message.externalId`, `@unique`), checado antes de qualquer enfileiramento — mesmo padrão de 2-3 camadas já validado na saída.
+- Processamento de IA assíncrono via fila BullMQ nova (`whatsapp-inbound`), nunca bloqueando a resposta síncrona ao webhook.
+- Auditoria via `actorType: 'system'` para o evento de mensagem recebida — mesmo precedente já usado por `ProcessarWebhookAssinaturaUseCase`.
+- Reaproveitamento total do pipeline de saída existente (`EnviarMensagemUseCase`/`WhatsAppMessageProvider`/fila `messages`) para o envio real da resposta da IA — nenhuma alteração no fluxo de saída.
+
+**3 achados reais, descobertos e corrigidos durante a implementação (nenhum hipotético):**
+1. **Importar `Response` de `'express'` diretamente no Controller quebrou a resolução de módulo do Vitest** (`Failed to load url express` — dependência transitiva, não direta, deste pacote) — derrubou a suíte crítica inteira (18 arquivos, não só o novo). Corrigido eliminando o import: o handshake de verificação retorna a string do `hub.challenge` diretamente (o `RouterResponseController` padrão do Nest já produz texto puro para um retorno primitivo, sem `@Res()`), e o caminho de falha usa `ForbiddenException` — mesmo resultado, sem a dependência direta.
+2. **Habilitar RLS em `whatsapp_integration` quebrou `WhatsAppMessageProvider.send()` (fluxo de saída já existente).** Esse provider consulta a tabela deliberadamente FORA de `TenantContext` (pode rodar em worker de fila), filtrando por `tenantId` explícito no `WHERE` — um padrão legítimo e pré-existente. Com RLS forçada e sem `app.tenant_id` setado nesse caminho, a consulta passou a devolver zero linhas sempre, quebrando o envio real (capturado pelo Teste Crítico [AD-005] rodando de verdade). Corrigir o Provider está fora de escopo (restrição aprovada: preservar a arquitetura de saída existente) — corrigido revertendo a RLS dessa tabela específica (nova migration `20260728173344`), mantendo RLS normalmente em `conversation`/`message` (sem esse conflito). O lookup de Tenant por `phoneNumberId` passou a usar `PrismaClientProvider` direto — o mesmo padrão já estabelecido por `WhatsAppMessageProvider` para esta mesma tabela, nunca precisou de bypass de RLS de fato.
+3. **`nullish coalescing` (`??`) num teste próprio mascarava um cenário de teste** — `integration: null` explícito era tratado como "não informado" e caía no valor padrão, fazendo o teste "ignora phoneNumberId desconhecido" nunca exercitar o caminho real. Corrigido com checagem explícita de presença da chave (`'integration' in opts`).
+
+**Achado adicional, sinalizado explicitamente na fase de design detalhado (não estava nos 8 princípios originais da descoberta):** `PatientRepository.findByPhone()` — sem resolver `patientId` a partir do número do remetente, nenhum dos 6 intents de ação executaria de verdade para uma mensagem real, deixando o trabalho de AD-010 funcionalmente morto. Implementado mínimo e determinístico: consulta simples por `(tenantId, phone)`, `@@index` novo em `Patient`, sem exigir unicidade de telefone (dívida pré-existente, fora de escopo).
+
+**Evidência quantitativa:**
+- 2 migrations (`20260728161842` — tabelas `conversation`/`message`, índice único em `phoneNumberId`, RLS; `20260728173344` — correção do achado #2, reverte RLS só de `whatsapp_integration`).
+- 11 arquivos novos de produção + 10 arquivos modificados (ver lista completa no relatório de handoff).
+- 33 testes novos (23 unitários + 10 críticos, Postgres/Redis reais, incluindo HMAC válido/inválido, resolução de Tenant, idempotência por WAMID, payload multi-mensagem).
+- Suíte unitária completa: 60 arquivos, **498/498 testes, 0 falhas** (era 470/470 antes desta AD).
+- Suíte crítica completa (Postgres/Redis reais): 26 arquivos (25 passaram, 1 skip documentado pré-existente), **177/178 testes, 0 falhas** (era 167/168 antes desta AD).
+- `nest build`/`eslint` limpos.
+
+**Confirmações:** nenhuma funcionalidade além do escopo aprovado (sem multi-canal, sem escalonamento, sem DLQ); fluxo de saída (`WhatsAppMessageProvider`/`EnviarMensagemUseCase`/`MessageLog`/fila `messages`) permanece 100% inalterado em comportamento; entrada reaproveita 100% os padrões já validados (HMAC análogo ao `AsaasWebhookGuard` em estrutura, idempotência análoga à de saída, retry análogo ao da fila `messages`, auditoria `actorType: 'system'` já usada por `ProcessarWebhookAssinaturaUseCase`); `RemarcarConsultaUseCase`/`ConsultarDisponibilidadeUseCase` (AD-010) já existiam prontos, só não conectados — nenhuma lógica de agenda nova construída.
+
 ### Encerramento — AD-009 (Fechamento do Ciclo Financeiro — Epic 6) (2026-07-28)
 
 **AD-009 formalmente encerrada — `Session.state` passa a refletir a realidade financeira de verdade.** `Faturada`/`Recebida` eram código morto desde sempre (máquina de estados completa e testada na entidade, mas nenhum Use Case jamais os alcançava — achado original de `docs/AUDITORIA_TECNICA_DEFINITIVA.md`, seção 3.4). Decisão completa em [`ADR-0052`](./docs/02-Arquitetura/ADRs/ADR-0052-fechamento-ciclo-financeiro-sessao-faturada-recebida.md).

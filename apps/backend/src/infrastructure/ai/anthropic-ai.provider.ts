@@ -37,7 +37,7 @@ export class AnthropicAIProvider implements IAIProvider {
 Responda APENAS com um JSON válido, sem texto adicional, no formato:
 {"intent": string, "confidence": number (0-1), "entities": object, "requiresEscalation": boolean, "escalationReason": string opcional}
 
-Intents possíveis: agendar_consulta, remarcar_consulta, cancelar_consulta, confirmar_presenca, consultar_cobranca, enviar_comprovante, duvida_geral, outro.
+Intents possíveis: agendar_consulta, remarcar_consulta, cancelar_consulta, confirmar_presenca, consultar_cobranca, consultar_disponibilidade, enviar_comprovante, duvida_geral, outro.
 
 Critério de escalonamento: requiresEscalation=true quando a mensagem envolver algo emocionalmente delicado, ambíguo, ou qualquer situação que fuja do administrativo linear (agendar/cancelar/confirmar/consultar sem conflito).`;
 

@@ -54,6 +54,11 @@ export class PrismaPatientRepository implements PatientRepository {
     );
   }
 
+  async findByPhone(phone: string): Promise<Patient | null> {
+    const record = await this.prisma.forTenant((tx) => tx.patient.findFirst({ where: { phone } }));
+    return record ? this.toDomain(record) : null;
+  }
+
   private toDomain(record: PrismaPatient): Patient {
     return Patient.reconstitute({
       id: record.id,

@@ -40,6 +40,8 @@ model Tenant {
   payments       Payment[]
   auditLogs      AuditLog[]
   messageLogs    MessageLog[]
+  conversations  Conversation[]
+  messages       Message[]
 
   @@map("tenant")
 }
@@ -94,12 +96,59 @@ model WhatsAppIntegration {
   id              String   @id @default(uuid())
   tenantId        String   @unique @map("tenant_id")
   tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  phoneNumberId   String   @map("phone_number_id")
+  // ADR-0053/PD-007: único em todo o banco, não só por Tenant — é o lookup
+  // reverso (phoneNumberId → tenantId) que o webhook do WhatsApp precisa
+  // antes mesmo de saber o tenantId; sem unicidade global, dois Tenants
+  // poderiam ser salvos com o mesmo número por erro operacional, uma
+  // ambiguidade de isolamento equivalente, em gravidade, a uma falha de RLS.
+  phoneNumberId   String   @unique @map("phone_number_id")
   accessToken     String   @map("access_token") // cifrado em repouso (AD-005) — ver comentário acima
   connectedAt     DateTime @default(now()) @map("connected_at")
   active          Boolean  @default(true)
 
   @@map("whatsapp_integration")
+}
+
+// ─────────────────────────────────────────────
+// ADR-0053 — Domínio Comunicação/Atendimento (PD-008, versão mínima:
+// sem máquina de estados, sem escalonamento — Conversation é um agregado
+// de identidade/agrupamento, uma linha por par (tenantId, phoneNumber).
+// ─────────────────────────────────────────────
+model Conversation {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id])
+  phoneNumber String    @map("phone_number")
+  patientId   String?   @map("patient_id")
+  patient     Patient?  @relation(fields: [patientId], references: [id])
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  messages Message[]
+
+  @@unique([tenantId, phoneNumber])
+  @@map("conversation")
+}
+
+enum MessageDirection {
+  entrada
+  saida
+}
+
+model Message {
+  id             String            @id @default(uuid())
+  tenantId       String            @map("tenant_id")
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  conversationId String            @map("conversation_id")
+  conversation   Conversation      @relation(fields: [conversationId], references: [id])
+  direction      MessageDirection
+  content        String
+  // WAMID — só preenchido em mensagens de entrada; é a chave de idempotência
+  // do webhook (ADR-0053 §5), checada antes de qualquer enfileiramento.
+  externalId     String?           @unique @map("external_id")
+  status         String            @default("enviada") // enviada | entregue | lida — atualizado por statuses[] da Meta
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  @@map("message")
 }
 
 // TenantApiKey — 1:1 com Tenant (PD-003, Módulo 17). Gerar uma nova
@@ -293,7 +342,13 @@ model Patient {
   appointments Appointment[]
   billings     Billing[]
   recurringBlocks RecurringBlock[]
+  conversations Conversation[]
 
+  // ADR-0053 — suporta PatientRepository.findByPhone(), usado pelo webhook
+  // do WhatsApp para resolver patientId a partir do número do remetente.
+  // Não-único (achado de PD-007: nada garante hoje que phone seja único por
+  // Tenant — corrigir isso é dívida pré-existente, fora do escopo desta AD).
+  @@index([tenantId, phone])
   @@map("patient")
 }
 

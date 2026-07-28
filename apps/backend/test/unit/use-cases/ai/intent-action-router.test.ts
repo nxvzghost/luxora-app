@@ -1,13 +1,23 @@
 import { describe, it, expect, vi } from 'vitest';
 import { IntentActionRouter } from '@use-cases/ai/intent-action-router';
+import { SlotNotAvailableError } from '@domain-services/availability/slot-not-available.error';
 
 function makeRouter() {
   const agendarConsulta = { execute: vi.fn() };
   const cancelarConsulta = { execute: vi.fn() };
   const confirmarConsulta = { execute: vi.fn() };
   const consultarCobranca = { execute: vi.fn() };
-  const router = new IntentActionRouter(agendarConsulta, cancelarConsulta, confirmarConsulta, consultarCobranca);
-  return { router, agendarConsulta, cancelarConsulta, confirmarConsulta, consultarCobranca };
+  const remarcarConsulta = { execute: vi.fn() };
+  const consultarDisponibilidade = { execute: vi.fn() };
+  const router = new IntentActionRouter(
+    agendarConsulta,
+    cancelarConsulta,
+    confirmarConsulta,
+    consultarCobranca,
+    remarcarConsulta,
+    consultarDisponibilidade,
+  );
+  return { router, agendarConsulta, cancelarConsulta, confirmarConsulta, consultarCobranca, remarcarConsulta, consultarDisponibilidade };
 }
 
 describe('IntentActionRouter — regra de segurança: nunca age com entidade faltando', () => {
@@ -108,5 +118,74 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
     );
     expect(result.actionTaken).toBe(false);
     expect(result.error).toContain('SESSION_CONFLICT');
+  });
+
+  it('AD-010: remarcar_consulta com appointmentId e newScheduledAt executa', async () => {
+    const { router, remarcarConsulta } = makeRouter();
+    remarcarConsulta.execute.mockResolvedValue({ scheduledAt: new Date('2026-08-02T10:00:00') });
+    const result = await router.route(
+      { intent: 'remarcar_consulta', confidence: 0.9, entities: { appointmentId: 'a1', newScheduledAt: '2026-08-02T10:00:00' }, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1' },
+    );
+    expect(result.actionTaken).toBe(true);
+    expect(remarcarConsulta.execute).toHaveBeenCalledWith('a1', new Date('2026-08-02T10:00:00'));
+  });
+
+  it('AD-010: remarcar_consulta com horário indisponível (SlotNotAvailableError) nunca é mascarado como sucesso', async () => {
+    const { router, remarcarConsulta } = makeRouter();
+    remarcarConsulta.execute.mockRejectedValue(new SlotNotAvailableError());
+    const result = await router.route(
+      { intent: 'remarcar_consulta', confidence: 0.9, entities: { appointmentId: 'a1', newScheduledAt: '2026-08-02T10:00:00' }, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1' },
+    );
+    expect(result.actionTaken).toBe(false);
+    // HttpException.initMessage() usa response.message (texto humano), não
+    // response.code — verificado lendo o próprio http.exception.js instalado,
+    // não presumido.
+    expect(result.error).toContain('não está disponível');
+  });
+
+  it('AD-010: remarcar_consulta SEM newScheduledAt nunca executa', async () => {
+    const { router, remarcarConsulta } = makeRouter();
+    const result = await router.route(
+      { intent: 'remarcar_consulta', confidence: 0.9, entities: { appointmentId: 'a1' }, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1' },
+    );
+    expect(result.actionTaken).toBe(false);
+    expect(remarcarConsulta.execute).not.toHaveBeenCalled();
+  });
+
+  it('AD-010: consultar_disponibilidade com therapistId retorna resumo dos horários', async () => {
+    const { router, consultarDisponibilidade } = makeRouter();
+    consultarDisponibilidade.execute.mockResolvedValue([
+      { startsAt: new Date('2026-08-01T10:00:00'), endsAt: new Date('2026-08-01T11:00:00') },
+    ]);
+    const result = await router.route(
+      { intent: 'consultar_disponibilidade', confidence: 0.9, entities: { therapistId: 't1' }, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1' },
+    );
+    expect(result.actionTaken).toBe(true);
+    expect(consultarDisponibilidade.execute).toHaveBeenCalledOnce();
+  });
+
+  it('AD-010: consultar_disponibilidade SEM therapistId nunca executa (nunca adivinha o terapeuta)', async () => {
+    const { router, consultarDisponibilidade } = makeRouter();
+    const result = await router.route(
+      { intent: 'consultar_disponibilidade', confidence: 0.9, entities: {}, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1' },
+    );
+    expect(result.actionTaken).toBe(false);
+    expect(consultarDisponibilidade.execute).not.toHaveBeenCalled();
+  });
+
+  it('AD-010: consultar_disponibilidade sem horários retorna resumo vazio, não erro', async () => {
+    const { router, consultarDisponibilidade } = makeRouter();
+    consultarDisponibilidade.execute.mockResolvedValue([]);
+    const result = await router.route(
+      { intent: 'consultar_disponibilidade', confidence: 0.9, entities: { therapistId: 't1' }, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1' },
+    );
+    expect(result.actionTaken).toBe(true);
+    expect(result.actionSummary).toContain('Nenhum horário');
   });
 });

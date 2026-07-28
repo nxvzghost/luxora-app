@@ -34,7 +34,22 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'clinic_settings', 'ai_settings', 'user', 'therapist', 'patient',
     'appointment', 'session', 'billing', 'billing_session', 'payment', 'audit_log',
-    'availability_calendar', 'clinic_holiday', 'recurring_block', 'tenant_api_key'
+    'availability_calendar', 'clinic_holiday', 'recurring_block', 'tenant_api_key',
+    'conversation', 'message'
+    -- whatsapp_integration DELIBERADAMENTE FORA desta lista — ADR-0053,
+    -- ACHADO REAL confirmado por Teste Crítico real: uma primeira tentativa
+    -- de habilitar RLS + bypass aqui (mesmo padrão de user/tenant_api_key)
+    -- quebrou WhatsAppMessageProvider.send(), que consulta esta tabela
+    -- deliberadamente FORA de TenantContext (pode rodar em worker de fila),
+    -- filtrando por tenantId explícito no WHERE — sem nenhuma policy de
+    -- SELECT compatível, RLS forçada faz essa consulta sempre devolver
+    -- zero linhas, quebrando o envio real. Corrigir isso exigiria alterar
+    -- WhatsAppMessageProvider (fluxo de saída já existente), fora de escopo
+    -- da ADR-0053 (restrição aprovada: preservar a arquitetura existente).
+    -- Revertido em prisma/migrations/20260728173344_revert_whatsapp_
+    -- integration_rls. O lookup de Tenant por phoneNumberId (PD-007) usa
+    -- PrismaClientProvider direto, mesmo padrão já estabelecido para esta
+    -- tabela — nunca precisou de bypass de RLS de fato.
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -64,7 +79,9 @@ END $$;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- Exceções deliberadas e restritas (2, ambas usando o mesmo mecanismo de
--- opt-in explícito por transação — PrismaService.forAuthLookup())
+-- opt-in explícito por transação — PrismaService.forAuthLookup()). ADR-0053
+-- avaliou uma 3ª exceção (lookup por phoneNumberId) e concluiu que não é
+-- necessária — ver nota acima, no array de tabelas cobertas por RLS.
 -- ─────────────────────────────────────────────────────────────────────────
 
 -- 1) Lookup de login por email

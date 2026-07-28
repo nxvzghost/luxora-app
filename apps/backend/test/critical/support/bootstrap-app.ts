@@ -16,7 +16,9 @@ import { correlationIdMiddleware } from '@shared/correlation-id.middleware';
  */
 export async function bootstrapTestApp(): Promise<INestApplication> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-  const app = moduleRef.createNestApplication();
+  // ADR-0053 — espelha main.ts: rawBody:true, necessário para os testes
+  // críticos de WhatsAppWebhookGuard (assinatura HMAC sobre o corpo bruto).
+  const app = moduleRef.createNestApplication({ rawBody: true });
   app.use(correlationIdMiddleware);
   app.setGlobalPrefix('api/v1', { exclude: ['metrics'] });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));

@@ -4,9 +4,15 @@ import { IntentActionRouter } from '@use-cases/ai/intent-action-router';
 import { AI_PROVIDER } from '@domain-services/ai/ai-provider';
 import { AnthropicAIProvider } from '@infrastructure/ai/anthropic-ai.provider';
 import { AgendarConsultaUseCase } from '@use-cases/appointment/agendar-consulta.use-case';
-import { CancelarConsultaUseCase, ConfirmarConsultaUseCase } from '@use-cases/appointment/gerenciar-consulta.use-case';
+import {
+  CancelarConsultaUseCase,
+  ConfirmarConsultaUseCase,
+  RemarcarConsultaUseCase,
+} from '@use-cases/appointment/gerenciar-consulta.use-case';
 import { ConsultarCobrancaUseCase } from '@use-cases/billing/billing.use-cases';
 import { VerificarDisponibilidadeUseCase } from '@use-cases/availability/verificar-disponibilidade.use-case';
+import { ConsultarDisponibilidadeUseCase } from '@use-cases/appointment/consultar-disponibilidade.use-case';
+import { ProcessarMensagemWhatsAppUseCase } from '@use-cases/communication/processar-mensagem-whatsapp.use-case';
 import { APPOINTMENT_REPOSITORY } from '@domain-services/patient-ops/appointment.repository';
 import { SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
 import { BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
@@ -23,14 +29,18 @@ import { PrismaAvailabilityRepository } from '@infrastructure/database/repositor
 import { PrismaClinicHolidayRepository } from '@infrastructure/database/repositories/prisma-clinic-holiday.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
+import { WhatsAppInboundQueueWorker } from '@infrastructure/messaging/whatsapp-inbound-queue.worker';
 import { CommunicationModule } from '../communication/communication.module';
 import { AuditModule } from '../audit/audit.module';
 
 /**
- * AIModule — Módulo 12, revisão geral: IntentActionRouter conectado,
- * fechando o ADR-0033. Sem Controller próprio ainda — o ponto de entrada
- * real (webhook do WhatsApp recebendo mensagem do paciente) continua como
- * dívida explícita (ver README).
+ * AIModule — Módulo 12. ADR-0053 (AD-007/AD-010): ponto de entrada real
+ * (webhook do WhatsApp) implementado em CommunicationModule
+ * (WhatsAppWebhookController) — este módulo ganha a parte assíncrona
+ * (ProcessarMensagemWhatsAppUseCase + WhatsAppInboundQueueWorker, que
+ * dependem de ProcessarMensagemUseCase, já daqui) e os 2 intents novos de
+ * AD-010 (RemarcarConsultaUseCase, ConsultarDisponibilidadeUseCase — já
+ * existiam prontos em AppointmentsModule, só não conectados aqui).
  */
 @Module({
   imports: [CommunicationModule, AuditModule],
@@ -40,8 +50,12 @@ import { AuditModule } from '../audit/audit.module';
     AgendarConsultaUseCase,
     CancelarConsultaUseCase,
     ConfirmarConsultaUseCase,
+    RemarcarConsultaUseCase,
     ConsultarCobrancaUseCase,
     VerificarDisponibilidadeUseCase,
+    ConsultarDisponibilidadeUseCase,
+    ProcessarMensagemWhatsAppUseCase,
+    WhatsAppInboundQueueWorker,
     { provide: AI_PROVIDER, useClass: AnthropicAIProvider },
     { provide: APPOINTMENT_REPOSITORY, useClass: PrismaAppointmentRepository },
     { provide: SESSION_REPOSITORY, useClass: PrismaSessionRepository },

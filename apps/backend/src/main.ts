@@ -16,7 +16,13 @@ import { correlationIdMiddleware } from '@shared/correlation-id.middleware';
  * src/api/*.module.ts, que sempre depende de OperationalEngineModule).
  */
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // ADR-0053 — rawBody:true expõe request.rawBody (Buffer) em toda rota,
+  // necessário para WhatsAppWebhookGuard verificar a assinatura
+  // HMAC-SHA256 (X-Hub-Signature-256) sobre os bytes exatos que a Meta
+  // enviou — um JSON re-serializado a partir do corpo já parseado não tem
+  // garantia de ser byte-idêntico. Mecanismo nativo do Nest, não custom
+  // middleware — nenhuma outra rota é afetada.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // AD-016 — precisa ser o primeiro app.use(): roda antes de qualquer Guard
   // (inclusive JwtAuthGuard/ThrottlerGuard), garantindo que até respostas de
