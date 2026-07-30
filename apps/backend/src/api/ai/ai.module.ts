@@ -32,6 +32,7 @@ import { PrismaClientProvider } from '@infrastructure/database/prisma-client.pro
 import { WhatsAppInboundQueueWorker } from '@infrastructure/messaging/whatsapp-inbound-queue.worker';
 import { CommunicationModule } from '../communication/communication.module';
 import { AuditModule } from '../audit/audit.module';
+import { InboxModule } from '../platform/inbox.module';
 
 /**
  * AIModule — Módulo 12. ADR-0053 (AD-007/AD-010): ponto de entrada real
@@ -41,9 +42,17 @@ import { AuditModule } from '../audit/audit.module';
  * dependem de ProcessarMensagemUseCase, já daqui) e os 2 intents novos de
  * AD-010 (RemarcarConsultaUseCase, ConsultarDisponibilidadeUseCase — já
  * existiam prontos em AppointmentsModule, só não conectados aqui).
+ *
+ * ADR-0054 (AD-036): importa InboxModule (idempotência do processamento
+ * assíncrono) em vez de redeclarar INBOX_REPOSITORY aqui — mesmo cuidado
+ * de import-em-vez-de-duplicar já usado para AuditModule. Pelo mesmo
+ * motivo, MessageQueueProducer não é redeclarado — já vem exportado por
+ * CommunicationModule, que este módulo já importa; WhatsAppInboundQueueWorker
+ * passa a chamá-lo diretamente (Fase 2/despacho, movida do use case para
+ * o worker — ver ADR-0054 §Arquitetura).
  */
 @Module({
-  imports: [CommunicationModule, AuditModule],
+  imports: [CommunicationModule, AuditModule, InboxModule],
   providers: [
     ProcessarMensagemUseCase,
     IntentActionRouter,

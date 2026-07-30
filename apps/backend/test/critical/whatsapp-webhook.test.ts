@@ -58,6 +58,24 @@ async function postSigned(payload: unknown) {
 }
 
 async function cleanupConversationData() {
+  // ADR-0054 (AD-036) — ACHADO REAL: um POST assinado com sucesso aqui
+  // enfileira um job real na fila 'whatsapp-inbound'. Esta suíte pede o
+  // WhatsAppInboundQueueWorker DESLIGADO (bootstrapTestApp() sem
+  // `realWhatsAppInboundWorker`, ver support/bootstrap-app.ts) — ela
+  // própria nunca processa esse job. Mas a fila é real e compartilhada:
+  // se a suíte de AD-036 (a única que liga o worker real) estiver rodando
+  // concorrentemente, o worker DELA pode pegar esse job órfão e criar uma
+  // linha em inbound_processing_inbox para o Tenant desta fixture, com FK
+  // própria — sem apagar isso primeiro, cleanupDedicatedFixture() falha
+  // ao apagar o Tenant (só aparece rodando a suíte inteira em paralelo).
+  // Repete por até ~3s até estabilizar (nenhuma linha nova encontrada),
+  // absorvendo essa corrida sem exigir esperar o BullMQ esvaziar de
+  // propósito (reintroduziria acoplamento entre suítes).
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const { count } = await fixturePrisma.inboxEntry.deleteMany({ where: { tenantId: fixture.tenantId } });
+    if (count === 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
   const conversations = await fixturePrisma.conversation.findMany({ where: { tenantId: fixture.tenantId }, select: { id: true } });
   const conversationIds = conversations.map((c) => c.id);
   if (conversationIds.length > 0) {

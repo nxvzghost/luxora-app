@@ -35,7 +35,10 @@ BEGIN
     'clinic_settings', 'ai_settings', 'user', 'therapist', 'patient',
     'appointment', 'session', 'billing', 'billing_session', 'payment', 'audit_log',
     'availability_calendar', 'clinic_holiday', 'recurring_block', 'tenant_api_key',
-    'conversation', 'message'
+    'conversation', 'message', 'inbound_processing_inbox'
+    -- inbound_processing_inbox (ADR-0054/AD-036): sem conflito do tipo
+    -- whatsapp_integration — todo acesso acontece dentro do worker, já com
+    -- TenantContext setado via ContextIdFactory, nunca precisa de bypass.
     -- whatsapp_integration DELIBERADAMENTE FORA desta lista — ADR-0053,
     -- ACHADO REAL confirmado por Teste Crítico real: uma primeira tentativa
     -- de habilitar RLS + bypass aqui (mesmo padrão de user/tenant_api_key)

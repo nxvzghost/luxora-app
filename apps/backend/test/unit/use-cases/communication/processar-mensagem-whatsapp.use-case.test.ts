@@ -25,19 +25,17 @@ function makeDeps(opts: { conversation?: Conversation | null; history?: Message[
     findMessageByExternalId: vi.fn(),
   };
   const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
-  const outboundQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
 
   const useCase = new ProcessarMensagemWhatsAppUseCase(
     processarMensagem as never,
     conversationRepo as never,
     auditService as never,
-    outboundQueue as never,
   );
 
-  return { useCase, processarMensagem, conversationRepo, auditService, outboundQueue, conversation };
+  return { useCase, processarMensagem, conversationRepo, auditService, conversation };
 }
 
-describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007, worker assíncrono)', () => {
+describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007), escopo revisado por ADR-0054 (AD-036)', () => {
   it('lança NotFoundException se a Conversation do job não existir', async () => {
     const { useCase } = makeDeps({ conversation: null });
     await expect(
@@ -73,16 +71,14 @@ describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007, worker assíncr
     expect(auditService.recordAll).toHaveBeenCalledWith(expect.any(Array), 'system');
   });
 
-  it('reaproveita 100% a fila/Use Case de saída existentes — idempotencyKey determinístico a partir do WAMID', async () => {
-    const { useCase, outboundQueue, conversation } = makeDeps({});
-    await useCase.execute({ tenantId: TENANT_ID, conversationId: 'c1', message: 'Olá', externalId: 'wamid.42' });
+  it('não despacha mais o envio — retorna responseMessage/toPhoneNumber para o worker decidir quando despachar (ADR-0054)', async () => {
+    const { useCase, conversation } = makeDeps({});
+    const result = await useCase.execute({ tenantId: TENANT_ID, conversationId: 'c1', message: 'Olá', externalId: 'wamid.42' });
 
-    expect(outboundQueue.enqueue).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenantId: TENANT_ID,
-        toPhoneNumber: conversation!.phoneNumber,
-        idempotencyKey: 'conversation-reply-wamid.42',
-      }),
-    );
+    expect(result).toEqual({
+      responseMessage: 'Claro, temos horário amanhã às 10h!',
+      toPhoneNumber: conversation!.phoneNumber,
+    });
   });
+
 });

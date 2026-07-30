@@ -4,18 +4,30 @@ import { ConversationMessage } from '@domain-services/ai/ai-provider';
 import { ConversationRepository, CONVERSATION_REPOSITORY } from '@domain-services/communication/conversation.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { ProcessarMensagemUseCase } from '@use-cases/ai/processar-mensagem.use-case';
-import { MessageQueueProducer } from '@infrastructure/messaging/message-queue.producer';
 import { WhatsAppInboundJobData } from '@infrastructure/messaging/whatsapp-inbound-queue.producer';
 
+export interface ProcessarMensagemWhatsAppResult {
+  responseMessage: string;
+  toPhoneNumber: string;
+}
+
 /**
- * ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007). Parte ASSÍNCRONA
- * (consumida pelo worker da fila `whatsapp-inbound`): reconstrói o
- * histórico real da Conversation, chama o pipeline de IA já existente
- * (ProcessarMensagemUseCase/IntentActionRouter, sem alteração), grava a
- * resposta como Message de saída, e despacha o ENVIO real reaproveitando
- * 100% a fila/Use Case de saída já existentes (MessageQueueProducer →
- * EnviarMensagemUseCase → WhatsAppMessageProvider) — nunca um mecanismo de
- * envio novo.
+ * ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007), escopo revisado
+ * por ADR-0054 (AD-036). Fase 1 (a parte cara e não-idempotente) do
+ * processamento assíncrono: reconstrói o histórico real da Conversation,
+ * chama o pipeline de IA já existente (ProcessarMensagemUseCase/
+ * IntentActionRouter, sem alteração), grava a resposta como Message de
+ * saída, audita.
+ *
+ * NÃO despacha mais o envio — isso saiu daqui por decisão da ADR-0054: o
+ * despacho (Fase 2) precisa poder ser tentado de novo, isoladamente, sem
+ * jamais reexecutar esta Fase 1 (que já chamou a IA e o
+ * IntentActionRouter). Essa separação só é possível se as duas fases
+ * forem passos distintos e observáveis de fora — por isso o despacho
+ * passou para WhatsAppInboundQueueWorker, que só o chama depois que o
+ * checkpoint desta Fase 1 (InboxRepository.markGenerated()) já foi
+ * gravado com sucesso. Retorna o necessário para esse despacho
+ * acontecer, sem este Use Case precisar saber nada sobre filas/retry.
  */
 @Injectable()
 export class ProcessarMensagemWhatsAppUseCase {
@@ -23,10 +35,9 @@ export class ProcessarMensagemWhatsAppUseCase {
     private readonly processarMensagem: ProcessarMensagemUseCase,
     @Inject(CONVERSATION_REPOSITORY) private readonly conversationRepo: ConversationRepository,
     private readonly auditService: AuditService,
-    private readonly outboundQueue: MessageQueueProducer,
   ) {}
 
-  async execute(input: WhatsAppInboundJobData): Promise<void> {
+  async execute(input: WhatsAppInboundJobData): Promise<ProcessarMensagemWhatsAppResult> {
     const conversation = await this.conversationRepo.findById(input.conversationId);
     if (!conversation) {
       throw new NotFoundException(`Conversation ${input.conversationId} não encontrada.`);
@@ -53,12 +64,6 @@ export class ProcessarMensagemWhatsAppUseCase {
     await this.conversationRepo.appendMessages(conversation.pullPendingMessages(), input.tenantId);
     await this.auditService.recordAll(conversation.pullDomainEvents(), 'system');
 
-    await this.outboundQueue.enqueue({
-      tenantId: input.tenantId,
-      toPhoneNumber: conversation.phoneNumber,
-      body: result.responseMessage,
-      idempotencyKey: `conversation-reply-${input.externalId}`,
-      correlationId: input.correlationId,
-    });
+    return { responseMessage: result.responseMessage, toPhoneNumber: conversation.phoneNumber };
   }
 }

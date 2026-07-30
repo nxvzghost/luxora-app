@@ -4,6 +4,29 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Encerramento — AD-036 (Idempotência ponta-a-ponta do processamento assíncrono de WhatsApp) (2026-07-29)
+
+**A revisão técnica do commit AD-007/AD-010 identificou risco Alto: um retry do BullMQ, depois da IA já ter respondido com sucesso, reexecutava tudo do zero — custo de IA duplicado, possível ação de negócio duplicada (`IntentActionRouter`), `Message` de saída duplicada, auditoria duplicada.** Decisão completa em [`ADR-0054`](./docs/02-Arquitetura/ADRs/ADR-0054-idempotencia-processamento-assincrono-whatsapp.md) — passou por 3 rodadas de revisão arquitetural (v1: checkpoint embutido em `Message`, rejeitada por acoplar idempotência ao domínio; v2: Inbox Pattern dedicado; v3: correção de uma falha real na v2, ciclo de estados de 2 para 4) antes de qualquer implementação começar.
+
+**Arquitetura adotada — Inbox Pattern, 4 estados:**
+- Tabela nova `inbound_processing_inbox` (genérica por `channel`, hoje só `'whatsapp'` — reutilizável por canais futuros sem tabela nova), com RLS padrão e índice único em `(channel, externalId)`.
+- Ciclo `processing → generated → dispatched` (com `failed` como desvio só a partir de `processing`) — o checkpoint `generated` fica estritamente entre a Fase 1 (IA + `IntentActionRouter` + persistência + auditoria, cara e não-idempotente) e a Fase 2 (despacho, já idempotente por natureza via `idempotencyKey`). Uma falha na Fase 2 nunca transiciona de volta para `processing`/`failed` — o retry seguinte só reexecuta o despacho, nunca a IA.
+- `ProcessarMensagemWhatsAppUseCase` perdeu a chamada ao enfileiramento de saída (que passou para o worker, Fase 2) e passou a retornar `{ responseMessage, toPhoneNumber }` em vez de `void` — única mudança nesse Use Case; sua lógica de IA/`Conversation`/`Message`/auditoria permanece intocada.
+- `ProcessarMensagemUseCase`, `IntentActionRouter` e o pipeline de saída (`MessageQueueProducer`/`EnviarMensagemUseCase`/`WhatsAppMessageProvider`) permanecem 100% inalterados.
+- `Conversation`/`Message` permanecem 100% inalterados — nenhum campo novo, nenhuma responsabilidade de idempotência no agregado (decisão deliberada da v2/v3, revertendo a v1).
+
+**Achado real adicional, descoberto durante a validação (não estava no desenho da ADR):** a fila `whatsapp-inbound` do BullMQ é real e compartilhada no mesmo Redis entre todos os arquivos da suíte crítica — cada arquivo que monta o `AppModule` completo instanciava seu próprio `WhatsAppInboundQueueWorker` real, e todos competiam pelos mesmos jobs, inclusive arquivos que nunca pediram processamento assíncrono (`whatsapp-webhook.test.ts`, escopado deliberadamente só ao webhook síncrono). Um worker de um arquivo processando o job de outro, sem os mocks daquele teste, produzia falhas de ambiente disfarçadas de falha de teste. Corrigido em `test/critical/support/bootstrap-app.ts` (arquivo exclusivo de teste, nenhuma mudança em código de produção): o worker real fica desligado por padrão (provider substituído por um double inerte), e só a suíte da própria AD-036 pede explicitamente `{ realWhatsAppInboundWorker: true }` — elimina a competição na raiz, sem desabilitar paralelismo da suíte.
+
+**Evidência quantitativa:**
+- 1 migration (`20260729004639_inbox_entry_and_rls`).
+- 3 arquivos novos de produção (`inbox.repository.ts`, `prisma-inbox.repository.ts`, `inbox.module.ts`) + 3 arquivos modificados (`ai.module.ts`, `processar-mensagem-whatsapp.use-case.ts`, `whatsapp-inbound-queue.worker.ts`).
+- 1 arquivo de teste crítico novo (6 testes: retry ponta-a-ponta com BullMQ real, constraint de unicidade, reclaim de staleness, reclaim de `failed`, `resume_dispatch` a partir de `generated`/`dispatched`) + 1 arquivo unitário atualizado + 2 arquivos de suporte de teste ajustados (`bootstrap-app.ts`, `whatsapp-webhook.test.ts`).
+- Suíte unitária completa: 60 arquivos, **499/499 testes, 0 falhas**.
+- Suíte crítica completa (Postgres/Redis/BullMQ reais): 26 arquivos (25 passaram, 1 skip documentado pré-existente), **183/184 testes, 0 falhas** — confirmado em duas execuções consecutivas.
+- `nest build`/`eslint` limpos.
+
+**Confirmações:** nenhuma alteração em `ProcessarMensagemUseCase`, `IntentActionRouter`, ou no pipeline de saída além da mudança aprovada (despacho movido para o worker); `Conversation`/`Message` sem nenhuma alteração; compatibilidade total com o restante do sistema.
+
 ### Encerramento — AD-007/AD-010 (Canal WhatsApp — Entrada Real) (2026-07-28)
 
 **Epic 8 (Canal WhatsApp) ganha seu primeiro ponto de entrada HTTP real — o gap que o próprio `AIModule` documentava como dívida explícita.** `POST /webhooks/whatsapp` recebe mensagens reais, resolve o Tenant, persiste de forma idempotente e despacha o pipeline de IA já existente (`ProcessarMensagemUseCase`/`IntentActionRouter`) de forma assíncrona. `IntentActionRouter` passa de 4 para 6 intents roteados (`remarcar_consulta`, `consultar_disponibilidade` — AD-010). Decisão completa em [`ADR-0053`](./docs/02-Arquitetura/ADRs/ADR-0053-canal-whatsapp-entrada-real.md).

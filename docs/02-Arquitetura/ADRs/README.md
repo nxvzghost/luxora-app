@@ -107,6 +107,7 @@ As ADRs foram organizadas em uma sequência lógica.
 | ADR-0047 | Docker Engine nativo no WSL2 como ambiente oficial de desenvolvimento (Windows) — decisão de continuidade, não de causa raiz |
 | ADR-0052 | Fechamento do Ciclo Financeiro — gatilhos de `Session.Faturada`/`Recebida` (AD-009) |
 | ADR-0053 | Canal WhatsApp: Entrada Real — webhook, auth, idempotência, retries, auditoria (Epic 8) — **ACEITA, implementação aguardando aprovação final** |
+| ADR-0054 | Idempotência ponta-a-ponta do processamento assíncrono de WhatsApp — Inbox Pattern (AD-011) — **ADOTADA E IMPLEMENTADA** |
 
 
 
