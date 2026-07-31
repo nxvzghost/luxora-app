@@ -25,14 +25,16 @@ function makeDeps(opts: { conversation?: Conversation | null; history?: Message[
     findMessageByExternalId: vi.fn(),
   };
   const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
+  const reconhecerOuCriarContato = { execute: vi.fn().mockResolvedValue({ id: 'contact-1', state: 'Conversando' }) };
 
   const useCase = new ProcessarMensagemWhatsAppUseCase(
     processarMensagem as never,
     conversationRepo as never,
     auditService as never,
+    reconhecerOuCriarContato as never,
   );
 
-  return { useCase, processarMensagem, conversationRepo, auditService, conversation };
+  return { useCase, processarMensagem, conversationRepo, auditService, reconhecerOuCriarContato, conversation };
 }
 
 describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007), escopo revisado por ADR-0054 (AD-036)', () => {
@@ -81,4 +83,21 @@ describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007), escopo revisad
     });
   });
 
+  describe('ADR-0055 (AD-018), Fase 7 — re-resolução do Contact', () => {
+    it('re-resolve o Contact via ReconhecerOuCriarContatoUseCase, usando tenantId e conversation.phoneNumber (nunca um objeto de domínio)', async () => {
+      const { useCase, reconhecerOuCriarContato, conversation } = makeDeps({});
+      await useCase.execute({ tenantId: TENANT_ID, conversationId: 'c1', message: 'Olá', externalId: 'wamid.1' });
+
+      expect(reconhecerOuCriarContato.execute).toHaveBeenCalledWith(TENANT_ID, conversation!.phoneNumber);
+    });
+
+    it('repassa contactId e correlationId para ProcessarMensagemUseCase', async () => {
+      const { useCase, processarMensagem } = makeDeps({});
+      await useCase.execute({ tenantId: TENANT_ID, conversationId: 'c1', message: 'Olá', externalId: 'wamid.1', correlationId: 'corr-9' });
+
+      expect(processarMensagem.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ contactId: 'contact-1', correlationId: 'corr-9' }),
+      );
+    });
+  });
 });

@@ -33,6 +33,7 @@ import { WhatsAppInboundQueueWorker } from '@infrastructure/messaging/whatsapp-i
 import { CommunicationModule } from '../communication/communication.module';
 import { AuditModule } from '../audit/audit.module';
 import { InboxModule } from '../platform/inbox.module';
+import { ContactModule } from '../patient-ops/contact.module';
 
 /**
  * AIModule — Módulo 12. ADR-0053 (AD-007/AD-010): ponto de entrada real
@@ -50,9 +51,16 @@ import { InboxModule } from '../platform/inbox.module';
  * CommunicationModule, que este módulo já importa; WhatsAppInboundQueueWorker
  * passa a chamá-lo diretamente (Fase 2/despacho, movida do use case para
  * o worker — ver ADR-0054 §Arquitetura).
+ *
+ * ADR-0055 (AD-018), Fase 3: importa ContactModule por antecipação — nenhum
+ * provider deste módulo ainda consome CONTACT_REPOSITORY (o
+ * ReconhecerOuCriarContatoUseCase é Fase 4), mas é aqui que ele vai ser
+ * injetado quando existir, no mesmo lugar que já orquestra
+ * ProcessarMensagemWhatsAppUseCase/WhatsAppInboundQueueWorker. Import
+ * antecipado e inofensivo — zero rota, zero comportamento novo.
  */
 @Module({
-  imports: [CommunicationModule, AuditModule, InboxModule],
+  imports: [CommunicationModule, AuditModule, InboxModule, ContactModule],
   providers: [
     ProcessarMensagemUseCase,
     IntentActionRouter,

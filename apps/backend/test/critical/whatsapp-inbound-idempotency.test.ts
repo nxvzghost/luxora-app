@@ -64,11 +64,16 @@ async function postSigned(payload: unknown) {
 }
 
 /**
- * Distingue as 2 chamadas que ProcessarMensagemUseCase sempre faz por
- * turno (interpretIntent com max_tokens:300, generateResponse com
- * max_tokens:500 — ver anthropic-ai.provider.ts). requiresEscalation:true
- * força o intent a nunca tocar IntentActionRouter — fora do escopo desta
- * AD, já coberto pelos testes de AD-007/AD-010/AD-010.
+ * Distingue as 3 chamadas que ProcessarMensagemUseCase sempre faz por
+ * turno desde a Fase 7 (ADR-0055/AD-018): interpretIntent
+ * (max_tokens:300), ContactIntentClassifier (max_tokens:200 —
+ * AnthropicContactIntentClassifier) e generateResponse (max_tokens:500 —
+ * ver anthropic-ai.provider.ts). requiresEscalation:true força o intent a
+ * nunca tocar IntentActionRouter — fora do escopo desta AD, já coberto
+ * pelos testes de AD-007/AD-010. A classificação de Contact devolve
+ * IGNORAR (o rótulo mais neutro) — esta suíte testa idempotência de
+ * despacho, nunca promoção/associação de Contact (isso é escopo dos
+ * testes de ContactIntentActionRouter/PromoverContatoUseCase).
  */
 function mockAnthropicFetch() {
   return vi.fn(async (_url: string, opts: { body: string }) => {
@@ -90,6 +95,15 @@ function mockAnthropicFetch() {
             },
           ],
           usage: { input_tokens: 10, output_tokens: 10 },
+        }),
+      };
+    }
+    if (body.max_tokens === 200) {
+      return {
+        ok: true,
+        json: async () => ({
+          content: [{ type: 'text', text: JSON.stringify({ decision: 'IGNORAR', confidence: 1 }) }],
+          usage: { input_tokens: 5, output_tokens: 5 },
         }),
       };
     }
@@ -152,6 +166,14 @@ async function cleanupInboundData() {
     await fixturePrisma.message.deleteMany({ where: { conversationId: { in: conversationIds } } });
     await fixturePrisma.conversation.deleteMany({ where: { id: { in: conversationIds } } });
   }
+  // ADR-0055 (AD-018), Fase 5 — ACHADO REAL: mesmo motivo de
+  // whatsapp-webhook.test.ts (cleanupConversationData()) — todo POST
+  // assinado com sucesso agora também cria um Contact real via
+  // ReconhecerOuCriarContatoUseCase; sem apagar isso primeiro,
+  // cleanupDedicatedFixture() falhava ao apagar o Tenant
+  // (contact_tenant_id_fkey).
+  await fixturePrisma.contactPatientAssociation.deleteMany({ where: { tenantId: fixture.tenantId } });
+  await fixturePrisma.contact.deleteMany({ where: { tenantId: fixture.tenantId } });
   await fixturePrisma.whatsAppIntegration.deleteMany({ where: { tenantId: fixture.tenantId } });
 }
 
@@ -262,7 +284,10 @@ describe('[AD-036] Idempotência ponta-a-ponta do processamento assíncrono (ADR
         expect(atGenerated.attempts).toBeLessThanOrEqual(3); // teto do BullMQ (attempts:3) — nunca laço infinito
         const fetchCallsAtGenerated = myFetchCalls().length;
         expect(fetchCallsAtGenerated).toBeGreaterThan(0);
-        expect(fetchCallsAtGenerated % 2).toBe(0); // sempre em pares: interpretIntent + generateResponse
+        // ADR-0055 (AD-018), Fase 7 — sempre em trincas desde que
+        // ContactIntentActionRouter entrou no pipeline: interpretIntent +
+        // ContactIntentClassifier + generateResponse.
+        expect(fetchCallsAtGenerated % 3).toBe(0);
 
         // Marco 2 (a prova central desta AD): entre 'generated' e
         // 'dispatched', NENHUMA chamada nova à IA — para ESTE WAMID —

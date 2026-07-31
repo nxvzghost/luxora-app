@@ -5,6 +5,14 @@ function makeUseCase(
   intentResult: unknown,
   routerResult: { actionTaken: boolean; actionSummary?: string } = { actionTaken: false },
   usage = { inputTokens: 500, outputTokens: 150, costEstimate: 0.02, latencyMs: 800 },
+  contactRouterResult: {
+    decision?: string;
+    actionTaken: boolean;
+    patientId?: string;
+    actionSummary?: string;
+    confirmationPrompt?: string;
+    usage?: { inputTokens: number; outputTokens: number; costEstimate: number; latencyMs: number };
+  } = { actionTaken: false },
 ) {
   const aiProvider = {
     interpretIntent: vi.fn().mockResolvedValue(intentResult),
@@ -12,8 +20,9 @@ function makeUseCase(
   };
   const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
   const intentActionRouter = { route: vi.fn().mockResolvedValue(routerResult) };
-  const useCase = new ProcessarMensagemUseCase(aiProvider, auditService, intentActionRouter);
-  return { useCase, aiProvider, auditService, intentActionRouter };
+  const contactIntentActionRouter = { route: vi.fn().mockResolvedValue(contactRouterResult) };
+  const useCase = new ProcessarMensagemUseCase(aiProvider, auditService, intentActionRouter, contactIntentActionRouter);
+  return { useCase, aiProvider, auditService, intentActionRouter, contactIntentActionRouter };
 }
 
 describe('ProcessarMensagemUseCase', () => {
@@ -80,5 +89,88 @@ describe('ProcessarMensagemUseCase', () => {
       { inputTokens: 5000, outputTokens: 3000, costEstimate: 0.2, latencyMs: 800 },
     );
     await expect(useCase.execute({ tenantId: 't1', conversationHistory: [], message: 'oi' })).resolves.toBeDefined();
+  });
+
+  describe('ADR-0055 (AD-018), Fase 7 — integração com ContactIntentActionRouter', () => {
+    it('sem contactId no input, nunca chama ContactIntentActionRouter (retrocompatível)', async () => {
+      const { useCase, contactIntentActionRouter } = makeUseCase({ intent: 'duvida_geral', confidence: 0.9, entities: {}, requiresEscalation: false });
+      await useCase.execute({ tenantId: 't1', conversationHistory: [], message: 'oi' });
+      expect(contactIntentActionRouter.route).not.toHaveBeenCalled();
+    });
+
+    it('com contactId, chama ContactIntentActionRouter com tenantId/contactId/knownPatientId/correlationId', async () => {
+      const { useCase, contactIntentActionRouter } = makeUseCase({ intent: 'duvida_geral', confidence: 0.9, entities: {}, requiresEscalation: false });
+      await useCase.execute({ tenantId: 't1', patientId: 'p-existente', contactId: 'c1', conversationHistory: [], message: 'oi', correlationId: 'corr-1' });
+      expect(contactIntentActionRouter.route).toHaveBeenCalledWith({
+        tenantId: 't1',
+        contactId: 'c1',
+        conversationHistory: [],
+        message: 'oi',
+        knownPatientId: 'p-existente',
+        correlationId: 'corr-1',
+      });
+    });
+
+    it('um patientId RESOLVIDO pelo ContactIntentActionRouter (promoção) é usado no roteamento de intent desta mesma mensagem', async () => {
+      const { useCase, intentActionRouter } = makeUseCase(
+        { intent: 'agendar_consulta', confidence: 0.9, entities: { therapistId: 'th1', scheduledAt: '2026-08-10T10:00:00.000Z' }, requiresEscalation: false },
+        { actionTaken: false },
+        undefined,
+        { decision: 'PROMOVER', actionTaken: true, patientId: 'patient-recem-criado', actionSummary: 'Cadastro de Maria realizado com sucesso.' },
+      );
+
+      await useCase.execute({ tenantId: 't1', contactId: 'c1', conversationHistory: [], message: 'quero agendar minha primeira consulta' });
+
+      expect(intentActionRouter.route).toHaveBeenCalledWith(expect.anything(), { tenantId: 't1', patientId: 'patient-recem-criado' });
+    });
+
+    it('actionTaken=true quando só o ContactIntentActionRouter agiu (ex.: promoção sem intent de agendamento na mesma mensagem)', async () => {
+      const { useCase } = makeUseCase(
+        { intent: 'duvida_geral', confidence: 0.9, entities: {}, requiresEscalation: false },
+        { actionTaken: false },
+        undefined,
+        { decision: 'PROMOVER', actionTaken: true, patientId: 'p-novo', actionSummary: 'Cadastro realizado.' },
+      );
+
+      const result = await useCase.execute({ tenantId: 't1', contactId: 'c1', conversationHistory: [], message: 'meu nome é Maria' });
+
+      expect(result.actionTaken).toBe(true);
+    });
+
+    it('injeta actionSummary e confirmationPrompt do Contact routing no contexto de generateResponse', async () => {
+      const { useCase, aiProvider } = makeUseCase(
+        { intent: 'duvida_geral', confidence: 0.9, entities: {}, requiresEscalation: false },
+        { actionTaken: false },
+        undefined,
+        { actionTaken: false, confirmationPrompt: 'Pode confirmar seu nome completo?' },
+      );
+
+      await useCase.execute({ tenantId: 't1', contactId: 'c1', conversationHistory: [], message: 'quero agendar' });
+
+      const callArg = aiProvider.generateResponse.mock.calls[0][0];
+      const injected = callArg.conversationHistory.map((m: { content: string }) => m.content).join(' | ');
+      expect(injected).toContain('Pode confirmar seu nome completo?');
+    });
+
+    it('RNF-021: soma o custo de interpretIntent + ContactIntentClassifier + generateResponse antes de checar o teto', async () => {
+      const { useCase, auditService } = makeUseCase(
+        {
+          intent: 'duvida_geral',
+          confidence: 0.9,
+          entities: {},
+          requiresEscalation: false,
+          usage: { inputTokens: 100, outputTokens: 50, costEstimate: 0.01, latencyMs: 100 },
+        },
+        { actionTaken: false },
+        { inputTokens: 500, outputTokens: 150, costEstimate: 0.02, latencyMs: 800 },
+        { actionTaken: false, usage: { inputTokens: 80, outputTokens: 20, costEstimate: 0.005, latencyMs: 200 } },
+      );
+
+      await useCase.execute({ tenantId: 't1', contactId: 'c1', conversationHistory: [], message: 'oi' });
+
+      const [[events]] = auditService.recordAll.mock.calls;
+      // 0.01 (interpretIntent) + 0.005 (ContactIntentClassifier) + 0.02 (generateResponse) = 0.035
+      expect((events[0] as { costEstimate: number }).costEstimate).toBeCloseTo(0.035, 5);
+    });
   });
 });

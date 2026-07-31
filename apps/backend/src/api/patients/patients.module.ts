@@ -43,5 +43,10 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     { provide: AUDIT_LOG_REPOSITORY, useClass: PrismaAuditLogRepository },
     JwtAuthGuard,
   ],
+  // ADR-0055 (AD-018), Fase 7 — CadastrarPacienteUseCase é reaproveitado,
+  // inalterado, por PromoverContatoUseCase (via ContactModule) para criar
+  // o Patient no Cenário 1 (primeira consulta agendada). Único export
+  // deste módulo até aqui — nenhum outro consumidor externo precisou dele.
+  exports: [CadastrarPacienteUseCase],
 })
 export class PatientsModule {}

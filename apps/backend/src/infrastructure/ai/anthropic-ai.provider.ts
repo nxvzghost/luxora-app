@@ -41,7 +41,18 @@ Intents possíveis: agendar_consulta, remarcar_consulta, cancelar_consulta, conf
 
 Critério de escalonamento: requiresEscalation=true quando a mensagem envolver algo emocionalmente delicado, ambíguo, ou qualquer situação que fuja do administrativo linear (agendar/cancelar/confirmar/consultar sem conflito).`;
 
-    const { text } = await this.callApi(systemPrompt, input.conversationHistory, input.message, 300);
+    const start = Date.now();
+    const { text, usage } = await this.callApi(systemPrompt, input.conversationHistory, input.message, 300);
+    // ADR-0055 (AD-018), Fase 7 — RNF-021: usage/custo desta chamada não
+    // era capturado antes (só generateResponse() era somado ao teto) —
+    // agora ProcessarMensagemUseCase soma os três custos possíveis do
+    // turno (interpretIntent + ContactIntentClassifier + generateResponse).
+    const usageMetrics = {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      costEstimate: this.estimateCost(usage.inputTokens, usage.outputTokens),
+      latencyMs: Date.now() - start,
+    };
 
     try {
       const parsed = JSON.parse(text) as IntentResult;
@@ -51,6 +62,7 @@ Critério de escalonamento: requiresEscalation=true quando a mensagem envolver a
         entities: parsed.entities ?? {},
         requiresEscalation: parsed.requiresEscalation,
         escalationReason: parsed.escalationReason,
+        usage: usageMetrics,
       };
     } catch {
       // Nunca decide sozinho quando nem consegue interpretar a própria
@@ -61,6 +73,7 @@ Critério de escalonamento: requiresEscalation=true quando a mensagem envolver a
         entities: {},
         requiresEscalation: true,
         escalationReason: 'Falha ao interpretar resposta do modelo.',
+        usage: usageMetrics,
       };
     }
   }

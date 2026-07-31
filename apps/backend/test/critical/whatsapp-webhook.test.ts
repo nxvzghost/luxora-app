@@ -82,6 +82,16 @@ async function cleanupConversationData() {
     await fixturePrisma.message.deleteMany({ where: { conversationId: { in: conversationIds } } });
     await fixturePrisma.conversation.deleteMany({ where: { id: { in: conversationIds } } });
   }
+  // ADR-0055 (AD-018), Fase 5 — ACHADO REAL: todo POST assinado com sucesso
+  // agora também passa por ReconhecerOuCriarContatoUseCase, criando um
+  // Contact real (Aggregate independente de Conversation, mas mesma FK de
+  // tenant_id). cleanupDedicatedFixture() não conhece a tabela `contact` —
+  // sem apagar isso primeiro, o delete do Tenant falhava com
+  // "Foreign key constraint violated: contact_tenant_id_fkey". Associação
+  // antes do Contact (FK filho antes do pai), mesma disciplina já usada
+  // acima para Message/Conversation.
+  await fixturePrisma.contactPatientAssociation.deleteMany({ where: { tenantId: fixture.tenantId } });
+  await fixturePrisma.contact.deleteMany({ where: { tenantId: fixture.tenantId } });
   await fixturePrisma.whatsAppIntegration.deleteMany({ where: { tenantId: fixture.tenantId } });
 }
 

@@ -21,6 +21,13 @@ export interface IntentResult {
   entities: Record<string, unknown>;
   requiresEscalation: boolean;
   escalationReason?: string;
+  /**
+   * ADR-0055 (AD-018), Fase 7 — RNF-021: custo real desta chamada, para
+   * ser somado ao custo de generateResponse() (e, quando aplicável, do
+   * ContactIntentClassifier) antes de checar o teto de R$0,25/conversa.
+   * Opcional para nunca quebrar um IAIProvider que ainda não o preencha.
+   */
+  usage?: UsageMetrics;
 }
 
 export interface ConversationContext {

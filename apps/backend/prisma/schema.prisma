@@ -43,6 +43,8 @@ model Tenant {
   conversations  Conversation[]
   inboxEntries   InboxEntry[]
   messages       Message[]
+  contacts       Contact[]
+  contactPatientAssociations ContactPatientAssociation[]
 
   @@map("tenant")
 }
@@ -387,6 +389,7 @@ model Patient {
   billings     Billing[]
   recurringBlocks RecurringBlock[]
   conversations Conversation[]
+  contactAssociations ContactPatientAssociation[]
 
   // ADR-0053 — suporta PatientRepository.findByPhone(), usado pelo webhook
   // do WhatsApp para resolver patientId a partir do número do remetente.
@@ -394,6 +397,83 @@ model Patient {
   // Tenant — corrigir isso é dívida pré-existente, fora do escopo desta AD).
   @@index([tenantId, phone])
   @@map("patient")
+}
+
+// ─────────────────────────────────────────────
+// ADR-0055 (AD-018) — Aggregate Contact: identidade de comunicação,
+// Marco 1 da Arquitetura de Domínio (ADR-0043 a ADR-0046). Mesmo Bounded
+// Context de Patient — Contact nunca representa vínculo clínico, só quem
+// está conversando por um canal. Associação com Patient é N-para-N com
+// papel explícito (ContactPatientAssociation), nunca uma FK única —
+// suporta responsável/dependente e casal com telefone compartilhado
+// (ADR-0045). AD-024 (colisão nominal de nome entre os estados Novo/
+// Identificado de Contact e os já existentes em PatientState, puramente
+// de legibilidade — enums e tipos distintos, sem colisão real de dado ou
+// de tipo) fica deliberadamente fora de escopo desta AD — ver ADR-0055
+// §1 "AD-024 removida desta ADR". Nenhuma alteração em Patient nesta AD.
+// ─────────────────────────────────────────────
+enum ContactState {
+  Novo
+  Conversando
+  Identificado
+  Vinculado
+  Promovido
+  Arquivado
+  Descartado
+}
+
+enum ContactPatientRole {
+  proprio_paciente
+  responsavel_por
+}
+
+model Contact {
+  id          String       @id @default(uuid())
+  tenantId    String       @map("tenant_id")
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  // Já normalizado pelo Value Object PhoneNumber (domain/contact) antes de
+  // chegar aqui — nunca o valor bruto recebido da Meta. Conversation.phoneNumber
+  // (ADR-0053) permanece como está, sem normalização retroativa — ver
+  // ADR-0055 "Value Object: telefone normalizado".
+  // Nulo só depois de Contact.anonimizar() (expurgo LGPD, capacidade de
+  // domínio desta AD — sem scheduler, ver ADR-0055 "Domain Events
+  // implementados nesta AD"). Achado corrigido antes de implementar o
+  // repositório: o schema original desta AD tinha isso como NOT NULL,
+  // inconsistente com o domínio, que sempre permitiu phoneNumber nulo
+  // pós-anonimização.
+  phoneNumber String?      @map("phone_number")
+  name        String?
+  state       ContactState @default(Novo)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  associations ContactPatientAssociation[]
+
+  @@unique([tenantId, phoneNumber])
+  @@map("contact")
+}
+
+// Nunca uma FK única em Contact ou em Patient — a associação é sua
+// própria linha, exatamente porque um Contact pode ter mais de uma
+// (casal com telefone compartilhado) e um Patient pode ser alcançado por
+// mais de um Contact ao longo do tempo (troca de número) — ver ADR-0043
+// "Relação Contact ↔ Patient". Nunca composição (11-Aggregates-e-Limites.md
+// — "não há invariante que justifique isso") — mudar uma associação nunca
+// exige transação atômica com Contact nem com Patient.
+model ContactPatientAssociation {
+  id        String             @id @default(uuid())
+  tenantId  String             @map("tenant_id")
+  tenant    Tenant             @relation(fields: [tenantId], references: [id])
+  contactId String             @map("contact_id")
+  contact   Contact            @relation(fields: [contactId], references: [id])
+  patientId String             @map("patient_id")
+  patient   Patient            @relation(fields: [patientId], references: [id])
+  role      ContactPatientRole
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  @@unique([contactId, patientId])
+  @@index([tenantId, patientId])
+  @@map("contact_patient_association")
 }
 
 // Alinhado 1:1 com AppointmentState em domain/appointment/appointment.entity.ts.

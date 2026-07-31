@@ -33,9 +33,18 @@ import { PrismaAuditLogRepository } from '@infrastructure/database/repositories/
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
 import { CLINIC_SUBSCRIPTION_REPOSITORY } from '@domain-services/subscription/clinic-subscription.repository';
 import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/repositories/prisma-clinic-subscription.repository';
+import { ContactModule } from '../patient-ops/contact.module';
 
+/**
+ * ADR-0055 (AD-018), Fase 5 — importa ContactModule para que
+ * ReceberMensagemWhatsAppUseCase (abaixo) possa injetar
+ * ReconhecerOuCriarContatoUseCase — único ponto de entrada de
+ * reconhecimento/criação de Contact. Só o Use Case é consumido aqui;
+ * ContactRepository/PhoneNumber nunca aparecem neste módulo, exportados
+ * mas não usados.
+ */
 @Module({
-  imports: [JwtModule.register({ secret: process.env.JWT_SECRET })],
+  imports: [JwtModule.register({ secret: process.env.JWT_SECRET }), ContactModule],
   controllers: [WhatsAppController, WhatsAppWebhookController],
   providers: [
     SubscriptionAccessGuard,

@@ -36,6 +36,7 @@ function makeDeps(opts: {
   const patientRepo = { findByPhone: vi.fn().mockResolvedValue(opts.patient ?? null), findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn() };
   const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
   const inboundQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
+  const reconhecerOuCriarContatoUseCase = { execute: vi.fn().mockResolvedValue({ id: 'contact-1', state: 'Conversando' }) };
 
   const useCase = new ReceberMensagemWhatsAppUseCase(
     prismaClient,
@@ -44,9 +45,10 @@ function makeDeps(opts: {
     patientRepo as never,
     auditService as never,
     inboundQueue as never,
+    reconhecerOuCriarContatoUseCase as never,
   );
 
-  return { useCase, prismaClient, tenantContext, conversationRepo, patientRepo, auditService, inboundQueue };
+  return { useCase, prismaClient, tenantContext, conversationRepo, patientRepo, auditService, inboundQueue, reconhecerOuCriarContatoUseCase };
 }
 
 function payloadWith(messageId: string, body: string, phoneNumberId = PHONE_NUMBER_ID): WhatsAppWebhookPayload {
@@ -73,11 +75,12 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
     expect(conversationRepo.findMessageByExternalId).not.toHaveBeenCalled();
   });
 
-  it('idempotência: WAMID já processado nunca cria Conversation nem reenfileira', async () => {
-    const { useCase, conversationRepo, inboundQueue } = makeDeps({ existingMessage: { id: 'm-existing' } });
+  it('idempotência: WAMID já processado nunca cria Conversation, nunca reenfileira, e nunca reconhece/cria Contact', async () => {
+    const { useCase, conversationRepo, inboundQueue, reconhecerOuCriarContatoUseCase } = makeDeps({ existingMessage: { id: 'm-existing' } });
     await useCase.execute(payloadWith('wamid.1', 'Olá'));
     expect(conversationRepo.save).not.toHaveBeenCalled();
     expect(inboundQueue.enqueue).not.toHaveBeenCalled();
+    expect(reconhecerOuCriarContatoUseCase.execute).not.toHaveBeenCalled();
   });
 
   it('mensagem nova, número desconhecido: cria Conversation com patientId null', async () => {
@@ -115,6 +118,49 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
     expect(auditService.recordAll).toHaveBeenCalledWith(expect.any(Array), 'system');
   });
 
+  describe('ADR-0055 (AD-018), Fase 5 — integração com ReconhecerOuCriarContatoUseCase', () => {
+    it('chama ReconhecerOuCriarContatoUseCase com o Tenant e o telefone de origem, único ponto de entrada de Contact', async () => {
+      const { useCase, reconhecerOuCriarContatoUseCase } = makeDeps({});
+      await useCase.execute(payloadWith('wamid.1', 'Olá'));
+      expect(reconhecerOuCriarContatoUseCase.execute).toHaveBeenCalledWith(TENANT_ID, FROM);
+    });
+
+    it('fluxo de Conversation continua funcionando quando ReconhecerOuCriarContatoUseCase devolve um Contact NOVO', async () => {
+      const { useCase, conversationRepo, inboundQueue, reconhecerOuCriarContatoUseCase } = makeDeps({ patient: null });
+      reconhecerOuCriarContatoUseCase.execute.mockResolvedValue({ id: 'contact-novo', state: 'Conversando' });
+
+      await useCase.execute(payloadWith('wamid.1', 'Olá, quero agendar'));
+
+      expect(conversationRepo.save).toHaveBeenCalledOnce();
+      expect(inboundQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT_ID, externalId: 'wamid.1' }));
+    });
+
+    it('fluxo de Conversation continua funcionando quando ReconhecerOuCriarContatoUseCase devolve um Contact EXISTENTE', async () => {
+      const existingConversation = Conversation.reconstitute({ id: 'c1', tenantId: TENANT_ID, phoneNumber: FROM, patientId: 'p1' });
+      const { useCase, conversationRepo, inboundQueue, reconhecerOuCriarContatoUseCase } = makeDeps({ existingConversation });
+      reconhecerOuCriarContatoUseCase.execute.mockResolvedValue({ id: 'contact-existente', state: 'Identificado' });
+
+      await useCase.execute(payloadWith('wamid.1', 'Olá de novo'));
+
+      expect(conversationRepo.save).not.toHaveBeenCalled();
+      expect(conversationRepo.appendMessages).toHaveBeenCalledOnce();
+      expect(inboundQueue.enqueue).toHaveBeenCalledOnce();
+    });
+
+    it('mensagens ignoradas (sem Tenant conectado, ou não-texto) nunca chegam a chamar ReconhecerOuCriarContatoUseCase', async () => {
+      const semTenant = makeDeps({ integration: null });
+      await semTenant.useCase.execute(payloadWith('wamid.1', 'Olá'));
+      expect(semTenant.reconhecerOuCriarContatoUseCase.execute).not.toHaveBeenCalled();
+
+      const naoTexto = makeDeps({});
+      const payload: WhatsAppWebhookPayload = {
+        entry: [{ changes: [{ value: { metadata: { phone_number_id: PHONE_NUMBER_ID }, messages: [{ id: 'wamid.2', from: FROM, type: 'image' }] } }] }],
+      };
+      await naoTexto.useCase.execute(payload);
+      expect(naoTexto.reconhecerOuCriarContatoUseCase.execute).not.toHaveBeenCalled();
+    });
+  });
+
   it('ignora mensagens que não são de texto (fora do mínimo necessário desta AD)', async () => {
     const { useCase, conversationRepo } = makeDeps({});
     const payload: WhatsAppWebhookPayload = {
@@ -148,6 +194,7 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
     const patientRepo = { findByPhone: vi.fn().mockResolvedValue(null), findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn() };
     const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
     const inboundQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
+    const reconhecerOuCriarContatoUseCase = { execute: vi.fn().mockResolvedValue({ id: 'contact-x', state: 'Conversando' }) };
     const useCase = new ReceberMensagemWhatsAppUseCase(
       prismaClient,
       tenantContext,
@@ -155,6 +202,7 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
       patientRepo as never,
       auditService as never,
       inboundQueue as never,
+      reconhecerOuCriarContatoUseCase as never,
     );
 
     const payload: WhatsAppWebhookPayload = {

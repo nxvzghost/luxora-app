@@ -7,6 +7,7 @@ import { ConversationRepository, CONVERSATION_REPOSITORY } from '@domain-service
 import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { WhatsAppInboundQueueProducer } from '@infrastructure/messaging/whatsapp-inbound-queue.producer';
+import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-ou-criar-contato.use-case';
 
 export interface WhatsAppWebhookPayload {
   entry?: Array<{
@@ -41,6 +42,7 @@ export class ReceberMensagemWhatsAppUseCase {
     @Inject(PATIENT_REPOSITORY) private readonly patientRepo: PatientRepository,
     private readonly auditService: AuditService,
     private readonly inboundQueue: WhatsAppInboundQueueProducer,
+    private readonly reconhecerOuCriarContatoUseCase: ReconhecerOuCriarContatoUseCase,
   ) {}
 
   async execute(payload: WhatsAppWebhookPayload): Promise<void> {
@@ -91,6 +93,14 @@ export class ReceberMensagemWhatsAppUseCase {
   ): Promise<void> {
     const alreadyProcessed = await this.conversationRepo.findMessageByExternalId(externalId);
     if (alreadyProcessed) return; // idempotência (§5) — reentrega da Meta, no-op
+
+    // ADR-0055 (AD-018), Fase 5 — único ponto de entrada para reconhecimento/
+    // criação de Contact (identidade de comunicação, ver docs/01-Domain/08).
+    // Aggregate independente de Conversation (Bounded Contexts distintos
+    // dentro do mesmo domínio) — resultado não é usado por este fluxo ainda
+    // (promoção/desambiguação são Fase 6); só garante que todo Contact real
+    // exista e reflita a interação, a cada mensagem de entrada.
+    await this.reconhecerOuCriarContatoUseCase.execute(tenantId, fromPhoneNumber);
 
     let conversation = await this.conversationRepo.findByTenantAndPhone(tenantId, fromPhoneNumber);
     const isNewConversation = !conversation;

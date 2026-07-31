@@ -4,6 +4,7 @@ import { ConversationMessage } from '@domain-services/ai/ai-provider';
 import { ConversationRepository, CONVERSATION_REPOSITORY } from '@domain-services/communication/conversation.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { ProcessarMensagemUseCase } from '@use-cases/ai/processar-mensagem.use-case';
+import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-ou-criar-contato.use-case';
 import { WhatsAppInboundJobData } from '@infrastructure/messaging/whatsapp-inbound-queue.producer';
 
 export interface ProcessarMensagemWhatsAppResult {
@@ -28,6 +29,16 @@ export interface ProcessarMensagemWhatsAppResult {
  * checkpoint desta Fase 1 (InboxRepository.markGenerated()) já foi
  * gravado com sucesso. Retorna o necessário para esse despacho
  * acontecer, sem este Use Case precisar saber nada sobre filas/retry.
+ *
+ * ADR-0055 (AD-018), Fase 7 — re-resolve o Contact via
+ * ReconhecerOuCriarContatoUseCase, usando `conversation.phoneNumber`
+ * (string simples, nunca uma referência de domínio — Conversation
+ * continua independente de Contact). Idempotente por natureza
+ * (interagir() é um no-op depois da primeira vez), então chamá-lo de novo
+ * aqui — para o mesmo telefone já reconhecido sincronamente por
+ * ReceberMensagemWhatsAppUseCase — nunca duplica nada; é a forma mais
+ * simples de obter o contactId dentro do worker assíncrono sem tocar no
+ * payload do BullMQ (Inbox Pattern/AD-036 permanece intocado).
  */
 @Injectable()
 export class ProcessarMensagemWhatsAppUseCase {
@@ -35,6 +46,7 @@ export class ProcessarMensagemWhatsAppUseCase {
     private readonly processarMensagem: ProcessarMensagemUseCase,
     @Inject(CONVERSATION_REPOSITORY) private readonly conversationRepo: ConversationRepository,
     private readonly auditService: AuditService,
+    private readonly reconhecerOuCriarContato: ReconhecerOuCriarContatoUseCase,
   ) {}
 
   async execute(input: WhatsAppInboundJobData): Promise<ProcessarMensagemWhatsAppResult> {
@@ -53,11 +65,15 @@ export class ProcessarMensagemWhatsAppUseCase {
       content: m.content,
     }));
 
+    const contact = await this.reconhecerOuCriarContato.execute(input.tenantId, conversation.phoneNumber);
+
     const result = await this.processarMensagem.execute({
       tenantId: input.tenantId,
       patientId: input.patientId,
+      contactId: contact.id,
       conversationHistory,
       message: input.message,
+      correlationId: input.correlationId,
     });
 
     conversation.addMessage({ id: randomUUID(), direction: 'saida', content: result.responseMessage });
