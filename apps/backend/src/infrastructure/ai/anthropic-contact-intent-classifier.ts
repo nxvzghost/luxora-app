@@ -6,6 +6,10 @@ import {
 } from '@domain-services/ai/contact-intent-classifier';
 import { buildContactIntentPrompt } from '@use-cases/ai/contact-intent-prompt-builder';
 import { parseContactIntentResponse } from '@use-cases/ai/contact-intent-response-parser';
+import { MetricsService } from '@shared/metrics.service';
+
+const PROVIDER_LABEL = 'contact_classifier';
+const CALL_TYPE_LABEL = 'classify';
 
 /** Erro de HTTP com status — permite distinguir 4xx (não repetível: o mesmo request falharia de novo) de 5xx (repetível). */
 class AnthropicHttpError extends Error {
@@ -49,6 +53,8 @@ export class AnthropicContactIntentClassifier implements ContactIntentClassifier
   private readonly maxAttempts = 2;
   private readonly timeoutMs = Number(process.env.CONTACT_CLASSIFIER_TIMEOUT_MS ?? 8000);
 
+  constructor(private readonly metrics: MetricsService) {}
+
   async classify(input: ContactIntentClassificationInput): Promise<ContactIntentClassificationResult> {
     const systemPrompt = buildContactIntentPrompt(input);
     const { text, usage } = await this.callApiWithRetry(systemPrompt, input);
@@ -56,24 +62,37 @@ export class AnthropicContactIntentClassifier implements ContactIntentClassifier
     return { ...parsed, usage };
   }
 
+  /** Fase 8.2 — mesma instrumentação de MetricsService já aplicada em AnthropicAIProvider.callApiWithRetry(), mesmos nomes de métrica (provider='contact_classifier' distingue este classificador). */
   private async callApiWithRetry(
     systemPrompt: string,
     input: ContactIntentClassificationInput,
   ): Promise<{ text: string; usage: { inputTokens: number; outputTokens: number; costEstimate: number; latencyMs: number } }> {
     let lastError: Error = new Error('Nenhuma tentativa executada.');
+    const start = Date.now();
+    const labels = { provider: PROVIDER_LABEL, call_type: CALL_TYPE_LABEL };
 
     for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
       try {
-        return await this.callApi(systemPrompt, input);
+        const result = await this.callApi(systemPrompt, input);
+        this.metrics.incrementCounter('ai_provider_calls_total', { ...labels, outcome: 'success' });
+        this.metrics.observe('ai_provider_call_duration_ms', Date.now() - start, labels);
+        this.metrics.observe('ai_provider_cost_brl', result.usage.costEstimate, labels);
+        return result;
       } catch (err) {
         lastError = err as Error;
+        const isTimeout = lastError.message.startsWith('Timeout de');
+        if (isTimeout) {
+          this.metrics.incrementCounter('ai_provider_timeouts_total', labels);
+        }
         const retryable = !(err instanceof AnthropicHttpError) || err.status >= 500;
         this.logger.warn(
           `[correlationId=${input.correlationId ?? 'desconhecido'}] Tentativa ${attempt}/${this.maxAttempts} de classificação de Contact falhou (${retryable ? 'repetível' : 'não repetível'}): ${lastError.message}`,
         );
         if (!retryable || attempt === this.maxAttempts) {
+          this.metrics.incrementCounter('ai_provider_calls_total', { ...labels, outcome: isTimeout ? 'timeout' : 'error' });
           throw lastError;
         }
+        this.metrics.incrementCounter('ai_provider_retries_total', labels);
       }
     }
 

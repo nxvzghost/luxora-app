@@ -5,6 +5,7 @@ import { MetricsController } from './api/metrics/metrics.controller';
 import { MetricsAccessGuard } from './api/metrics/metrics-access.guard';
 import { TenantContextModule } from '@shared/tenant-context.module';
 import { CorrelationContextModule } from '@shared/correlation-context.module';
+import { MetricsModule } from '@shared/metrics.module';
 import { AuthModule } from './api/auth/auth.module';
 import { PatientsModule } from './api/patients/patients.module';
 import { TherapistsModule } from './api/therapists/therapists.module';
@@ -32,6 +33,7 @@ import { UsersModule } from './api/users/users.module';
     }),
     TenantContextModule,
     CorrelationContextModule,
+    MetricsModule,
     AuthModule,
     PatientsModule,
     TherapistsModule,

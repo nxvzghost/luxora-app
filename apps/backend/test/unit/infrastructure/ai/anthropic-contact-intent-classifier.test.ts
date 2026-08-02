@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AnthropicContactIntentClassifier } from '@infrastructure/ai/anthropic-contact-intent-classifier';
 import { ContactIntentClassificationInput } from '@domain-services/ai/contact-intent-classifier';
+import { MetricsService } from '@shared/metrics.service';
 
 function baseInput(overrides: Partial<ContactIntentClassificationInput> = {}): ContactIntentClassificationInput {
   return {
@@ -21,7 +22,13 @@ function okResponse(decision: string, usage = { input_tokens: 80, output_tokens:
   };
 }
 
-describe('AnthropicContactIntentClassifier — ADR-0055 (AD-018), Fase 7', () => {
+function makeClassifier() {
+  const metrics = new MetricsService();
+  const classifier = new AnthropicContactIntentClassifier(metrics);
+  return { classifier, metrics };
+}
+
+describe('AnthropicContactIntentClassifier — ADR-0055 (AD-018), Fase 7/8.2', () => {
   beforeEach(() => {
     process.env.ANTHROPIC_API_KEY = 'fake-key-nunca-sai-da-maquina';
   });
@@ -35,7 +42,7 @@ describe('AnthropicContactIntentClassifier — ADR-0055 (AD-018), Fase 7', () =>
     const fetchMock = vi.fn().mockResolvedValue(okResponse('IGNORAR'));
     vi.stubGlobal('fetch', fetchMock);
 
-    const classifier = new AnthropicContactIntentClassifier();
+    const { classifier } = makeClassifier();
     const result = await classifier.classify(baseInput());
 
     expect(result.decision).toBe('IGNORAR');
@@ -50,7 +57,7 @@ describe('AnthropicContactIntentClassifier — ADR-0055 (AD-018), Fase 7', () =>
     const fetchMock = vi.fn().mockResolvedValue(okResponse('IGNORAR'));
     vi.stubGlobal('fetch', fetchMock);
 
-    const classifier = new AnthropicContactIntentClassifier();
+    const { classifier } = makeClassifier();
     await classifier.classify(baseInput({ correlationId: 'corr-abc' }));
 
     const [, options] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
@@ -61,7 +68,7 @@ describe('AnthropicContactIntentClassifier — ADR-0055 (AD-018), Fase 7', () =>
     const fetchMock = vi.fn().mockResolvedValue(okResponse('IGNORAR'));
     vi.stubGlobal('fetch', fetchMock);
 
-    const classifier = new AnthropicContactIntentClassifier();
+    const { classifier } = makeClassifier();
     await classifier.classify(baseInput());
 
     const [, options] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
@@ -75,7 +82,7 @@ describe('AnthropicContactIntentClassifier — ADR-0055 (AD-018), Fase 7', () =>
       .mockResolvedValueOnce(okResponse('PROMOVER'));
     vi.stubGlobal('fetch', fetchMock);
 
-    const classifier = new AnthropicContactIntentClassifier();
+    const { classifier } = makeClassifier();
     const result = await classifier.classify(baseInput());
 
     expect(result.decision).toBe('PROMOVER');
@@ -86,7 +93,7 @@ describe('AnthropicContactIntentClassifier — ADR-0055 (AD-018), Fase 7', () =>
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => 'corpo inválido' });
     vi.stubGlobal('fetch', fetchMock);
 
-    const classifier = new AnthropicContactIntentClassifier();
+    const { classifier } = makeClassifier();
     await expect(classifier.classify(baseInput())).rejects.toThrow();
     expect(fetchMock).toHaveBeenCalledOnce();
   });
@@ -95,14 +102,14 @@ describe('AnthropicContactIntentClassifier — ADR-0055 (AD-018), Fase 7', () =>
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => 'indisponível' });
     vi.stubGlobal('fetch', fetchMock);
 
-    const classifier = new AnthropicContactIntentClassifier();
+    const { classifier } = makeClassifier();
     await expect(classifier.classify(baseInput())).rejects.toThrow();
     expect(fetchMock).toHaveBeenCalledTimes(2); // MAX_ATTEMPTS = 2
   });
 
   it('lança quando ANTHROPIC_API_KEY não está configurada', async () => {
     process.env.ANTHROPIC_API_KEY = '';
-    const classifier = new AnthropicContactIntentClassifier();
+    const { classifier } = makeClassifier();
     await expect(classifier.classify(baseInput())).rejects.toThrow('ANTHROPIC_API_KEY');
   });
 
@@ -122,11 +129,71 @@ describe('AnthropicContactIntentClassifier — ADR-0055 (AD-018), Fase 7', () =>
       .mockResolvedValueOnce(okResponse('IGNORAR'));
     vi.stubGlobal('fetch', fetchMock);
 
-    const classifier = new AnthropicContactIntentClassifier();
+    const { classifier } = makeClassifier();
     const result = await classifier.classify(baseInput());
 
     expect(result.decision).toBe('IGNORAR');
     expect(fetchMock).toHaveBeenCalledTimes(2);
     delete process.env.CONTACT_CLASSIFIER_TIMEOUT_MS;
+  });
+
+  describe('ADR-0055 (AD-018), Fase 8.2 — métricas', () => {
+    const labels = { provider: 'contact_classifier', call_type: 'classify' };
+
+    it('sucesso: incrementa ai_provider_calls_total{outcome=success} e observa duração/custo', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse('IGNORAR')));
+      const { classifier, metrics } = makeClassifier();
+
+      await classifier.classify(baseInput());
+
+      expect(metrics.getCounter('ai_provider_calls_total', { ...labels, outcome: 'success' })).toBe(1);
+      expect(metrics.getObservationStats('ai_provider_call_duration_ms', labels)?.count).toBe(1);
+      expect(metrics.getObservationStats('ai_provider_cost_brl', labels)?.count).toBe(1);
+    });
+
+    it('erro (4xx, sem retry): incrementa ai_provider_calls_total{outcome=error} uma única vez', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => 'corpo inválido' }));
+      const { classifier, metrics } = makeClassifier();
+
+      await expect(classifier.classify(baseInput())).rejects.toThrow();
+
+      expect(metrics.getCounter('ai_provider_calls_total', { ...labels, outcome: 'error' })).toBe(1);
+    });
+
+    it('timeout: incrementa ai_provider_timeouts_total', async () => {
+      process.env.CONTACT_CLASSIFIER_TIMEOUT_MS = '20';
+      const fetchMock = vi
+        .fn()
+        .mockImplementationOnce((_url: string, options: { signal: AbortSignal }) => {
+          return new Promise((_resolve, reject) => {
+            options.signal.addEventListener('abort', () => {
+              const err = new Error('The operation was aborted.');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          });
+        })
+        .mockResolvedValueOnce(okResponse('IGNORAR'));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { classifier, metrics } = makeClassifier();
+      await classifier.classify(baseInput());
+
+      expect(metrics.getCounter('ai_provider_timeouts_total', labels)).toBe(1);
+      delete process.env.CONTACT_CLASSIFIER_TIMEOUT_MS;
+    });
+
+    it('retry: incrementa ai_provider_retries_total uma vez por nova tentativa', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'erro interno simulado' })
+        .mockResolvedValueOnce(okResponse('PROMOVER'));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { classifier, metrics } = makeClassifier();
+      await classifier.classify(baseInput());
+
+      expect(metrics.getCounter('ai_provider_retries_total', labels)).toBe(1);
+    });
   });
 });

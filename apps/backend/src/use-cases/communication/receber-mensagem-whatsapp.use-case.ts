@@ -2,6 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { TenantContext } from '@shared/tenant-context';
+import { CorrelationContext } from '@shared/correlation-context';
 import { Conversation } from '@domain/communication/conversation.entity';
 import { ConversationRepository, CONVERSATION_REPOSITORY } from '@domain-services/communication/conversation.repository';
 import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
@@ -43,6 +44,7 @@ export class ReceberMensagemWhatsAppUseCase {
     private readonly auditService: AuditService,
     private readonly inboundQueue: WhatsAppInboundQueueProducer,
     private readonly reconhecerOuCriarContatoUseCase: ReconhecerOuCriarContatoUseCase,
+    private readonly correlationContext: CorrelationContext,
   ) {}
 
   async execute(payload: WhatsAppWebhookPayload): Promise<void> {
@@ -131,6 +133,16 @@ export class ReceberMensagemWhatsAppUseCase {
       patientId: conversation.patientId ?? undefined,
       message: body,
       externalId,
+      // ADR-0055 (AD-018), Fase 8.2 — ACHADO REAL: este campo já existia em
+      // WhatsAppInboundJobData desde a AD-016, mas nunca era de fato
+      // preenchido aqui — WhatsAppInboundQueueWorker sempre caía no
+      // fallback `?? randomUUID()`, gerando um id novo sem nenhuma relação
+      // com a requisição HTTP original. Agora o correlationId nasce no
+      // middleware (correlationIdMiddleware) e se propaga de ponta a
+      // ponta: Webhook → Queue → Worker → ProcessarMensagemWhatsAppUseCase
+      // → ProcessarMensagemUseCase → AnthropicAIProvider/
+      // AnthropicContactIntentClassifier.
+      correlationId: this.correlationContext.correlationId,
     });
   }
 }

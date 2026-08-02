@@ -10,6 +10,7 @@ import { Contact, ContactPatientAssociation, DuplicateContactPatientAssociationE
 import { ConsultarContatoUseCase } from './consultar-contato.use-case';
 import { PromoverContatoUseCase } from './promover-contato.use-case';
 import { AssociarContatoUseCase } from './associar-contato.use-case';
+import { MetricsService } from '@shared/metrics.service';
 
 export interface ContactIntentRoutingInput {
   tenantId: string;
@@ -79,9 +80,11 @@ export class ContactIntentActionRouter {
     private readonly consultarContato: ConsultarContatoUseCase,
     private readonly promoverContato: PromoverContatoUseCase,
     private readonly associarContato: AssociarContatoUseCase,
+    private readonly metrics: MetricsService,
   ) {}
 
   async route(input: ContactIntentRoutingInput): Promise<ContactIntentRoutingResult> {
+    let result: ContactIntentRoutingResult;
     try {
       const { contact, associations } = await this.consultarContato.execute(input.contactId);
 
@@ -94,14 +97,25 @@ export class ContactIntentActionRouter {
         correlationId: input.correlationId,
       });
 
-      const result = await this.dispatch(input, contact, associations, classification);
-      return { ...result, usage: classification.usage };
+      const dispatched = await this.dispatch(input, contact, associations, classification);
+      result = { ...dispatched, usage: classification.usage };
     } catch (err) {
       this.logger.warn(
         `[correlationId=${input.correlationId ?? 'desconhecido'}] Falha ao rotear Contact ${input.contactId}: ${(err as Error).message}`,
       );
-      return { decision: 'HUMANO', actionTaken: false, escalateToHuman: true, error: (err as Error).message };
+      result = { decision: 'HUMANO', actionTaken: false, escalateToHuman: true, error: (err as Error).message };
     }
+
+    // Fase 8.2 — observabilidade: promoções/associações/desambiguações/
+    // encaminhamentos para HUMANO, todos derivados de UM contador rotulado
+    // (decision, action_taken) — nunca por contactId/tenantId (cardinalidade
+    // ilimitada).
+    this.metrics.incrementCounter('contact_router_decisions_total', {
+      decision: result.decision,
+      action_taken: result.actionTaken,
+    });
+
+    return result;
   }
 
   private async dispatch(

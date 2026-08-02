@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ProcessarMensagemUseCase } from '@use-cases/ai/processar-mensagem.use-case';
+import { MetricsService } from '@shared/metrics.service';
 
 function makeUseCase(
   intentResult: unknown,
@@ -21,8 +22,9 @@ function makeUseCase(
   const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
   const intentActionRouter = { route: vi.fn().mockResolvedValue(routerResult) };
   const contactIntentActionRouter = { route: vi.fn().mockResolvedValue(contactRouterResult) };
-  const useCase = new ProcessarMensagemUseCase(aiProvider, auditService, intentActionRouter, contactIntentActionRouter);
-  return { useCase, aiProvider, auditService, intentActionRouter, contactIntentActionRouter };
+  const metrics = new MetricsService();
+  const useCase = new ProcessarMensagemUseCase(aiProvider, auditService, intentActionRouter, contactIntentActionRouter, metrics);
+  return { useCase, aiProvider, auditService, intentActionRouter, contactIntentActionRouter, metrics };
 }
 
 describe('ProcessarMensagemUseCase', () => {
@@ -171,6 +173,50 @@ describe('ProcessarMensagemUseCase', () => {
       const [[events]] = auditService.recordAll.mock.calls;
       // 0.01 (interpretIntent) + 0.005 (ContactIntentClassifier) + 0.02 (generateResponse) = 0.035
       expect((events[0] as { costEstimate: number }).costEstimate).toBeCloseTo(0.035, 5);
+    });
+  });
+
+  describe('ADR-0055 (AD-018), Fase 8.2 — correlationId e métricas', () => {
+    it('repassa correlationId para interpretIntent() e generateResponse()', async () => {
+      const { useCase, aiProvider } = makeUseCase({ intent: 'duvida_geral', confidence: 0.9, entities: {}, requiresEscalation: false });
+      await useCase.execute({ tenantId: 't1', conversationHistory: [], message: 'oi', correlationId: 'corr-turno' });
+
+      expect(aiProvider.interpretIntent).toHaveBeenCalledWith(expect.objectContaining({ correlationId: 'corr-turno' }));
+      expect(aiProvider.generateResponse).toHaveBeenCalledWith(expect.objectContaining({ correlationId: 'corr-turno' }));
+    });
+
+    it('observa conversation_turn_cost_brl com o custo total somado', async () => {
+      const { useCase, metrics } = makeUseCase(
+        { intent: 'duvida_geral', confidence: 0.9, entities: {}, requiresEscalation: false, usage: { inputTokens: 100, outputTokens: 50, costEstimate: 0.01, latencyMs: 100 } },
+        { actionTaken: false },
+        { inputTokens: 500, outputTokens: 150, costEstimate: 0.02, latencyMs: 800 },
+      );
+      await useCase.execute({ tenantId: 't1', conversationHistory: [], message: 'oi' });
+
+      const stats = metrics.getObservationStats('conversation_turn_cost_brl');
+      expect(stats?.count).toBe(1);
+      expect(stats?.sum).toBeCloseTo(0.03, 5);
+    });
+
+    it('observa conversation_turn_duration_ms e incrementa conversation_turns_total', async () => {
+      const { useCase, metrics } = makeUseCase({ intent: 'agendar_consulta', confidence: 0.9, entities: {}, requiresEscalation: false });
+      await useCase.execute({ tenantId: 't1', conversationHistory: [], message: 'oi' });
+
+      expect(metrics.getObservationStats('conversation_turn_duration_ms')?.count).toBe(1);
+      expect(metrics.getCounter('conversation_turns_total', { requires_escalation: false, action_taken: false })).toBe(1);
+    });
+
+    it('turno escalonado incrementa conversation_turns_total{requires_escalation=true}', async () => {
+      const { useCase, metrics } = makeUseCase({
+        intent: 'outro',
+        confidence: 0.3,
+        entities: {},
+        requiresEscalation: true,
+        escalationReason: 'sensível',
+      });
+      await useCase.execute({ tenantId: 't1', conversationHistory: [], message: 'não sei se aguento' });
+
+      expect(metrics.getCounter('conversation_turns_total', { requires_escalation: true, action_taken: false })).toBe(1);
     });
   });
 });

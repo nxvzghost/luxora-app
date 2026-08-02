@@ -54,13 +54,16 @@ function inboundMessagePayload(msgId: string, from: string, body: string, pnid: 
   };
 }
 
-async function postSigned(payload: unknown) {
+async function postSigned(payload: unknown, headers: Record<string, string> = {}) {
   const rawBody = JSON.stringify(payload);
-  return request(app.getHttpServer())
+  let req = request(app.getHttpServer())
     .post('/api/v1/webhooks/whatsapp')
     .set('Content-Type', 'application/json')
-    .set('X-Hub-Signature-256', sign(rawBody))
-    .send(rawBody);
+    .set('X-Hub-Signature-256', sign(rawBody));
+  for (const [key, value] of Object.entries(headers)) {
+    req = req.set(key, value);
+  }
+  return req.send(rawBody);
 }
 
 /**
@@ -311,6 +314,46 @@ describe('[AD-036] Idempotência ponta-a-ponta do processamento assíncrono (ADR
         expect(outboundMessages).toHaveLength(1);
       } finally {
         enqueueSpy.mockRestore();
+        vi.unstubAllGlobals();
+      }
+    },
+    35000,
+  );
+
+  it(
+    'ADR-0055 (AD-018), Fase 8.2 — o mesmo correlationId enviado no header do webhook chega a TODAS as chamadas de IA (interpretIntent + ContactIntentClassifier + generateResponse)',
+    async () => {
+      const fetchMock = mockAnthropicFetch();
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        const from = `+554199${Math.floor(Math.random() * 900000 + 100000)}`;
+        const wamid = `wamid.${randomUUID()}`;
+        const correlationId = `corr-${randomUUID()}`;
+        const messageText = `AD-018 Fase 8.2 teste correlationId ${wamid}`;
+
+        const res = await postSigned(inboundMessagePayload(wamid, from, messageText), {
+          'X-Correlation-Id': correlationId,
+        });
+        expect(res.status).toBe(200);
+        // AD-016 — a resposta síncrona do webhook já devolve o mesmo valor,
+        // mesmo antes do processamento assíncrono terminar.
+        expect(res.headers['x-correlation-id']).toBe(correlationId);
+
+        const myFetchCalls = () =>
+          fetchMock.mock.calls.filter(([, opts]) => (opts as { body: string }).body.includes(wamid));
+
+        await waitForInboxStatusAtLeast(wamid, 'generated');
+
+        const calls = myFetchCalls();
+        // Mesmas 3 chamadas por turno já documentadas acima
+        // (interpretIntent + ContactIntentClassifier + generateResponse).
+        expect(calls.length).toBe(3);
+        for (const [, opts] of calls) {
+          const headers = (opts as { headers: Record<string, string> }).headers;
+          expect(headers['X-Correlation-Id']).toBe(correlationId);
+        }
+      } finally {
         vi.unstubAllGlobals();
       }
     },

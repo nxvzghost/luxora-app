@@ -1,6 +1,6 @@
 # ADR-0055 — Contact: Identidade de Comunicação, Promoção e Desambiguação (AD-018)
 
-**Status:** ADOTADA E IMPLEMENTADA — v2 congelada e aprovada; implementação concluída em 7 Fases sequenciais, cada uma revisada e aprovada individualmente; validada (build/lint/unit/integration/critical) e sincronizada Windows↔WSL em 31/07/2026.
+**Status:** ADOTADA E IMPLEMENTADA — v2 congelada e aprovada; implementação concluída em 7 Fases sequenciais, cada uma revisada e aprovada individualmente; validada (build/lint/unit/integration/critical) e sincronizada Windows↔WSL em 31/07/2026. Hardening de produção (Fase 8.0/8.1/8.2 — concorrência, resiliência, observabilidade/correlationId) concluído e revalidado em 01/08/2026.
 **Origem:** gap funcional real identificado na consolidação da documentação de Arquitetura de Domínio (Marco 1) — um Contact de WhatsApp que nunca conversou com a clínica antes não tem `patientId`, e sem `patientId` nenhum intent de agendamento executa. Contatos novos não conseguiam completar um agendamento pelo WhatsApp.
 **Relacionada a:** ADR-0043 (Contact representa identidade de comunicação), ADR-0044 (Patient representa vínculo clínico), ADR-0045 (primeiro agendamento promove Contact para Patient), ADR-0046 (ambiguidades sempre resolvidas antes de executar), ADR-0053/ADR-0054 (canal WhatsApp e Inbox Pattern, ambos preservados intocados por esta AD).
 
@@ -62,11 +62,19 @@ Eixo de classificação **separado** de `IntentActionRouter`/`IAIProvider.interp
 - Custo real de IA por turno passa de até 2 chamadas para até 3 — mitigado pela soma completa contabilizada contra o teto RNF-021.
 - `PatientsModule` ganhou seu primeiro `export` (`CadastrarPacienteUseCase`) — nenhum consumidor existente afetado.
 
+## Hardening de Produção (Fase 8 — pós-implementação)
+
+Com as 7 Fases funcionais já aprovadas e aguardando commit, o usuário autorizou uma fase adicional de hardening — sem nenhuma nova regra de negócio, sem tocar `Contact`/`Conversation`/`Patient` (Aggregates) nem esta ADR em nível de decisão arquitetural — cobrindo três subfases sequenciais, cada uma implementada, testada e aprovada individualmente:
+
+- **Fase 8.0 — Concorrência:** `PrismaContactRepository.save()` não tratava `P2002` numa corrida real de duas mensagens simultâneas do mesmo número nunca visto antes (dois `ReconhecerOuCriarContatoUseCase` concorrentes, dois `randomUUID()` diferentes, ambos caindo no ramo `create()` do `upsert()`). Corrigido reaproveitando o mesmo idioma já usado em `saveAssociation()` — swallow de `P2002` como no-op idempotente, comprovado seguro porque os dois lados da corrida sempre computam a mesma transição de estado (`Novo→Conversando`). Provado contra Postgres real com um teste de `Promise.all()` genuíno.
+- **Fase 8.1 — Resiliência:** `AnthropicAIProvider` (`interpretIntent()`/`generateResponse()`) ganhou o mesmo padrão de resiliência já validado em `AnthropicContactIntentClassifier` — timeout via `AbortController` (`AI_PROVIDER_TIMEOUT_MS`, default 8s), retry (até 2 tentativas, só em timeout/falha de rede/5xx, nunca 4xx nem corpo malformado numa resposta 2xx), preservando `usage`/custo/auditoria/correlationId e compatibilidade total com os consumidores existentes.
+- **Fase 8.2 — Observabilidade:** `MetricsService` novo (`src/shared/`) — em memória, sem dependência externa, sem Prometheus/OpenTelemetry/dashboard (fora de escopo desta subfase) — instrumentando chamadas/duração/erros/retries/timeouts/custo em `AnthropicAIProvider`, `AnthropicContactIntentClassifier`, `ContactIntentActionRouter`, `ProcessarMensagemUseCase` e `ProcessarMensagemWhatsAppUseCase`. `correlationId` passou a ser propagado ponta a ponta (Webhook → Queue → Worker → `ProcessarMensagemWhatsAppUseCase` → `ProcessarMensagemUseCase` → `AnthropicAIProvider` → `AnthropicContactIntentClassifier`) via extensão aditiva (`correlationId?: string`) nos contratos já existentes — **achado real corrigido nesta subfase:** o campo já existia em `WhatsAppInboundJobData` desde a AD-016, mas nunca era preenchido de fato (`ReceberMensagemWhatsAppUseCase` nunca o passava ao enfileirar, e `WhatsAppInboundQueueWorker` resolvia um valor local mas chamava `execute(job.data)` sem repassá-lo) — ambos os pontos corrigidos, provado ponta a ponta contra Postgres/Redis/BullMQ reais por um teste crítico novo que verifica que o mesmo `X-Correlation-Id` enviado no header do webhook chega às 3 chamadas de IA do turno.
+
 ## Testes
 
 Cobertura completa em cada Fase: domínio (Aggregate, VO, máquina de estados, eventos), integração real contra Postgres (round-trip, RLS cruzando Tenants), Use Cases (unitário, com fakes), Router (promoção, associação, desambiguação, nenhum match, múltiplos matches, caminhos negativos, idempotência), classificador (retry, timeout, erros, usage). Suíte crítica (`whatsapp-inbound-idempotency.test.ts`) validada de ponta a ponta com o pipeline de 3 chamadas de IA, provando que o Inbox Pattern (AD-036) permanece intacto.
 
-**Resultado final:** build/lint limpos; unit 605/605; integration 8/8; critical 183/184 (1 skip pré-existente).
+**Resultado final (7 Fases + hardening Fase 8.0/8.1/8.2):** build/lint limpos; unit 649/649; integration 9/9; critical 184/184 (1 skip pré-existente).
 
 ## Divergências da v1 original (aprovadas)
 
@@ -94,6 +102,9 @@ Reverter código das 7 Fases — `Patient`/`Conversation`/`Message`/Inbox Patter
 - **Fase 5** (integração com `ReceberMensagemWhatsAppUseCase`) — aprovada; 2 critical tests corrigidos (cleanup de `contact`/`contact_patient_association` antes do cleanup do Tenant).
 - **Fase 6** (Router + prompt de IA) — construída isolada do pipeline ao vivo, por decisão explícita do usuário (custo real de uma segunda chamada de IA por turno); aprovada com melhoria opcional sugerida (extrair prompt/parser).
 - **Fase 7** (integração ao vivo + observabilidade + custo + regressão) — melhoria opcional da Fase 6 aplicada antes da integração; pipeline completo conectado; revisão técnica final encontrou e corrigiu 2 inconsistências reais (corpo malformado numa resposta 2xx tratado como repetível; duplicação literal da regra de dedupe do Aggregate em `ContactIntentActionRouter.handleAssociar()`) — ambas corrigidas, suíte revalidada 100% verde. **Aprovada para commit em 31/07/2026.**
+- **Fase 8.0** (hardening — concorrência) — corrigida a corrida de criação concorrente de `Contact` em `PrismaContactRepository.save()`; provada contra Postgres real. Achado do "Domain Event órfão do lado perdedor da corrida" registrado como pendência técnica conhecida, deliberadamente não corrigida nesta subfase. **Aprovada.**
+- **Fase 8.1** (hardening — resiliência) — `AnthropicAIProvider` ganhou timeout/retry/AbortController no mesmo padrão de `AnthropicContactIntentClassifier`. Decisão de não implementar `correlationId` nesta subfase (mudança de contrato público, fora do escopo definido) tomada e confirmada correta. **Aprovada.**
+- **Fase 8.2** (hardening — observabilidade) — `MetricsService` novo instrumentando os 5 componentes do pipeline de IA/Contact; `correlationId` propagado ponta a ponta pela primeira vez de fato (achado real: existia desde a AD-016 mas nunca era preenchido) — 2 pontos corrigidos (`ReceberMensagemWhatsAppUseCase`, `WhatsAppInboundQueueWorker`), provados por teste crítico novo. Suíte completa revalidada: unit 649/649, integration 9/9, critical 184/184 (1 skip pré-existente). **Aprovada para commit em 01/08/2026.**
 
 ## Considerações Finais
 

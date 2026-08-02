@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { ProcessarMensagemWhatsAppUseCase } from '@use-cases/communication/processar-mensagem-whatsapp.use-case';
 import { Conversation, Message } from '@domain/communication/conversation.entity';
+import { MetricsService } from '@shared/metrics.service';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -26,15 +27,17 @@ function makeDeps(opts: { conversation?: Conversation | null; history?: Message[
   };
   const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
   const reconhecerOuCriarContato = { execute: vi.fn().mockResolvedValue({ id: 'contact-1', state: 'Conversando' }) };
+  const metrics = new MetricsService();
 
   const useCase = new ProcessarMensagemWhatsAppUseCase(
     processarMensagem as never,
     conversationRepo as never,
     auditService as never,
     reconhecerOuCriarContato as never,
+    metrics,
   );
 
-  return { useCase, processarMensagem, conversationRepo, auditService, reconhecerOuCriarContato, conversation };
+  return { useCase, processarMensagem, conversationRepo, auditService, reconhecerOuCriarContato, metrics, conversation };
 }
 
 describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007), escopo revisado por ADR-0054 (AD-036)', () => {
@@ -98,6 +101,28 @@ describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007), escopo revisad
       expect(processarMensagem.execute).toHaveBeenCalledWith(
         expect.objectContaining({ contactId: 'contact-1', correlationId: 'corr-9' }),
       );
+    });
+  });
+
+  describe('ADR-0055 (AD-018), Fase 8.2 — métricas', () => {
+    it('sucesso: observa whatsapp_message_processing_duration_ms e incrementa outcome=success', async () => {
+      const { useCase, metrics } = makeDeps({});
+      await useCase.execute({ tenantId: TENANT_ID, conversationId: 'c1', message: 'Olá', externalId: 'wamid.1' });
+
+      expect(metrics.getObservationStats('whatsapp_message_processing_duration_ms')?.count).toBe(1);
+      expect(metrics.getCounter('whatsapp_messages_processed_total', { outcome: 'success' })).toBe(1);
+    });
+
+    it('erro: observa duração e incrementa outcome=error, sem mascarar a exceção original', async () => {
+      const { useCase, metrics } = makeDeps({ conversation: null });
+
+      await expect(
+        useCase.execute({ tenantId: TENANT_ID, conversationId: 'c1', message: 'Olá', externalId: 'wamid.1' }),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(metrics.getObservationStats('whatsapp_message_processing_duration_ms')?.count).toBe(1);
+      expect(metrics.getCounter('whatsapp_messages_processed_total', { outcome: 'error' })).toBe(1);
+      expect(metrics.getCounter('whatsapp_messages_processed_total', { outcome: 'success' })).toBe(0);
     });
   });
 });

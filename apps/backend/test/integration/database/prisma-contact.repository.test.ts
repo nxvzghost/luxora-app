@@ -14,6 +14,7 @@ import { TenantContext } from '@shared/tenant-context';
 import { Contact, ContactPatientAssociation } from '@domain/contact/contact.entity';
 import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 import { TenantContextModule } from '@shared/tenant-context.module';
+import { MetricsModule } from '@shared/metrics.module';
 import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } from '../../critical/support/dedicated-fixture';
 
 /**
@@ -102,6 +103,29 @@ describe('[AD-018 Fase 3] PrismaContactRepository — persistência real', () =>
     expect(found!.state).toBe('Novo');
     expect(found!.phoneNumber?.equals(phone)).toBe(true);
     expect(found!.name).toBeNull();
+  });
+
+  it('Fase 8.0 — concorrência: duas save() simultâneas do mesmo (tenantId, phoneNumber) novo, com ids diferentes, nunca lançam e nunca duplicam linha', async () => {
+    // Reproduz exatamente a corrida real (achado do discovery de
+    // hardening): duas mensagens quase simultâneas do MESMO telefone,
+    // nunca visto antes, geram dois ids novos distintos em
+    // ReconhecerOuCriarContatoUseCase.execute() (cada chamada gera seu
+    // próprio randomUUID()) — os dois tentam o ramo create() do upsert,
+    // a segunda violando @@unique([tenantId, phoneNumber]). Promise.all
+    // contra Postgres real garante uma corrida genuína, não apenas
+    // sequencial.
+    const phone = PhoneNumber.normalize('11988880008');
+    const contactA = Contact.create({ id: randomUUID(), tenantId: fixtureA.tenantId, phoneNumber: phone });
+    const contactB = Contact.create({ id: randomUUID(), tenantId: fixtureA.tenantId, phoneNumber: phone });
+    contactA.interagir();
+    contactB.interagir();
+
+    await expect(Promise.all([repoA.save(contactA), repoA.save(contactB)])).resolves.toBeDefined();
+
+    const rows = await fixturePrisma.contact.findMany({ where: { tenantId: fixtureA.tenantId, phoneNumber: phone.toE164() } });
+    expect(rows).toHaveLength(1);
+    expect(['Conversando']).toContain(rows[0].state);
+    expect([contactA.id, contactB.id]).toContain(rows[0].id);
   });
 
   it('save() em cima de um Contact já existente atualiza (upsert), nunca duplica linha', async () => {
@@ -214,15 +238,20 @@ describe('[AD-018 Fase 3] PrismaContactRepository — persistência real', () =>
   });
 
   it('DI: ContactModule resolve CONTACT_REPOSITORY e ReconhecerOuCriarContatoUseCase — wiring completo', async () => {
-    // TenantContextModule é @Global() (ver shared/tenant-context.module.ts)
-    // — só entra no grafo compilado se algum módulo o importar
-    // explicitamente; AppModule faz isso em produção. AuditModule NÃO
-    // precisa entrar aqui: ContactModule já o importa internamente (Fase 4
+    // TenantContextModule e MetricsModule são @Global() (ver
+    // shared/tenant-context.module.ts e shared/metrics.module.ts) — só
+    // entram no grafo compilado se algum módulo os importar
+    // explicitamente; AppModule faz isso em produção. MetricsModule
+    // entrou aqui na Fase 8.2 (ADR-0055/AD-018): AnthropicContactIntentClassifier
+    // e ContactIntentActionRouter passaram a injetar MetricsService. AuditModule
+    // NÃO precisa entrar aqui: ContactModule já o importa internamente (Fase 4
     // — ReconhecerOuCriarContatoUseCase injeta AuditService), prova real de
     // que o módulo é autocontido, não depende de quem o consome também
     // importar AuditModule ao lado (como AIModule já fazia, mas que
     // sozinho NÃO seria suficiente — achado real desta Fase, ver commit).
-    const moduleRef = await Test.createTestingModule({ imports: [TenantContextModule, ContactModule] }).compile();
+    const moduleRef = await Test.createTestingModule({
+      imports: [TenantContextModule, MetricsModule, ContactModule],
+    }).compile();
     const repository = moduleRef.get(CONTACT_REPOSITORY);
     expect(repository).toBeInstanceOf(PrismaContactRepository);
     const useCase = moduleRef.get(ReconhecerOuCriarContatoUseCase);

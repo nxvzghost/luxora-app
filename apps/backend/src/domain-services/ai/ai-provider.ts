@@ -13,6 +13,8 @@ export interface ConversationInput {
   patientId?: string;
   conversationHistory: ConversationMessage[];
   message: string;
+  /** ADR-0055 (AD-018), Fase 8.2 — correlaciona esta chamada com o restante dos logs do job/requisição de origem. Aditivo, opcional. */
+  correlationId?: string;
 }
 
 export interface IntentResult {
@@ -36,6 +38,8 @@ export interface ConversationContext {
   therapistId?: string;
   conversationHistory: ConversationMessage[];
   intent: IntentResult;
+  /** ADR-0055 (AD-018), Fase 8.2 — correlaciona esta chamada com o restante dos logs do job/requisição de origem. Aditivo, opcional. */
+  correlationId?: string;
 }
 
 export interface UsageMetrics {

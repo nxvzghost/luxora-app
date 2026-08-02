@@ -4,6 +4,7 @@ import { ContactIntentClassificationResult } from '@domain-services/ai/contact-i
 import { Contact, ContactPatientAssociation, DuplicateContactPatientAssociationError } from '@domain/contact/contact.entity';
 import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 import { Patient } from '@domain/patient/patient.entity';
+import { MetricsService } from '@shared/metrics.service';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -51,8 +52,15 @@ function makeDeps(opts: {
     })),
   };
 
-  const router = new ContactIntentActionRouter(classifier as never, consultarContato as never, promoverContato as never, associarContato as never);
-  return { router, consultarContato, classifier, promoverContato, associarContato, contact, associations };
+  const metrics = new MetricsService();
+  const router = new ContactIntentActionRouter(
+    classifier as never,
+    consultarContato as never,
+    promoverContato as never,
+    associarContato as never,
+    metrics,
+  );
+  return { router, consultarContato, classifier, promoverContato, associarContato, metrics, contact, associations };
 }
 
 function baseInput(overrides: Partial<ContactIntentRoutingInput> = {}): ContactIntentRoutingInput {
@@ -225,8 +233,8 @@ describe('ContactIntentActionRouter — ADR-0055 (AD-018), Fase 6', () => {
   });
 
   describe('nunca acessa Repository/Prisma diretamente — só Use Cases + classificador', () => {
-    it('as únicas dependências do Router são os 3 Use Cases e o classificador (verificação estrutural)', () => {
-      const router = new ContactIntentActionRouter({} as never, {} as never, {} as never, {} as never);
+    it('as únicas dependências do Router são os 3 Use Cases, o classificador e MetricsService (verificação estrutural)', () => {
+      const router = new ContactIntentActionRouter({} as never, {} as never, {} as never, {} as never, new MetricsService());
       expect(router).toBeInstanceOf(ContactIntentActionRouter);
     });
   });
@@ -269,6 +277,52 @@ describe('ContactIntentActionRouter — ADR-0055 (AD-018), Fase 6', () => {
       const { router } = makeDeps({ classification: new Error('timeout') });
       const result = await router.route(baseInput());
       expect(result.usage).toBeUndefined();
+    });
+  });
+
+  describe('ADR-0055 (AD-018), Fase 8.2 — métricas de decisão', () => {
+    it('PROMOVER bem-sucedido incrementa contact_router_decisions_total{decision=PROMOVER, action_taken=true}', async () => {
+      const { router, metrics } = makeDeps({
+        contact: contactWith('Identificado', 'Maria da Silva'),
+        associations: [],
+        classification: { decision: 'PROMOVER', confidence: 0.9 },
+      });
+      await router.route(baseInput());
+      expect(metrics.getCounter('contact_router_decisions_total', { decision: 'PROMOVER', action_taken: true })).toBe(1);
+    });
+
+    it('ASSOCIAR bem-sucedido incrementa contact_router_decisions_total{decision=ASSOCIAR, action_taken=true}', async () => {
+      const { router, metrics } = makeDeps({
+        contact: contactWith('Vinculado', 'Ana'),
+        associations: [assoc('p1')],
+        classification: { decision: 'ASSOCIAR', confidence: 0.8 },
+      });
+      await router.route(baseInput({ knownPatientId: 'p2' }));
+      expect(metrics.getCounter('contact_router_decisions_total', { decision: 'ASSOCIAR', action_taken: true })).toBe(1);
+    });
+
+    it('DESAMBIGUAR incrementa contact_router_decisions_total{decision=DESAMBIGUAR, action_taken=false}', async () => {
+      const { router, metrics } = makeDeps({ classification: { decision: 'DESAMBIGUAR', confidence: 0.4 } });
+      await router.route(baseInput());
+      expect(metrics.getCounter('contact_router_decisions_total', { decision: 'DESAMBIGUAR', action_taken: false })).toBe(1);
+    });
+
+    it('HUMANO incrementa contact_router_decisions_total{decision=HUMANO, action_taken=false}', async () => {
+      const { router, metrics } = makeDeps({ classification: { decision: 'HUMANO', confidence: 0.3 } });
+      await router.route(baseInput());
+      expect(metrics.getCounter('contact_router_decisions_total', { decision: 'HUMANO', action_taken: false })).toBe(1);
+    });
+
+    it('falha do classificador (caminho negativo) também incrementa a métrica, como HUMANO', async () => {
+      const { router, metrics } = makeDeps({ classification: new Error('timeout') });
+      await router.route(baseInput());
+      expect(metrics.getCounter('contact_router_decisions_total', { decision: 'HUMANO', action_taken: false })).toBe(1);
+    });
+
+    it('IGNORAR incrementa contact_router_decisions_total{decision=IGNORAR, action_taken=false}', async () => {
+      const { router, metrics } = makeDeps({ classification: { decision: 'IGNORAR', confidence: 0.95 } });
+      await router.route(baseInput());
+      expect(metrics.getCounter('contact_router_decisions_total', { decision: 'IGNORAR', action_taken: false })).toBe(1);
     });
   });
 });

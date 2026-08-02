@@ -6,6 +6,7 @@ import { AuditService } from '@domain-services/platform/audit.service';
 import { ProcessarMensagemUseCase } from '@use-cases/ai/processar-mensagem.use-case';
 import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-ou-criar-contato.use-case';
 import { WhatsAppInboundJobData } from '@infrastructure/messaging/whatsapp-inbound-queue.producer';
+import { MetricsService } from '@shared/metrics.service';
 
 export interface ProcessarMensagemWhatsAppResult {
   responseMessage: string;
@@ -47,9 +48,24 @@ export class ProcessarMensagemWhatsAppUseCase {
     @Inject(CONVERSATION_REPOSITORY) private readonly conversationRepo: ConversationRepository,
     private readonly auditService: AuditService,
     private readonly reconhecerOuCriarContato: ReconhecerOuCriarContatoUseCase,
+    private readonly metrics: MetricsService,
   ) {}
 
   async execute(input: WhatsAppInboundJobData): Promise<ProcessarMensagemWhatsAppResult> {
+    const start = Date.now();
+    try {
+      const result = await this.executeInternal(input);
+      this.metrics.observe('whatsapp_message_processing_duration_ms', Date.now() - start);
+      this.metrics.incrementCounter('whatsapp_messages_processed_total', { outcome: 'success' });
+      return result;
+    } catch (err) {
+      this.metrics.observe('whatsapp_message_processing_duration_ms', Date.now() - start);
+      this.metrics.incrementCounter('whatsapp_messages_processed_total', { outcome: 'error' });
+      throw err;
+    }
+  }
+
+  private async executeInternal(input: WhatsAppInboundJobData): Promise<ProcessarMensagemWhatsAppResult> {
     const conversation = await this.conversationRepo.findById(input.conversationId);
     if (!conversation) {
       throw new NotFoundException(`Conversation ${input.conversationId} não encontrada.`);

@@ -4,6 +4,7 @@ import { AuditService } from '@domain-services/platform/audit.service';
 import { DomainEvent } from '@domain/shared/domain-event';
 import { IntentActionRouter } from './intent-action-router';
 import { ContactIntentActionRouter } from '@use-cases/contact/contact-intent-action-router';
+import { MetricsService } from '@shared/metrics.service';
 
 const COST_CEILING_PER_CONVERSATION_BRL = 0.25; // RNF-021
 const COST_ALERT_THRESHOLD = 0.7; // alerta em 70% do teto, não bloqueio
@@ -84,14 +85,17 @@ export class ProcessarMensagemUseCase {
     private readonly auditService: AuditService,
     private readonly intentActionRouter: IntentActionRouter,
     private readonly contactIntentActionRouter: ContactIntentActionRouter,
+    private readonly metrics: MetricsService,
   ) {}
 
   async execute(input: ProcessarMensagemInput): Promise<ProcessarMensagemResult> {
+    const turnStart = Date.now();
     const intent = await this.aiProvider.interpretIntent({
       tenantId: input.tenantId,
       patientId: input.patientId,
       conversationHistory: input.conversationHistory,
       message: input.message,
+      correlationId: input.correlationId,
     });
 
     // Eixo de identidade (Contact) — independente do eixo de intenção
@@ -151,6 +155,7 @@ export class ProcessarMensagemUseCase {
       patientId: resolvedPatientId,
       conversationHistory: conversationForResponse,
       intent,
+      correlationId: input.correlationId,
     });
 
     const totalCost = (intent.usage?.costEstimate ?? 0) + contactCost + response.usage.costEstimate;
@@ -171,6 +176,16 @@ export class ProcessarMensagemUseCase {
       ],
       'ai_agent',
     );
+
+    // Fase 8.2 — observabilidade: custo e duração por CONVERSA (turno
+    // completo, até 3 chamadas de IA já somadas em totalCost) — nunca
+    // rotulado por tenantId/patientId (cardinalidade ilimitada).
+    this.metrics.observe('conversation_turn_cost_brl', totalCost);
+    this.metrics.observe('conversation_turn_duration_ms', Date.now() - turnStart);
+    this.metrics.incrementCounter('conversation_turns_total', {
+      requires_escalation: intent.requiresEscalation,
+      action_taken: finalActionTaken,
+    });
 
     return {
       responseMessage: response.message,

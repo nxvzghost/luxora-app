@@ -35,23 +35,43 @@ export class PrismaContactRepository implements ContactRepository {
     // suposição de não-nulo em nenhum ponto deste mapeamento.
     const phoneNumber = contact.phoneNumber?.toE164() ?? null;
 
-    await this.prisma.forTenant((tx) =>
-      tx.contact.upsert({
-        where: { id: contact.id },
-        create: {
-          id: contact.id,
-          tenantId: contact.tenantId,
-          phoneNumber,
-          name: contact.name,
-          state: contact.state,
-        },
-        update: {
-          phoneNumber,
-          name: contact.name,
-          state: contact.state,
-        },
-      }),
-    );
+    try {
+      await this.prisma.forTenant((tx) =>
+        tx.contact.upsert({
+          where: { id: contact.id },
+          create: {
+            id: contact.id,
+            tenantId: contact.tenantId,
+            phoneNumber,
+            name: contact.name,
+            state: contact.state,
+          },
+          update: {
+            phoneNumber,
+            name: contact.name,
+            state: contact.state,
+          },
+        }),
+      );
+    } catch (err) {
+      // ACHADO REAL (Fase 8.0, discovery de hardening) — duas mensagens
+      // quase simultâneas do MESMO telefone, nunca visto antes, geram dois
+      // ids novos distintos em ReconhecerOuCriarContatoUseCase.execute()
+      // (cada chamada gera seu próprio randomUUID()). As duas tentam o
+      // ramo create() deste upsert (nenhum dos dois ids existe ainda) — a
+      // segunda viola @@unique([tenantId, phoneNumber]), uma constraint
+      // diferente da usada no `where` (chaveado por id), então o Prisma
+      // nunca resolve isso como update. Mesmo idioma já usado em
+      // saveAssociation(): a constraint única É o próprio mecanismo de
+      // não-duplicidade funcionando — nunca um erro real nesta corrida,
+      // já que as duas chamadas computam exatamente a mesma transição
+      // (Novo→Conversando) a partir da mesma premissa (nenhum Contact
+      // existia ainda para este telefone).
+      if ((err as Prisma.PrismaClientKnownRequestError)?.code === UNIQUE_CONSTRAINT_VIOLATION) {
+        return;
+      }
+      throw err;
+    }
   }
 
   async saveAssociation(association: ContactPatientAssociation): Promise<void> {

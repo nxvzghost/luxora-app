@@ -37,6 +37,7 @@ function makeDeps(opts: {
   const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
   const inboundQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
   const reconhecerOuCriarContatoUseCase = { execute: vi.fn().mockResolvedValue({ id: 'contact-1', state: 'Conversando' }) };
+  const correlationContext = { correlationId: 'corr-fake' };
 
   const useCase = new ReceberMensagemWhatsAppUseCase(
     prismaClient,
@@ -46,9 +47,10 @@ function makeDeps(opts: {
     auditService as never,
     inboundQueue as never,
     reconhecerOuCriarContatoUseCase as never,
+    correlationContext as never,
   );
 
-  return { useCase, prismaClient, tenantContext, conversationRepo, patientRepo, auditService, inboundQueue, reconhecerOuCriarContatoUseCase };
+  return { useCase, prismaClient, tenantContext, conversationRepo, patientRepo, auditService, inboundQueue, reconhecerOuCriarContatoUseCase, correlationContext };
 }
 
 function payloadWith(messageId: string, body: string, phoneNumberId = PHONE_NUMBER_ID): WhatsAppWebhookPayload {
@@ -147,6 +149,12 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
       expect(inboundQueue.enqueue).toHaveBeenCalledOnce();
     });
 
+    it('ADR-0055 (AD-018), Fase 8.2 — repassa CorrelationContext.correlationId para o enqueue() da fila', async () => {
+      const { useCase, inboundQueue, correlationContext } = makeDeps({});
+      await useCase.execute(payloadWith('wamid.1', 'Olá'));
+      expect(inboundQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ correlationId: correlationContext.correlationId }));
+    });
+
     it('mensagens ignoradas (sem Tenant conectado, ou não-texto) nunca chegam a chamar ReconhecerOuCriarContatoUseCase', async () => {
       const semTenant = makeDeps({ integration: null });
       await semTenant.useCase.execute(payloadWith('wamid.1', 'Olá'));
@@ -195,6 +203,7 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
     const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
     const inboundQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
     const reconhecerOuCriarContatoUseCase = { execute: vi.fn().mockResolvedValue({ id: 'contact-x', state: 'Conversando' }) };
+    const correlationContext = { correlationId: 'corr-fake' };
     const useCase = new ReceberMensagemWhatsAppUseCase(
       prismaClient,
       tenantContext,
@@ -203,6 +212,7 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
       auditService as never,
       inboundQueue as never,
       reconhecerOuCriarContatoUseCase as never,
+      correlationContext as never,
     );
 
     const payload: WhatsAppWebhookPayload = {

@@ -94,7 +94,15 @@ export class WhatsAppInboundQueueWorker implements OnModuleDestroy {
           const processarMensagemWhatsApp = await this.moduleRef.resolve(ProcessarMensagemWhatsAppUseCase, contextId, {
             strict: false,
           });
-          result = await processarMensagemWhatsApp.execute(job.data);
+          // ADR-0055 (AD-018), Fase 8.2 — ACHADO REAL: `job.data.correlationId`
+          // podia estar ausente (jobs antigos, ou o fallback abaixo já
+          // resolvia um novo id); passar `job.data` puro faria
+          // ProcessarMensagemWhatsAppUseCase/ProcessarMensagemUseCase/
+          // AnthropicAIProvider nunca verem o `correlationId` já resolvido
+          // nesta linha 58. Mescla explicitamente para que o valor
+          // realmente usado nos logs deste worker seja o MESMO que chega
+          // até as chamadas de IA.
+          result = await processarMensagemWhatsApp.execute({ ...job.data, correlationId });
           await inbox.markGenerated(CHANNEL, job.data.externalId, result);
         } catch (err) {
           await inbox.markFailed(CHANNEL, job.data.externalId, (err as Error).message);

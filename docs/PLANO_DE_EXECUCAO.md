@@ -196,6 +196,7 @@
 
 **Tarefas:**
 - ~~AD-018 — Implementação completa do Aggregate `Contact`~~ **CONCLUÍDA (2026-07-31)** — ver Kanban/CHANGELOG/ADR-0055. 7 Fases sequenciais (banco → domínio → infraestrutura → Use Cases → integração com o webhook → Router/IA → integração ao vivo + regressão), cada uma revisada e aprovada individualmente.
+- ~~AD-018, Fase 8 — Hardening de produção (concorrência, resiliência, observabilidade)~~ **CONCLUÍDA (2026-08-01)** — ver CHANGELOG/ADR-0055. 3 subfases sequenciais (8.0 concorrência, 8.1 resiliência, 8.2 observabilidade/correlationId), cada uma revisada e aprovada individualmente; sem nenhuma regra de negócio nova, sem tocar `Contact`/`Conversation`/`Patient`.
 - AD-024 — Resolver a colisão de nome `Patient.Novo`/`Identificado` vs `Contact.Novo`/`Identificado` — **formalmente descartada do escopo desta Epic** (decisão registrada na v2 da ADR-0055): os enums Postgres/TypeScript de `PatientState` e `ContactState` sempre foram estruturalmente distintos, a coincidência de nomes é só cosmética, nunca uma dependência técnica real. Renomear fica para uma AD própria, se algum dia houver motivo de produto para isso — `Patient` permanece 100% intocado por esta Epic.
 
 **Critério objetivo de conclusão:**
