@@ -17,7 +17,7 @@ const STATE_LABELS: Record<string, string> = {
  * Fonte: 06-UX/04-Fluxo-Pacientes.md.
  */
 export default function PacientesPage() {
-  const { data, isLoading } = usePatients();
+  const { data, isLoading, isError } = usePatients();
   const createPatient = useCreatePatient();
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
@@ -65,7 +65,12 @@ export default function PacientesPage() {
         )}
 
         {isLoading && <p style={{ color: 'var(--sage)' }}>Carregando...</p>}
-        {!isLoading && (data?.data.length ?? 0) === 0 && <p style={{ color: 'var(--sage)' }}>Nenhum paciente cadastrado ainda.</p>}
+        {isError && (
+          <p style={{ color: 'var(--danger)', fontSize: '0.875rem' }} role="alert">
+            Não foi possível carregar os pacientes. Tente novamente.
+          </p>
+        )}
+        {!isLoading && !isError && (data?.data.length ?? 0) === 0 && <p style={{ color: 'var(--sage)' }}>Nenhum paciente cadastrado ainda.</p>}
 
         <ul style={{ listStyle: 'none', padding: 0 }}>
           {data?.data.map((patient) => (

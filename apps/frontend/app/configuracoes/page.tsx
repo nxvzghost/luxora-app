@@ -10,7 +10,7 @@ import { ApiError } from '@/lib/api-client/client';
  * ConfiguracoesPage — Módulo 15 (revisão geral, tela que faltava).
  */
 export default function ConfiguracoesPage() {
-  const { data: clinic, isLoading } = useClinic();
+  const { data: clinic, isLoading, isError } = useClinic();
   const updatePolicies = useUpdateClinicPolicies();
   const updatePaymentInfo = useUpdatePaymentInfo();
 
@@ -64,6 +64,11 @@ export default function ConfiguracoesPage() {
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', marginBottom: '1.5rem' }}>Configurações</h1>
 
         {isLoading && <p style={{ color: 'var(--sage)' }}>Carregando...</p>}
+        {isError && (
+          <p style={{ color: 'var(--danger)', fontSize: '0.875rem' }} role="alert">
+            Não foi possível carregar as configurações. Tente novamente.
+          </p>
+        )}
 
         {message && (
           <p style={{ color: message.type === 'error' ? 'var(--danger)' : 'var(--success)', fontSize: '0.875rem' }}>
@@ -71,7 +76,7 @@ export default function ConfiguracoesPage() {
           </p>
         )}
 
-        {!isLoading && (
+        {!isLoading && !isError && (
           <>
             <section style={sectionStyle}>
               <h2 style={sectionTitleStyle}>Políticas da clínica</h2>

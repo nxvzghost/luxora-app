@@ -23,6 +23,8 @@ interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
   token?: string | null;
+  /** Fase 9.4 (AD-020) — necessário para o header Idempotency-Key exigido por POST /payments (RNF-008). Aditivo, opcional. */
+  headers?: Record<string, string>;
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -31,6 +33,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers: {
       'Content-Type': 'application/json',
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...options.headers,
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });

@@ -17,6 +17,8 @@ export interface PatientRepository {
    * ocorrência, nunca lança em caso de duplicidade.
    */
   findByPhone(phone: string): Promise<Patient | null>;
+  /** Epic 11 — contagem agregada no banco, para GET /dashboard/summary. */
+  countActiveByTenant(): Promise<number>;
 }
 
 export const PATIENT_REPOSITORY = Symbol('PATIENT_REPOSITORY');

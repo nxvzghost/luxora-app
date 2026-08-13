@@ -7,7 +7,9 @@ const links = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/agenda', label: 'Agenda' },
   { href: '/pacientes', label: 'Pacientes' },
+  { href: '/terapeutas', label: 'Terapeutas' },
   { href: '/financeiro', label: 'Financeiro' },
+  { href: '/auditoria', label: 'Auditoria' },
   { href: '/configuracoes', label: 'Configurações' },
   { href: '/settings/subscription', label: 'Assinatura' },
 ];

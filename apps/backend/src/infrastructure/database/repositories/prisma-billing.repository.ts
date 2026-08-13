@@ -105,6 +105,20 @@ export class PrismaBillingRepository implements BillingRepository {
     return records.map((r) => this.toDomain(r));
   }
 
+  async countOverdueByTenant(): Promise<number> {
+    return this.prisma.forTenant((tx) => tx.billing.count({ where: { status: 'atrasada' } }));
+  }
+
+  async sumPendingByTenant(): Promise<number> {
+    const result = await this.prisma.forTenant((tx) =>
+      tx.billing.aggregate({
+        _sum: { amount: true },
+        where: { status: { notIn: ['quitada', 'cancelada'] } },
+      }),
+    );
+    return Number(result._sum.amount ?? 0);
+  }
+
   async countLinkedSessions(billingId: string): Promise<number> {
     return this.prisma.forTenant((tx) => tx.billingSession.count({ where: { billingId } }));
   }

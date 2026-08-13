@@ -16,6 +16,10 @@ export interface BillingRepository {
    * `countLinkedSessions()`, só complementa com a leitura que faltava.
    */
   findSessionIdsByBillingId(billingId: string): Promise<string[]>;
+  /** Epic 11 — contagem agregada no banco (status='atrasada'), para GET /dashboard/summary. */
+  countOverdueByTenant(): Promise<number>;
+  /** Epic 11 — soma agregada no banco (exclui quitada/cancelada), para GET /dashboard/summary. */
+  sumPendingByTenant(): Promise<number>;
 }
 
 export const BILLING_REPOSITORY = Symbol('BILLING_REPOSITORY');

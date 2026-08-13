@@ -1,27 +1,23 @@
 'use client';
 
-import { usePatients, useBillings } from '@/lib/api-client/dashboard.hooks';
+import { usePatients } from '@/lib/api-client/dashboard.hooks';
+import { useDashboardSummary } from '@/lib/api-client/dashboard-summary.hooks';
 import { StatCard } from '@/components/ui/stat-card';
 import { SideNav } from '@/components/ui/side-nav';
 import { formatCurrencyBRL } from '@/lib/format-currency';
 
 /**
- * DashboardPage — Módulo 15.
+ * DashboardPage — Epic 11 (AD-019).
  * Fonte: 02 - CTO/clinicos/docs/06-UX/02-Fluxo-Dashboard.md.
  *
- * Composto a partir dos endpoints reais já existentes (GET /patients,
- * GET /billings) — não há um endpoint dedicado GET /dashboard/summary
- * ainda (dívida registrada no README deste módulo).
+ * Os 3 indicadores agora vêm de GET /dashboard/summary (agregação real no
+ * backend, sem filter/reduce client-side). usePatients() segue em uso
+ * apenas para "Pacientes recentes", que não é um indicador agregado.
  */
 export default function DashboardPage() {
-  const { data: patientsData, isLoading: loadingPatients } = usePatients();
-  const { data: billingsData, isLoading: loadingBillings } = useBillings();
-
-  const activePatients = patientsData?.data.filter((p) => p.state === 'Ativo').length ?? 0;
-  const overdueBillings = billingsData?.data.filter((b) => b.state === 'atrasada' || b.state === 'Atrasada').length ?? 0;
-  const totalPending = billingsData?.data
-    .filter((b) => b.state !== 'quitada' && b.state !== 'Quitada')
-    .reduce((sum, b) => sum + b.amount, 0);
+  const { data: summary, isLoading: loadingSummary, isError: errorSummary } = useDashboardSummary();
+  const { data: patientsData, isLoading: loadingPatients, isError: errorPatients } = usePatients();
+  const hasError = errorSummary || errorPatients;
 
   return (
     <div style={{ display: 'flex' }}>
@@ -34,12 +30,18 @@ export default function DashboardPage() {
           Aqui está o resumo da sua clínica hoje.
         </p>
 
+        {hasError && (
+          <p style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: '1.5rem' }} role="alert">
+            Não foi possível carregar todos os dados do resumo. Tente novamente.
+          </p>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-          <StatCard label="Pacientes ativos" value={loadingPatients ? '—' : activePatients} tone="gold" />
-          <StatCard label="Cobranças em atraso" value={loadingBillings ? '—' : overdueBillings} />
+          <StatCard label="Pacientes ativos" value={loadingSummary ? '—' : summary?.activePatients ?? 0} tone="gold" />
+          <StatCard label="Cobranças em atraso" value={loadingSummary ? '—' : summary?.overdueBillings ?? 0} />
           <StatCard
             label="Total a receber"
-            value={loadingBillings ? '—' : formatCurrencyBRL(totalPending ?? 0)}
+            value={loadingSummary ? '—' : formatCurrencyBRL(summary?.totalPending ?? 0)}
           />
         </div>
 
@@ -48,7 +50,7 @@ export default function DashboardPage() {
             Pacientes recentes
           </h2>
           {loadingPatients && <p style={{ color: 'var(--sage)' }}>Carregando...</p>}
-          {!loadingPatients && (patientsData?.data.length ?? 0) === 0 && (
+          {!loadingPatients && !errorPatients && (patientsData?.data.length ?? 0) === 0 && (
             <p style={{ color: 'var(--sage)' }}>Nenhum paciente cadastrado ainda.</p>
           )}
           <ul style={{ listStyle: 'none', padding: 0 }}>

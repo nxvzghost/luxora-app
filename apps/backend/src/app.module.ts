@@ -18,6 +18,7 @@ import { AIModule } from './api/ai/ai.module';
 import { AutomationsModule } from './api/automations/automations.module';
 import { SubscriptionModule } from './api/subscription/subscription.module';
 import { UsersModule } from './api/users/users.module';
+import { DashboardModule } from './api/dashboard/dashboard.module';
 
 /**
  * AppModule — módulo raiz.
@@ -46,6 +47,7 @@ import { UsersModule } from './api/users/users.module';
     AutomationsModule,
     SubscriptionModule,
     UsersModule,
+    DashboardModule,
   ],
   controllers: [HealthController, MetricsController],
   providers: [MetricsAccessGuard],

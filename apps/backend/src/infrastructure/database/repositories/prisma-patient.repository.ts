@@ -59,6 +59,10 @@ export class PrismaPatientRepository implements PatientRepository {
     return record ? this.toDomain(record) : null;
   }
 
+  async countActiveByTenant(): Promise<number> {
+    return this.prisma.forTenant((tx) => tx.patient.count({ where: { state: 'Ativo' } }));
+  }
+
   private toDomain(record: PrismaPatient): Patient {
     return Patient.reconstitute({
       id: record.id,
