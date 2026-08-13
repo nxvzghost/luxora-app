@@ -4,6 +4,7 @@ import { Payment } from '@domain/payment/payment.entity';
 import { PaymentRepository, PAYMENT_REPOSITORY } from '@domain-services/financial/payment.repository';
 import { BillingRepository, BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
+import { NotificationService } from '@domain-services/platform/notification.service';
 import { TenantContext } from '@shared/tenant-context';
 import { SessionRepository, SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
 import { DomainEvent } from '@domain/shared/domain-event';
@@ -35,6 +36,7 @@ export class RegistrarPagamentoUseCase {
     @Inject(BILLING_REPOSITORY) private readonly billingRepo: BillingRepository,
     @Inject(SESSION_REPOSITORY) private readonly sessionRepo: SessionRepository,
     private readonly auditService: AuditService,
+    private readonly notificationService: NotificationService,
     private readonly tenantContext: TenantContext,
   ) {}
 
@@ -60,7 +62,9 @@ export class RegistrarPagamentoUseCase {
 
     payment.reconcile(billing.amount); // Confirmado se bater, Divergente se não — nunca decide sozinho (Princípio 03)
     await this.paymentRepo.save(payment); // pode lançar DUPLICATE_PAYMENT (defesa de banco)
-    await this.auditService.recordAll(payment.pullDomainEvents()); // Módulo 10
+    const paymentEvents = payment.pullDomainEvents();
+    await this.auditService.recordAll(paymentEvents); // Módulo 10
+    await this.notificationService.process(paymentEvents, { billingId: billing.id, amount: billing.amount }); // Epic 12 (AD-021)
 
     if (payment.state === 'Confirmado') {
       billing.transitionTo('Quitada'); // dar baixa é automático, junto da confirmação — nunca passo manual à parte

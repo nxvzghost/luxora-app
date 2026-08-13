@@ -264,6 +264,10 @@ export async function cleanupDedicatedFixture(fixturePrisma: PrismaClient, fixtu
   // audit_log — ver nota 1 acima: escopado por fixture.tenantId, um id
   // exclusivo desta fixture, necessário pela FK audit_log_tenant_id_fkey.
   await fixturePrisma.auditLog.deleteMany({ where: { tenantId: fixture.tenantId } });
+  // notification — Epic 12 (AD-021), mesma justificativa do audit_log acima:
+  // notification_tenant_id_fkey é ON DELETE RESTRICT, então tenant.delete()
+  // falha se sobrar qualquer Notification apontando para fixture.tenantId.
+  await fixturePrisma.notification.deleteMany({ where: { tenantId: fixture.tenantId } });
   // userIds — coleção (AD-003, mesmo padrão de therapistIds): cobre todos os
   // Users criados por createDedicatedUserAndLogin() na fixture, não só o
   // último (fixture.userId/token continuam apontando pra ele, só por

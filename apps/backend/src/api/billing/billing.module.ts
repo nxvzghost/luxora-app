@@ -21,6 +21,9 @@ import { PrismaClientProvider } from '@infrastructure/database/prisma-client.pro
 import { AuditService } from '@domain-services/platform/audit.service';
 import { AUDIT_LOG_REPOSITORY } from '@domain-services/platform/audit-log.repository';
 import { PrismaAuditLogRepository } from '@infrastructure/database/repositories/prisma-audit-log.repository';
+import { NotificationService } from '@domain-services/platform/notification.service';
+import { NOTIFICATION_REPOSITORY } from '@domain-services/platform/notification.repository';
+import { PrismaNotificationRepository } from '@infrastructure/database/repositories/prisma-notification.repository';
 import { PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { PrismaPatientRepository } from '@infrastructure/database/repositories/prisma-patient.repository';
 import { SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
@@ -57,6 +60,8 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     PrismaClientProvider,
     AuditService,
     { provide: AUDIT_LOG_REPOSITORY, useClass: PrismaAuditLogRepository },
+    NotificationService,
+    { provide: NOTIFICATION_REPOSITORY, useClass: PrismaNotificationRepository },
     { provide: PATIENT_REPOSITORY, useClass: PrismaPatientRepository },
     { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
     { provide: SESSION_REPOSITORY, useClass: PrismaSessionRepository },
