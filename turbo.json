@@ -14,10 +14,12 @@
       "dependsOn": ["build"]
     },
     "test:integration": {
-      "dependsOn": ["build"]
+      "dependsOn": ["build"],
+      "env": ["DATABASE_URL"]
     },
     "test:critical": {
-      "dependsOn": ["build"]
+      "dependsOn": ["build"],
+      "env": ["DATABASE_URL"]
     },
     "test": {
       "dependsOn": ["test:unit", "test:integration", "test:critical"]
