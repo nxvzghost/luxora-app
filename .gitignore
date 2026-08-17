@@ -11,3 +11,4 @@ dist/
 coverage/
 apps/backend/prisma/*.db
 *.tsbuildinfo
+.claude/
