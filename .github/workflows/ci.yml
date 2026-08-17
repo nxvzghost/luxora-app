@@ -122,3 +122,4 @@ jobs:
       - run: pnpm test:critical
         env:
           DATABASE_URL: postgresql://luxora_app:luxora_app_dev_pw@localhost:5432/luxora_test
+          WHATSAPP_TOKEN_ENCRYPTION_KEY: chave-de-teste-nao-usar-em-producao-2026
