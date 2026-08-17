@@ -33,6 +33,9 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @luxora/backend prisma:generate
+        env:
+          DATABASE_URL: postgresql://luxora_app:luxora_app_dev_pw@localhost:5432/luxora_test
       - run: pnpm test:unit
 
   test-integration:
@@ -60,6 +63,9 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @luxora/backend prisma:generate
+        env:
+          DATABASE_URL: postgresql://luxora_app:luxora_app_dev_pw@localhost:5432/luxora_test
       # Postgres ignora RLS incondicionalmente para superusuários (ver
       # infra/docker/postgres-init/01-app-role.sql) — migrar e rodar a
       # aplicação com o usuário "postgres" tornaria toda policy de
@@ -100,6 +106,9 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @luxora/backend prisma:generate
+        env:
+          DATABASE_URL: postgresql://luxora_app:luxora_app_dev_pw@localhost:5432/luxora_test
       # Ver comentário equivalente no job test-integration: sem isto, os
       # próprios Testes Críticos de isolamento multi-tenant rodariam contra
       # uma conexão que ignora RLS por completo, sem acusar nada.
