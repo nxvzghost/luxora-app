@@ -19,7 +19,7 @@
     },
     "test:critical": {
       "dependsOn": ["build"],
-      "env": ["DATABASE_URL"]
+      "env": ["DATABASE_URL", "WHATSAPP_TOKEN_ENCRYPTION_KEY"]
     },
     "test": {
       "dependsOn": ["test:unit", "test:integration", "test:critical"]
