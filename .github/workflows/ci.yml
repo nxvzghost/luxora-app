@@ -98,6 +98,9 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
