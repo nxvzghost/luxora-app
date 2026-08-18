@@ -124,3 +124,5 @@ jobs:
           DATABASE_URL: postgresql://luxora_app:luxora_app_dev_pw@localhost:5432/luxora_test
           WHATSAPP_TOKEN_ENCRYPTION_KEY: chave-de-teste-nao-usar-em-producao-2026
           JWT_SECRET: jwt-secret-de-teste-nao-usar-em-producao-2026
+          WHATSAPP_APP_SECRET: test-app-secret
+          WHATSAPP_WEBHOOK_VERIFY_TOKEN: verify-token-de-teste-nao-usar-em-producao-2026
