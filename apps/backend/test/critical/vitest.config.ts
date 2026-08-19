@@ -30,7 +30,7 @@ export default mergeConfig(
     test: {
       globalSetup: [path.resolve(__dirname, './support/global-setup.ts')],
       minWorkers: 1,
-      maxWorkers: 6,
+      maxWorkers: 4,
     },
   }),
 );
