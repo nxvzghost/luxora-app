@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Notification as PrismaNotification } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { Notification } from '@domain/notification/notification.entity';
@@ -58,17 +58,23 @@ export class PrismaNotificationRepository implements NotificationRepository {
   /**
    * updateMany com `readAt: null` na cláusula where garante idempotência
    * (segunda chamada não encontra linhas a atualizar, não sobrescreve o
-   * readAt original) e, ao mesmo tempo, não lança erro se `id` não existir
-   * no tenant atual — mesmo espírito de outras operações deste projeto que
-   * preferem uma condição no WHERE a uma checagem redundante em código.
+   * readAt original). Em seguida busca o registro atual para devolver a
+   * Notification atualizada — se o id não existir no tenant (RLS já filtrou
+   * ou id inválido), lança NotFoundException, mesmo padrão de recurso
+   * singular usado em todo o projeto.
    */
-  async markAsRead(id: string): Promise<void> {
+  async markAsRead(id: string): Promise<Notification> {
     await this.prisma.forTenant((tx) =>
       tx.notification.updateMany({
         where: { id, readAt: null },
         data: { readAt: new Date() },
       }),
     );
+    const record = await this.prisma.forTenant((tx) => tx.notification.findUnique({ where: { id } }));
+    if (!record) {
+      throw new NotFoundException('Notificação não encontrada.');
+    }
+    return this.toDomain(record);
   }
 
   private toDomain(record: PrismaNotification): Notification {

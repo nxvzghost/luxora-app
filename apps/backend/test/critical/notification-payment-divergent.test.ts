@@ -164,7 +164,9 @@ describe('[CRÍTICO] Notification gerada por PaymentStateChangedEvent (Divergent
       const unreadBefore = await repoAsA.countUnreadByTenant();
       expect(unreadBefore).toBeGreaterThanOrEqual(1);
 
-      await repoAsA.markAsRead(target!.id);
+      const marked = await repoAsA.markAsRead(target!.id);
+      expect(marked.readAt).toBeInstanceOf(Date);
+      expect(marked.isRead).toBe(true);
 
       const afterRead = await repoAsA.findById(target!.id);
       expect(afterRead!.readAt).toBeInstanceOf(Date);
@@ -174,12 +176,66 @@ describe('[CRÍTICO] Notification gerada por PaymentStateChangedEvent (Divergent
       expect(unreadAfter).toBe(unreadBefore - 1);
 
       // markAsRead é idempotente — segunda chamada não lança e não altera o readAt.
-      await repoAsA.markAsRead(target!.id);
-      const afterSecondMark = await repoAsA.findById(target!.id);
-      expect(afterSecondMark!.readAt).toEqual(afterRead!.readAt);
+      const markedAgain = await repoAsA.markAsRead(target!.id);
+      expect(markedAgain.readAt).toEqual(afterRead!.readAt);
     } finally {
       await client.$disconnect();
     }
+  });
+
+  describe('API HTTP de notificações (GET/POST)', () => {
+    it('GET /notifications lista as notificações do tenant autenticado, mais recente primeiro', async () => {
+      const billing = await createBillingWithOneSession(fixtureA, uniqueSlot(), 700);
+      const payment = await registerPayment(fixtureA, billing.id, 550); // diverge de 700
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/notifications')
+        .set('Authorization', `Bearer ${fixtureA.token}`);
+
+      expect(res.status).toBe(200);
+      const found = res.body.data.find((n: { entityId: string }) => n.entityId === payment.id);
+      expect(found).toBeDefined();
+      expect(found.type).toBe('payment_divergent');
+      expect(found.readAt).toBeNull();
+    });
+
+    it('GET /notifications/unread-count reflete o total de não lidas do tenant', async () => {
+      const billing = await createBillingWithOneSession(fixtureA, uniqueSlot(), 800);
+      await registerPayment(fixtureA, billing.id, 650); // diverge de 800, gera 1 notificação
+
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/notifications/unread-count')
+        .set('Authorization', `Bearer ${fixtureA.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.count).toBeGreaterThanOrEqual(1);
+    });
+
+    it('POST /notifications/:id/read marca como lida e devolve a Notification atualizada', async () => {
+      const billing = await createBillingWithOneSession(fixtureA, uniqueSlot(), 900);
+      const payment = await registerPayment(fixtureA, billing.id, 720); // diverge de 900
+      const notification = await fixturePrisma.notification.findFirstOrThrow({ where: { entityId: payment.id } });
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/notifications/${notification.id}/read`)
+        .set('Authorization', `Bearer ${fixtureA.token}`);
+
+      expect(res.status).toBe(201);
+      expect(res.body.id).toBe(notification.id);
+      expect(res.body.readAt).not.toBeNull();
+    });
+
+    it('POST /notifications/:id/read para uma Notification de outro tenant devolve 404 (RLS via HTTP)', async () => {
+      const billing = await createBillingWithOneSession(fixtureA, uniqueSlot(), 1000);
+      const payment = await registerPayment(fixtureA, billing.id, 810); // diverge de 1000
+      const notification = await fixturePrisma.notification.findFirstOrThrow({ where: { entityId: payment.id } });
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/notifications/${notification.id}/read`)
+        .set('Authorization', `Bearer ${fixtureB.token}`);
+
+      expect(res.status).toBe(404);
+    });
   });
 
   beforeAll(async () => {

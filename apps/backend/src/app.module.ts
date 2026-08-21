@@ -19,6 +19,7 @@ import { AutomationsModule } from './api/automations/automations.module';
 import { SubscriptionModule } from './api/subscription/subscription.module';
 import { UsersModule } from './api/users/users.module';
 import { DashboardModule } from './api/dashboard/dashboard.module';
+import { NotificationModule } from './api/notification/notification.module';
 
 /**
  * AppModule — módulo raiz.
@@ -48,6 +49,7 @@ import { DashboardModule } from './api/dashboard/dashboard.module';
     SubscriptionModule,
     UsersModule,
     DashboardModule,
+    NotificationModule,
   ],
   controllers: [HealthController, MetricsController],
   providers: [MetricsAccessGuard],

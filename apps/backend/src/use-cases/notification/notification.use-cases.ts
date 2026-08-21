@@ -29,7 +29,7 @@ export class ContarNotificacoesNaoLidasUseCase {
 export class MarcarNotificacaoComoLidaUseCase {
   constructor(@Inject(NOTIFICATION_REPOSITORY) private readonly repo: NotificationRepository) {}
 
-  async execute(id: string): Promise<void> {
-    await this.repo.markAsRead(id);
+  async execute(id: string): Promise<Notification> {
+    return this.repo.markAsRead(id);
   }
 }

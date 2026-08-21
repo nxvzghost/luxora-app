@@ -12,8 +12,13 @@ export interface NotificationRepository {
   findById(id: string): Promise<Notification | null>;
   findByTenant(params?: { cursor?: string; limit?: number }): Promise<Notification[]>;
   countUnreadByTenant(): Promise<number>;
-  /** Idempotente: sem efeito se a Notification já estiver lida ou não existir no tenant atual. */
-  markAsRead(id: string): Promise<void>;
+  /**
+   * Idempotente quanto ao readAt (chamar novamente numa Notification já lida
+   * não sobrescreve o timestamp original). Lança NotFoundException se o id
+   * não existir no tenant atual — mesmo contrato de recurso singular usado
+   * em todo o projeto (ex.: ConsultarPagamentoUseCase).
+   */
+  markAsRead(id: string): Promise<Notification>;
 }
 
 export const NOTIFICATION_REPOSITORY = Symbol('NOTIFICATION_REPOSITORY');
