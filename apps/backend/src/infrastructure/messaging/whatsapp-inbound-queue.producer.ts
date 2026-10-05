@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
+import { COMPLETED_JOB_RETENTION, FAILED_INBOUND_JOB_RETENTION } from './queue-retention';
 
 export interface WhatsAppInboundJobData {
   tenantId: string;
@@ -30,6 +31,9 @@ export class WhatsAppInboundQueueProducer implements OnModuleDestroy {
       jobId: data.externalId,
       attempts: 3,
       backoff: { type: 'exponential', delay: 2000 },
+      // Fase 3B — sem isto o BullMQ guarda o job (o texto do paciente) para sempre.
+      removeOnComplete: COMPLETED_JOB_RETENTION,
+      removeOnFail: FAILED_INBOUND_JOB_RETENTION,
     });
   }
 

@@ -2,6 +2,7 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import { OUTBOUND_BACKOFF_TYPE, OUTBOUND_BASE_BACKOFF_MS } from './outbound-retry';
+import { COMPLETED_JOB_RETENTION, FAILED_OUTBOUND_JOB_RETENTION } from './queue-retention';
 
 export interface MessageJobData {
   tenantId: string;
@@ -41,6 +42,9 @@ export class MessageQueueProducer implements OnModuleDestroy {
       // Fase 3B — mesma espera de antes (2 s, 4 s); o tipo próprio só existe
       // para o worker poder respeitar o `Retry-After` do provider, com teto.
       backoff: { type: OUTBOUND_BACKOFF_TYPE, delay: OUTBOUND_BASE_BACKOFF_MS },
+      // Fase 3B — sem isto o BullMQ guarda o job (telefone e texto) para sempre.
+      removeOnComplete: COMPLETED_JOB_RETENTION,
+      removeOnFail: FAILED_OUTBOUND_JOB_RETENTION,
     });
   }
 
