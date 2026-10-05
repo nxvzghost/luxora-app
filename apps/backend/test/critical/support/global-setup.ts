@@ -39,7 +39,36 @@ function readDatabaseUrlFromEnvFile(): string {
   return match[1];
 }
 
+/**
+ * Fase 3 da auditoria — banco lógico do Redis exclusivo da Suíte Crítica.
+ *
+ * As filas do BullMQ são reais. Vários arquivos enfileiram jobs de saída
+ * (resposta do agente, cobrança) que nenhum app de teste consome — o
+ * worker de saída fica desligado por padrão (ver bootstrap-app.ts). No
+ * banco padrão (índice 0, o mesmo de `pnpm dev`) esses jobs ficavam
+ * guardados para sempre: 389 acumulados quando isto foi medido. Desde que
+ * MessageQueueWorker passou a ser instanciado de fato, subir o backend
+ * contra esse Redis faria o worker tentar ENVIAR cada um deles.
+ *
+ * Índices: 13 = Suíte Crítica; 14 = whatsapp-outbound-worker.test.ts (o
+ * único com consumidor real da fila de saída); 15 = execuções manuais.
+ */
+const CRITICAL_SUITE_REDIS_DB = '13';
+
+function readRedisUrlFromEnvFile(): string {
+  try {
+    const content = readFileSync(path.resolve(__dirname, '../../../.env'), 'utf-8');
+    return content.match(/^REDIS_URL\s*=\s*"?([^"\r\n]+)"?\s*$/m)?.[1] ?? 'redis://localhost:6379';
+  } catch {
+    return 'redis://localhost:6379';
+  }
+}
+
 export function setup(): void {
+  const redisUrl = new URL(process.env.REDIS_URL ?? readRedisUrlFromEnvFile());
+  redisUrl.pathname = `/${CRITICAL_SUITE_REDIS_DB}`;
+  process.env.REDIS_URL = redisUrl.toString();
+
   const original = process.env.DATABASE_URL ?? readDatabaseUrlFromEnvFile();
 
   const url = new URL(original);
