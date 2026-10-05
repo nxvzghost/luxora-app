@@ -54,6 +54,16 @@ export class ProcessarWebhookAssinaturaUseCase {
   ) {}
 
   async execute(payload: AsaasWebhookPayload): Promise<void> {
+    // Fase 3 da auditoria — a chamada já passou pelo AsaasWebhookGuard, mas
+    // o corpo não tem DTO: sem `id` ou `event` não há como deduplicar nem
+    // agir. Antes, isso estourava na consulta de idempotência e a resposta
+    // era 500 — a Asaas reenviaria o mesmo corpo inútil até pausar a fila
+    // de webhooks. Confirma o recebimento e não altera nada.
+    if (typeof payload?.id !== 'string' || !payload.id || typeof payload.event !== 'string' || !payload.event) {
+      this.logger.warn('Webhook Asaas sem id ou sem tipo de evento — ignorado, nada alterado.');
+      return;
+    }
+
     if (await this.webhookRepo.wasProcessed(payload.id)) {
       return;
     }

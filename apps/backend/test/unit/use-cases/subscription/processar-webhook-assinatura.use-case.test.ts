@@ -108,3 +108,22 @@ describe('ProcessarWebhookAssinaturaUseCase — idempotência (entrega at-least-
     expect(subscriptionRepo.findByAsaasSubscriptionId).toHaveBeenCalledWith('sub_456');
   });
 });
+
+describe('ProcessarWebhookAssinaturaUseCase — payload inválido (Fase 3)', () => {
+  it.each([
+    ['sem id', { event: 'PAYMENT_CONFIRMED', subscription: { id: 'sub_456' } }],
+    ['sem tipo de evento', { id: 'evt_x', subscription: { id: 'sub_456' } }],
+    ['corpo vazio', {}],
+    ['corpo ausente', undefined],
+  ])('%s: não consulta, não altera e não registra nada', async (_label, payload) => {
+    const { useCase, subscriptionRepo, webhookRepo, auditService } = makeUseCase(activeSub());
+
+    await expect(useCase.execute(payload as never)).resolves.toBeUndefined();
+
+    expect(webhookRepo.wasProcessed).not.toHaveBeenCalled();
+    expect(webhookRepo.markProcessed).not.toHaveBeenCalled();
+    expect(subscriptionRepo.findByAsaasSubscriptionId).not.toHaveBeenCalled();
+    expect(subscriptionRepo.save).not.toHaveBeenCalled();
+    expect(auditService.recordAll).not.toHaveBeenCalled();
+  });
+});
