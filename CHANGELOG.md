@@ -4,6 +4,18 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Fase 2 da auditoria — Segurança e dependências (2026-10-05)
+
+Execução da Fase 2 definida pela auditoria de 04/10/2026. Cada bloco abaixo corresponde a um commit próprio e cita o risco da auditoria que ele fecha.
+
+**R3 — Dependências vulneráveis (produção).** `pnpm audit --prod` passou de 3 críticas, 34 altas, 28 moderadas e 5 baixas para 0 críticas, 0 altas, 3 moderadas e 0 baixas.
+- `next` 14.2.35 → 15.5.27. A linha 14 não recebe mais correções (a última é a própria 14.2.35); os 23 avisos, incluindo os 2 críticos, estão corrigidos até a 15.5.24. O App Router do Next 15 usa React 19: `react`/`react-dom` 18.3.1 → 19.3.0, com `@types/react`, `@types/react-dom` e `eslint-config-next` acompanhando. Nenhuma alteração de código foi necessária; `apps/frontend/next-env.d.ts` foi regenerado pelo build.
+- `bcrypt` 5.1.1 → 6.0.0. Remove `@mapbox/node-pre-gyp` e, com ele, `tar` 6.2.1 (1 crítica, 8 altas) e a cadeia `rimraf`/`glob`/`minimatch`/`brace-expansion`. Mesma API e mesmo formato de hash (`$2b$`).
+- Overrides de segurança no `package.json` da raiz, aplicados só a versões abaixo da corrigida e sempre dentro da mesma versão maior: `multer` ≥ 2.3.0, `js-yaml` ≥ 4.3.2, `lodash` ≥ 4.18.0, `postcss` ≥ 8.5.23, `nanoid` ≥ 3.3.18, `@grpc/grpc-js` ≥ 1.14.5, `express` 4.22.3, `body-parser` ≥ 1.20.6 e `qs` ≥ 6.16.0. Os pacotes pais (`@nestjs/platform-express`, `@nestjs/swagger`, `@nestjs/config`, `next`) fixam a versão vulnerável exata e não têm release corrigida na linha em uso.
+- Restam 3 moderadas, não alcançáveis no uso atual e sem correção sem troca de versão maior do NestJS: `file-type` 20.4.1 (2 avisos; só afeta detecção de tipo de arquivo enviado, e não há rota de upload) e `@nestjs/core` 10.4.22 (1 aviso; injeção em Server-Sent Events, e não há rota SSE).
+- Fora do escopo de produção (`pnpm audit` completo, ferramentas de desenvolvimento): passou de 4 críticas e 55 altas para 1 crítica e 22 altas, sem alteração direta. A crítica restante é do `vitest` 2.1.9 e só se aplica com o servidor de UI do Vitest em escuta; os scripts usam `vitest run`.
+- Validação: `next build`, `next lint`, `nest build`, `eslint`, 674 testes unitários, 9 de integração, 198 críticos (1 skip pré-existente) e 43 de frontend passando.
+
 ### Reconciliação documental — Fase 1 da auditoria (2026-10-05)
 
 Alteração exclusivamente documental, sem nenhuma mudança em código, testes, migrations, workflows ou configuração. Fonte de verdade confirmada no Git: repositório `/root/luxora-app` (WSL2/ext4), branch `master`, último commit anterior a esta reconciliação `e622d52` (`feat(notification): expose notification API`, 21/08/2026), `origin/master` no mesmo commit e working tree limpa. O checkpoint anterior `18c3086` (`ci: add redis service for critical tests`, 18/08/2026) deixou de ser o estado atual: está dois commits atrás (`465779d` e `e622d52`).
