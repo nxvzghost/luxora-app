@@ -50,10 +50,18 @@ const tokenB = `EAAG-token-da-clinica-B-${randomUUID()}`;
 interface FakeResponse {
   status: number;
   body: unknown;
+  /** Cabeçalhos da resposta simulada (nomes em minúsculas). */
+  headers?: Record<string, string>;
+  /** Tempo que a Meta simulada leva para responder. */
+  delayMs?: number;
 }
 
 /** Respostas simuladas da Meta, por marcador único embutido no texto da mensagem. */
 const scriptedResponses = new Map<string, FakeResponse[]>();
+/** Instante de cada chamada simulada, por marcador — para medir a espera entre tentativas. */
+const callTimes = new Map<string, number[]>();
+/** O último teste fecha a aplicação de propósito; o afterAll não pode fechar de novo. */
+let appClosed = false;
 
 function okResponse(wamid: string): FakeResponse {
   return { status: 200, body: { messages: [{ id: wamid }] } };
@@ -78,9 +86,16 @@ const fetchMock = vi.fn(async (_url: string, opts: { body: string; headers: Reco
   const marker = [...scriptedResponses.keys()].find((key) => sent.text.body.includes(key));
   const next = marker ? scriptedResponses.get(marker)?.shift() : undefined;
   const response = next ?? errorResponse(400, 100);
+  if (marker) {
+    callTimes.set(marker, [...(callTimes.get(marker) ?? []), Date.now()]);
+  }
+  if (response.delayMs) {
+    await new Promise((resolve) => setTimeout(resolve, response.delayMs));
+  }
   return {
     ok: response.status >= 200 && response.status < 300,
     status: response.status,
+    headers: { get: (name: string) => response.headers?.[name.toLowerCase()] ?? null },
     text: async () => JSON.stringify(response.body),
     json: async () => response.body,
   };
@@ -150,7 +165,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await app?.close();
+  if (!appClosed) {
+    await app?.close();
+  }
   await queue.obliterate({ force: true });
   await queue.close();
   await queueConnection.quit();
@@ -325,4 +342,98 @@ describe('[Fase 3] Fila de saída do WhatsApp — MessageQueueWorker', () => {
     const job = await queue.getJob(data.idempotencyKey);
     expect(job?.attemptsMade).toBe(1);
   });
+
+  it('retenção (Fase 3B): o job gravado no Redis leva a política de expiração — concluídos 24 h, falhados 14 dias', async () => {
+    const marker = randomUUID();
+    scriptedResponses.set(marker, [okResponse(`wamid.${marker}`)]);
+    const data = jobData(tenantA.tenantId, marker);
+
+    await app.get(MessageQueueProducer).enqueue(data);
+    expect(await waitForFinalState(data.idempotencyKey)).toBe('completed');
+
+    // Lido de volta do Redis real, depois de concluído: o job ainda existe
+    // (está dentro das 24 h) e carrega as duas regras.
+    const job = await queue.getJob(data.idempotencyKey);
+    expect(job?.opts.removeOnComplete).toEqual({ age: 24 * 60 * 60 });
+    expect(job?.opts.removeOnFail).toEqual({ age: 14 * 24 * 60 * 60 });
+    expect(job?.opts.attempts).toBe(3);
+  });
+
+  it('Retry-After (Fase 3B): um 429 com "Retry-After: 3" espera 3 s, não os 2 s padrão', async () => {
+    const marker = randomUUID();
+    scriptedResponses.set(marker, [
+      { ...errorResponse(429, 130429), headers: { 'retry-after': '3' } },
+      okResponse(`wamid.${marker}`),
+    ]);
+    const data = jobData(tenantA.tenantId, marker);
+
+    await app.get(MessageQueueProducer).enqueue(data);
+    expect(await waitForFinalState(data.idempotencyKey)).toBe('completed');
+
+    const [first, second] = callTimes.get(marker) ?? [];
+    expect(callsFor(marker)).toHaveLength(2);
+    expect(second - first).toBeGreaterThanOrEqual(2900);
+    expect(second - first).toBeLessThan(4500);
+    expect(await fixturePrisma.messageLog.count({ where: { idempotencyKey: data.idempotencyKey } })).toBe(1);
+  });
+
+  it('Retry-After absurdo (Fase 3B): "Retry-After: 86400" é limitado a 60 s — o provider não prende o job', async () => {
+    const marker = randomUUID();
+    scriptedResponses.set(marker, [
+      { ...errorResponse(429, 130429), headers: { 'retry-after': '86400' } },
+      okResponse(`wamid.${marker}`),
+    ]);
+    const data = jobData(tenantA.tenantId, marker);
+
+    const enqueuedAt = Date.now();
+    await app.get(MessageQueueProducer).enqueue(data);
+
+    // Espera a 1ª tentativa falhar e o job ser agendado para depois.
+    let scheduledFor = 0;
+    for (let attempt = 0; attempt < 100 && scheduledFor === 0; attempt += 1) {
+      const score = await queueConnection.zscore('bull:messages:delayed', data.idempotencyKey);
+      // O BullMQ guarda o instante agendado nos bits altos da pontuação.
+      scheduledFor = score ? Math.floor(Number(score) / 0x1000) : 0;
+      if (scheduledFor === 0) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    const waitMs = scheduledFor - enqueuedAt;
+    expect(waitMs).toBeGreaterThan(55_000);
+    expect(waitMs).toBeLessThan(65_000); // 60 s de teto — nunca as 24 h pedidas
+
+    // Sem esperar o minuto inteiro: antecipa o job e confere que ele conclui.
+    await (await queue.getJob(data.idempotencyKey))?.promote();
+    expect(await waitForFinalState(data.idempotencyKey)).toBe('completed');
+    expect(callsFor(marker)).toHaveLength(2);
+  });
+
+  // ATENÇÃO: este precisa ser o ÚLTIMO teste do arquivo — ele fecha a aplicação.
+  it('encerramento gracioso (Fase 3B): fechar a aplicação com um envio em andamento espera o job terminar — nada é cortado nem repetido', async () => {
+    const marker = randomUUID();
+    scriptedResponses.set(marker, [{ ...okResponse(`wamid.${marker}`), delayMs: 1500 }, okResponse('nunca-usada')]);
+    const data = jobData(tenantA.tenantId, marker);
+
+    await app.get(MessageQueueProducer).enqueue(data);
+    // Espera o worker já estar no meio do envio (chamada à Meta em andamento).
+    for (let attempt = 0; attempt < 100 && callsFor(marker).length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(callsFor(marker)).toHaveLength(1);
+
+    // É isto que o SIGTERM dispara em produção (enableShutdownHooks em main.ts).
+    const closeStartedAt = Date.now();
+    await app.close();
+    appClosed = true;
+    const closeTookMs = Date.now() - closeStartedAt;
+
+    // O fechamento esperou o envio (a Meta simulada leva 1,5 s para responder).
+    expect(closeTookMs).toBeGreaterThanOrEqual(1000);
+
+    const job = await queue.getJob(data.idempotencyKey);
+    expect(await job?.getState()).toBe('completed');
+    expect(job?.attemptsMade).toBe(1);
+    expect(callsFor(marker)).toHaveLength(1);
+    expect(await fixturePrisma.messageLog.count({ where: { idempotencyKey: data.idempotencyKey } })).toBe(1);
+    expect((await queue.getWorkers()).length).toBe(0);
+  }, 20000);
 });
