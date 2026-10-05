@@ -1,0 +1,13 @@
+-- ADR-0056 (Fase 2 da auditoria, risco R4) — revogação de sessão.
+--
+-- token_version é a versão de sessão do usuário. Todo refresh token carrega
+-- o valor vigente no momento da emissão; AuthService.refresh() só renova
+-- quando o valor do token ainda é igual ao do banco. Logout e desativação
+-- do usuário incrementam a coluna, o que invalida de uma vez todos os
+-- refresh tokens emitidos antes.
+--
+-- A tabela "user" já tem RLS forçada (tenant_isolation) desde a migration
+-- 20260723190000_enable_rls; a coluna nova fica coberta pela mesma policy,
+-- sem nenhuma policy adicional. DEFAULT 0 preenche as linhas existentes.
+-- AlterTable
+ALTER TABLE "user" ADD COLUMN     "token_version" INTEGER NOT NULL DEFAULT 0;

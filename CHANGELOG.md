@@ -16,6 +16,15 @@ Execução da Fase 2 definida pela auditoria de 04/10/2026. Cada bloco abaixo co
 - Fora do escopo de produção (`pnpm audit` completo, ferramentas de desenvolvimento): passou de 4 críticas e 55 altas para 1 crítica e 22 altas, sem alteração direta. A crítica restante é do `vitest` 2.1.9 e só se aplica com o servidor de UI do Vitest em escuta; os scripts usam `vitest run`.
 - Validação: `next build`, `next lint`, `nest build`, `eslint`, 674 testes unitários, 9 de integração, 198 críticos (1 skip pré-existente) e 43 de frontend passando.
 
+**R4 — Sessão revogável no backend ([`ADR-0056`](./docs/02-Arquitetura/ADRs/ADR-0056-sessao-revogavel-token-version.md)).** Achados confirmados no código: `AuthService.refresh()` reemitia tokens só a partir do payload, sem consultar o usuário (um usuário desativado seguia renovando, e o papel ficava congelado); cada refresh emitia um refresh token novo de 7 dias, então a sessão era renovável para sempre; `POST /auth/logout` não fazia nada; e `JwtAuthGuard` não verificava o campo `type`, aceitando o refresh token de 7 dias como `Bearer` em qualquer rota protegida. A renovação sem fim e a falta de verificação do tipo do token não constavam do relatório da auditoria; apareceram na inspeção do código.
+- Nova coluna `user.token_version` (migration `20261005033326_add_user_token_version`, SQL gerado por `prisma migrate diff`). O refresh token carrega a versão (`tv`) e o início da sessão (`sst`).
+- `refresh` relê o usuário no banco — em transação escopada ao Tenant do próprio token, sem bypass de RLS — e só renova se ele existir, estiver ativo e a versão ainda for a vigente; o novo par sai com o papel atual.
+- `logout` recebe o refresh token no corpo e incrementa a versão, de forma condicional e idempotente, revogando todos os refresh tokens do usuário. Desativar um usuário também incrementa.
+- `JwtAuthGuard` só aceita `type: 'access'`.
+- `JWT_SESSION_MAX_AGE_DAYS` (padrão 30) limita a sessão inteira desde o login.
+- Limitações registradas na ADR: o access token já emitido vale até expirar (15 minutos); o logout encerra todas as sessões do usuário, não só a do dispositivo; o refresh token não é de uso único (sem detecção automática de roubo).
+- Testes: `test/critical/auth-session-revocation.test.ts` (16 testes, Postgres real), `auth.service.test.ts` (22) e `jwt-auth.guard.test.ts` (5, novo). Suítes: 692 unitários, 9 de integração e 214 críticos (1 skip pré-existente), 0 falhas; `nest build` e `eslint` limpos.
+
 ### Reconciliação documental — Fase 1 da auditoria (2026-10-05)
 
 Alteração exclusivamente documental, sem nenhuma mudança em código, testes, migrations, workflows ou configuração. Fonte de verdade confirmada no Git: repositório `/root/luxora-app` (WSL2/ext4), branch `master`, último commit anterior a esta reconciliação `e622d52` (`feat(notification): expose notification API`, 21/08/2026), `origin/master` no mesmo commit e working tree limpa. O checkpoint anterior `18c3086` (`ci: add redis service for critical tests`, 18/08/2026) deixou de ser o estado atual: está dois commits atrás (`465779d` e `e622d52`).

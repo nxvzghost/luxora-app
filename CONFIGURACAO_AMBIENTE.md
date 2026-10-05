@@ -80,6 +80,12 @@ Diferente do Asaas (uma única conta da Luxora), o WhatsApp **não tem variável
 
 ---
 
+## Sessão e revogação (ADR-0056)
+
+O access token dura `JWT_EXPIRES_IN` (padrão `15m`) e o refresh token `JWT_REFRESH_EXPIRES_IN` (padrão `7d`). `JWT_SESSION_MAX_AGE_DAYS` (padrão `30`) limita a sessão inteira: passado esse prazo desde o login, o refresh é recusado mesmo com o token ainda válido. `POST /auth/logout` recebe o refresh token no corpo e revoga, no servidor, todos os refresh tokens do usuário; desativar um usuário tem o mesmo efeito. Um access token já emitido segue válido até expirar. Detalhes e limitações em [ADR-0056](docs/02-Arquitetura/ADRs/ADR-0056-sessao-revogavel-token-version.md).
+
+---
+
 ## Observabilidade — Correlation ID, OpenTelemetry, Prometheus (AD-016)
 
 `GET /metrics` (fora do prefixo `api/v1`, convenção de scrapers Prometheus) expõe métricas HTTP/Express/ioredis coletadas pelo OpenTelemetry — protegido por `METRICS_ACCESS_TOKEN`, comparado ao header `X-Metrics-Token`. Sem essa variável configurada, a rota lança erro em vez de responder sem autenticação (mesmo padrão de `AUTOMATION_API_KEY`). Todo request HTTP recebe um `X-Correlation-Id` (aceito do cliente/proxy ou gerado como UUID) desde o primeiro middleware do processo — nenhuma variável de ambiente nova é necessária para isso. Traces são exportados via `ConsoleSpanExporter` (nenhum backend de tracing provisionado ainda — ver ADR-0051). Detalhes completos, incluindo por que a instrumentação do Prisma foi adiada, em [ADR-0051](docs/02-Arquitetura/ADRs/ADR-0051-observabilidade-correlation-id-otel-prometheus.md).

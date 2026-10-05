@@ -19,6 +19,8 @@ Qual papel (`admin`/`therapist`/`super_admin`) cada rota mutante exige não é r
 | POST | `/api/v1/auth/logout` | EncerrarSessao | — |
 | POST | `/api/v1/auth/forgot-password` | SolicitarRecuperacaoSenha | — |
 
+ADR-0056: `refresh` e `logout` recebem `{ "refreshToken": "..." }` no corpo. `refresh` responde 401 se o usuário foi desativado, se a sessão foi revogada ou se passou da duração máxima. `logout` revoga todos os refresh tokens do usuário e responde 204 (inclusive para token já inválido); sem `refreshToken` no corpo, responde 400. Só o access token é aceito como `Bearer` nas demais rotas.
+
 ---
 
 # Usuários (`/api/v1/users`) — AD-001 (Epic 5, Gestão de Usuários)

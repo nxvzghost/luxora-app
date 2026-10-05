@@ -109,6 +109,7 @@ As ADRs foram organizadas em uma sequência lógica.
 | ADR-0053 | Canal WhatsApp: Entrada Real — webhook, auth, idempotência, retries, auditoria (Epic 8) — **ACEITA, implementação aguardando aprovação final** |
 | ADR-0054 | Idempotência ponta-a-ponta do processamento assíncrono de WhatsApp — Inbox Pattern (AD-011) — **ADOTADA E IMPLEMENTADA** |
 | ADR-0055 | Contact: identidade de comunicação, promoção e desambiguação (AD-018, Epic 9) — **ADOTADA E IMPLEMENTADA** |
+| ADR-0056 | Sessão revogável por versão de token (`User.tokenVersion`) — refresh, logout e usuário desativado (Fase 2 da auditoria, R4) — **ADOTADA E IMPLEMENTADA** |
 
 
 

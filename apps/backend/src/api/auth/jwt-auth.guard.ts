@@ -6,6 +6,7 @@ interface LuxoraJwtPayload {
   sub: string; // userId
   tenantId: string;
   role: 'admin' | 'therapist' | 'super_admin';
+  type?: 'access' | 'refresh';
 }
 
 /**
@@ -41,6 +42,13 @@ export class JwtAuthGuard implements CanActivate {
     try {
       payload = await this.jwtService.verifyAsync<LuxoraJwtPayload>(token);
     } catch {
+      throw new UnauthorizedException('Token inválido ou expirado.');
+    }
+
+    // ADR-0056 — só um access token autentica uma requisição. Sem esta
+    // checagem, um refresh token (7 dias) era aceito como Bearer em qualquer
+    // rota protegida, anulando a curta duração do access token.
+    if (payload.type !== 'access') {
       throw new UnauthorizedException('Token inválido ou expirado.');
     }
 

@@ -51,6 +51,11 @@ export class PrismaUserRepository implements UserRepository {
             role: user.role,
             therapistId: user.therapistId,
             deletedAt: user.deletedAt,
+            // ADR-0056 — gravar um usuário desativado revoga em definitivo
+            // todos os refresh tokens dele. AuthService.refresh() já recusa
+            // usuário desativado; o incremento garante que uma reativação
+            // posterior não ressuscite sessões antigas.
+            ...(user.deletedAt ? { tokenVersion: { increment: 1 } } : {}),
           },
         }),
       );

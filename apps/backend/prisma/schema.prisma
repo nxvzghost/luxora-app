@@ -249,6 +249,10 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
+  // ADR-0056 — versão de sessão. Todo refresh token carrega o valor vigente
+  // na emissão; logout e desativação incrementam o campo, o que invalida de
+  // uma vez todos os refresh tokens emitidos antes.
+  tokenVersion Int      @default(0) @map("token_version")
 
   // Email GLOBALMENTE único (não por Tenant) — decisão tomada no Módulo 03,
   // ver LUXORA/03 - ENGINEERING/ADRs/ADR-0024. Login recebe apenas email+senha;

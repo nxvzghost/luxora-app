@@ -8,8 +8,9 @@ import { SkipSubscriptionCheck } from '../subscription/skip-subscription-check.d
 
 /**
  * AuthController — os únicos 3 endpoints da API que não exigem JwtAuthGuard
- * (login e refresh são o próprio mecanismo de obter o token; logout é
- * stateless neste MVP — ver nota abaixo).
+ * (login e refresh são o próprio mecanismo de obter o token; logout recebe
+ * o refresh token no corpo, porque é ele que precisa ser revogado e o
+ * access token pode já ter expirado — ver ADR-0056).
  *
  * @SkipSubscriptionCheck() explícito (Módulo 17) — login nunca pode ser
  * bloqueado por assinatura inativa, senão uma clínica PastDue nem
@@ -48,12 +49,12 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async logout() {
-    // Logout é stateless neste MVP: JWT de curta duração (15min) e o cliente
-    // descarta o token localmente. Não há blacklist de token — se isso se
-    // tornar necessário (ex: revogação imediata exigida por incidente de
-    // segurança), precisa de um store adicional (Redis), fora de escopo
-    // deste módulo. Registrar como possível dívida futura, não como bug.
-    return;
+  async logout(@Body() dto: RefreshDto) {
+    // ADR-0056 — revoga no servidor todos os refresh tokens do usuário
+    // (incrementa User.tokenVersion). Responde 204 mesmo para um token
+    // inválido, expirado ou já revogado: não há nada a revogar e quem está
+    // saindo não precisa de um erro. O access token em uso segue válido até
+    // expirar (15 minutos por padrão) — custo aceito de mantê-lo stateless.
+    await this.authService.logout(dto.refreshToken);
   }
 }
