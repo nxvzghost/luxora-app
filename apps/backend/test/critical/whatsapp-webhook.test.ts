@@ -250,3 +250,138 @@ afterAll(async () => {
   await fixturePrisma.$disconnect();
   await app?.close();
 });
+
+/**
+ * Fase 3 da auditoria — contrato de entrada. Os testes acima usam um corpo
+ * mínimo, escrito à mão, com o remetente no formato "+55…". A Meta envia
+ * outra coisa: um envelope com `object`, `entry[].id`, `contacts`,
+ * `timestamp` e `field`, e o remetente só em dígitos, sem "+". Estes testes
+ * usam o formato documentado pela Meta (Cloud API, webhook `messages`), com
+ * dados fictícios — nenhuma chamada à Meta acontece.
+ */
+function metaEnvelope(value: Record<string, unknown>) {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        id: '100000000000001',
+        changes: [
+          {
+            value: {
+              messaging_product: 'whatsapp',
+              metadata: { display_phone_number: '5541300000000', phone_number_id: phoneNumberId },
+              ...value,
+            },
+            field: 'messages',
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** DDI + DDD + 9 dígitos, só dígitos — como chega em `messages[].from`. */
+function metaPhone(): string {
+  return `55419${Math.floor(Math.random() * 90000000 + 10000000)}`;
+}
+
+function unixNow(): string {
+  return String(Math.floor(Date.now() / 1000));
+}
+
+describe('[Fase 3] Payload no formato documentado pela Meta', () => {
+  it('mensagem de texto com o envelope completo e remetente só em dígitos: 200, Conversation, Message e Contact criados', async () => {
+    const from = metaPhone();
+    const wamid = `wamid.${randomUUID()}`;
+
+    const res = await postSigned(
+      metaEnvelope({
+        contacts: [{ profile: { name: 'Pessoa Fictícia' }, wa_id: from }],
+        messages: [{ from, id: wamid, timestamp: unixNow(), text: { body: 'Olá, quero marcar um horário' }, type: 'text' }],
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const conversation = await fixturePrisma.conversation.findUniqueOrThrow({
+      where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: from } },
+    });
+    const messages = await fixturePrisma.message.findMany({ where: { conversationId: conversation.id } });
+    expect(messages).toHaveLength(1);
+    expect(messages[0].externalId).toBe(wamid);
+    expect(messages[0].direction).toBe('entrada');
+
+    // Contact guarda o telefone normalizado (E.164), não o valor bruto.
+    const contact = await fixturePrisma.contact.findFirst({ where: { tenantId: fixture.tenantId, phoneNumber: `+${from}` } });
+    expect(contact).not.toBeNull();
+  });
+
+  it('notificação só de status (entregue/lida), sem `messages`: 200 e nada é criado', async () => {
+    const recipient = metaPhone();
+
+    const res = await postSigned(
+      metaEnvelope({
+        statuses: [
+          {
+            id: `wamid.${randomUUID()}`,
+            status: 'delivered',
+            timestamp: unixNow(),
+            recipient_id: recipient,
+            conversation: { id: 'conversa-ficticia', origin: { type: 'service' } },
+            pricing: { billable: true, pricing_model: 'CBP', category: 'service' },
+          },
+        ],
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    expect(await fixturePrisma.conversation.count({ where: { tenantId: fixture.tenantId, phoneNumber: recipient } })).toBe(0);
+  });
+
+  it('mensagem que não é texto (imagem): 200, ignorada — nenhuma Conversation nem Message', async () => {
+    const from = metaPhone();
+    const wamid = `wamid.${randomUUID()}`;
+
+    const res = await postSigned(
+      metaEnvelope({
+        contacts: [{ profile: { name: 'Pessoa Fictícia' }, wa_id: from }],
+        messages: [{ from, id: wamid, timestamp: unixNow(), type: 'image', image: { mime_type: 'image/jpeg', sha256: 'ficticio', id: '1' } }],
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    expect(await fixturePrisma.conversation.count({ where: { tenantId: fixture.tenantId, phoneNumber: from } })).toBe(0);
+    expect(await fixturePrisma.message.count({ where: { externalId: wamid } })).toBe(0);
+  });
+
+  /**
+   * CARACTERIZAÇÃO de um limite encontrado nesta fase — não é o
+   * comportamento desejado. O telefone do paciente é texto livre e
+   * `PatientRepository.findByPhone()` compara por igualdade exata; o
+   * cadastro feito pelo próprio sistema grava "+55…" (PromoverContatoUseCase),
+   * e a Meta envia só dígitos. O paciente já cadastrado não é reconhecido
+   * na primeira mensagem. A correção envolve normalizar o telefone do
+   * Patient (regra de identidade, com dado já gravado) e está registrada
+   * como decisão pendente em docs/04-API/02-Contratos-de-Integracoes-Externas.md.
+   * Quando for corrigido, este teste passa a falhar e deve ser invertido.
+   */
+  it('LIMITE CONHECIDO (decisão pendente): paciente gravado como "+55…" não é reconhecido quando a Meta envia o mesmo número só em dígitos', async () => {
+    const digits = metaPhone();
+    const patient = await fixturePrisma.patient.create({
+      data: { tenantId: fixture.tenantId, name: `Paciente Formato E164 — ${randomUUID()}`, phone: `+${digits}` },
+    });
+    fixture.patientIds.push(patient.id);
+
+    const res = await postSigned(
+      metaEnvelope({
+        contacts: [{ profile: { name: 'Pessoa Fictícia' }, wa_id: digits }],
+        messages: [{ from: digits, id: `wamid.${randomUUID()}`, timestamp: unixNow(), text: { body: 'Oi, sou eu' }, type: 'text' }],
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    const conversation = await fixturePrisma.conversation.findUniqueOrThrow({
+      where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: digits } },
+    });
+    expect(conversation.patientId).toBeNull();
+  });
+});

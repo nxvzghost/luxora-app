@@ -23,10 +23,11 @@ import { TokenCipherService } from '@shared/token-cipher.service';
  * Antes da correção este arquivo falha já no primeiro teste:
  * MessageQueueWorker herdava Scope.REQUEST e nunca era instanciado.
  *
- * Redis: esta suíte usa um banco lógico próprio (índice 14). É a única
- * com um consumidor real da fila 'messages'; no banco padrão ele
- * disputaria (e "enviaria") jobs de saída enfileirados por outros
- * arquivos da suíte e resíduos de execuções antigas.
+ * Redis: esta suíte usa um banco lógico próprio (índice 14), separado do
+ * banco do restante da suíte crítica (índice 13, ver
+ * support/global-setup.ts). É a única com um consumidor real da fila
+ * 'messages'; no banco compartilhado ele disputaria (e "enviaria") jobs
+ * de saída enfileirados por outros arquivos da suíte.
  */
 
 const ISOLATED_REDIS_DB = '14';
@@ -242,6 +243,20 @@ describe('[Fase 3] Fila de saída do WhatsApp — MessageQueueWorker', () => {
   it('falha repetível (500) é tentada de novo e resulta em um único envio registrado', async () => {
     const marker = randomUUID();
     scriptedResponses.set(marker, [errorResponse(500, 131000), okResponse(`wamid.${marker}`)]);
+    const data = jobData(tenantA.tenantId, marker);
+
+    await app.get(MessageQueueProducer).enqueue(data);
+    expect(await waitForFinalState(data.idempotencyKey)).toBe('completed');
+
+    expect(callsFor(marker)).toHaveLength(2);
+    const job = await queue.getJob(data.idempotencyKey);
+    expect(job?.attemptsMade).toBe(2);
+    expect(await fixturePrisma.messageLog.count({ where: { idempotencyKey: data.idempotencyKey } })).toBe(1);
+  });
+
+  it('limite de requisições da Meta (429) também é repetível: nova tentativa e um único envio registrado', async () => {
+    const marker = randomUUID();
+    scriptedResponses.set(marker, [errorResponse(429, 130429), okResponse(`wamid.${marker}`)]);
     const data = jobData(tenantA.tenantId, marker);
 
     await app.get(MessageQueueProducer).enqueue(data);
