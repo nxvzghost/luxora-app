@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { AsaasPaymentProvider } from '@infrastructure/payment/asaas-payment.provider';
 
 /**
- * [MANUAL] Integração real com a Asaas — PRODUÇÃO, dinheiro real.
+ * [MANUAL / EXTERNAL] Integração real com a Asaas — PRODUÇÃO, dinheiro real.
  * Ver test/manual/README.md antes de rodar isto.
  *
  * NUNCA roda em CI, NUNCA roda via `pnpm test`/`pnpm dev` — só via
@@ -23,7 +23,7 @@ const hasRealCredentials =
   Boolean(process.env.ASAAS_TEST_CPF_CNPJ);
 
 describe.skipIf(!hasRealCredentials)(
-  '[MANUAL] Asaas produção — createCustomer, createSubscription, cancelSubscription',
+  '[MANUAL / EXTERNAL] Asaas produção — createCustomer, createSubscription, cancelSubscription',
   () => {
     const provider = new AsaasPaymentProvider();
     let asaasCustomerId: string;
@@ -64,7 +64,7 @@ describe.skipIf(!hasRealCredentials)(
 );
 
 if (Boolean(process.env.ASAAS_API_KEY) && process.env.ASAAS_ENV === 'production' && !process.env.ASAAS_TEST_CPF_CNPJ) {
-  describe('[MANUAL] Asaas produção — configuração incompleta', () => {
+  describe('[MANUAL / EXTERNAL] Asaas produção — configuração incompleta', () => {
     it('ASAAS_TEST_CPF_CNPJ ausente — ver test/manual/README.md', () => {
       throw new Error(
         'ASAAS_API_KEY + ASAAS_ENV=production configurados, mas ASAAS_TEST_CPF_CNPJ ausente — ' +

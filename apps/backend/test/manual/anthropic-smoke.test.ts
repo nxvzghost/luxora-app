@@ -7,7 +7,7 @@ import { MetricsService } from '@shared/metrics.service';
 import { loadBackendEnv, logSmoke } from './support/smoke-env';
 
 /**
- * [MANUAL] Chamada real à API da Anthropic — as 3 chamadas de um turno
+ * [MANUAL / EXTERNAL] Chamada real à API da Anthropic — as 3 chamadas de um turno
  * (interpretIntent, ContactIntentClassifier, generateResponse), pelos
  * providers reais. Custa centavos de dólar por execução.
  *
@@ -25,7 +25,7 @@ const enabled = process.env.ANTHROPIC_SMOKE === '1' && Boolean(process.env.ANTHR
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 const MESSAGE = 'Olá, gostaria de saber quais horários vocês têm na quinta-feira à tarde.';
 
-describe.skipIf(!enabled)('[MANUAL] Anthropic — turno completo com conteúdo sintético', () => {
+describe.skipIf(!enabled)('[MANUAL / EXTERNAL] Anthropic — turno completo com conteúdo sintético', () => {
   const metrics = new MetricsService();
   const clinicRepo = { findByTenantId: async () => ({ name: 'Clínica Exemplo (teste de integração)' }) } as unknown as ClinicRepository;
   const therapistRepo = {

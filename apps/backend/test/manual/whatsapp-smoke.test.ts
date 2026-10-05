@@ -5,7 +5,7 @@ import { TokenCipherService } from '@shared/token-cipher.service';
 import { loadBackendEnv, logSmoke } from './support/smoke-env';
 
 /**
- * [MANUAL] Envio real pela Graph API da Meta — UMA mensagem de texto, pelo
+ * [MANUAL / EXTERNAL] Envio real pela Graph API da Meta — UMA mensagem de texto, pelo
  * WhatsAppMessageProvider real, para um destinatário controlado.
  *
  * Só roda com as três variáveis abaixo definidas; sem elas o arquivo
@@ -35,7 +35,7 @@ const enabled = Boolean(phoneNumberId && accessToken && to && process.env.WHATSA
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000002';
 
-describe.skipIf(!enabled)('[MANUAL] Meta / WhatsApp — envio controlado para número de teste', () => {
+describe.skipIf(!enabled)('[MANUAL / EXTERNAL] Meta / WhatsApp — envio controlado para número de teste', () => {
   it('envia uma mensagem de texto e recebe o id da mensagem (wamid)', async () => {
     const tokenCipher = new TokenCipherService();
     const prismaClient = {

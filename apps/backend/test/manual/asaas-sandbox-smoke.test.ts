@@ -3,7 +3,7 @@ import { AsaasPaymentProvider } from '@infrastructure/payment/asaas-payment.prov
 import { loadBackendEnv, logSmoke } from './support/smoke-env';
 
 /**
- * [MANUAL] Asaas — SANDBOX. Nenhum dinheiro real: cria um cliente e uma
+ * [MANUAL / EXTERNAL] Asaas — SANDBOX. Nenhum dinheiro real: cria um cliente e uma
  * assinatura via PIX no ambiente de testes da Asaas e cancela a
  * assinatura ao final.
  *
@@ -42,7 +42,7 @@ function syntheticCpf(): string {
 const enabled =
   Boolean(process.env.ASAAS_API_KEY) && process.env.ASAAS_ENV === 'sandbox' && isSandboxUrl(process.env.ASAAS_BASE_URL);
 
-describe.skipIf(!enabled)('[MANUAL] Asaas sandbox — createCustomer, createSubscription, cancelSubscription', () => {
+describe.skipIf(!enabled)('[MANUAL / EXTERNAL] Asaas sandbox — createCustomer, createSubscription, cancelSubscription', () => {
   const provider = new AsaasPaymentProvider();
   let asaasCustomerId: string;
   let asaasSubscriptionId: string | undefined;
@@ -74,6 +74,28 @@ describe.skipIf(!enabled)('[MANUAL] Asaas sandbox — createCustomer, createSubs
 
     logSmoke('asaas-sandbox', { chamada: 'POST /subscriptions', assinatura: asaasSubscriptionId, latencia_ms: Date.now() - start });
     expect(asaasSubscriptionId).toMatch(/^sub_/);
+  }, 30000);
+
+  it('consulta as cobranças geradas pela assinatura e registra o estado (só leitura)', async () => {
+    // O provider não tem operação de consulta; esta chamada direta existe só
+    // para o smoke fechar o ciclo cliente → assinatura → cobrança → estado.
+    // A Asaas pode gerar a primeira cobrança alguns instantes depois de criar
+    // a assinatura — por isso a quantidade é só registrada, não exigida.
+    const start = Date.now();
+    const response = await fetch(`${process.env.ASAAS_BASE_URL}/subscriptions/${asaasSubscriptionId}/payments`, {
+      headers: { access_token: process.env.ASAAS_API_KEY as string, 'User-Agent': 'Luxora-Backend (Node.js; sandbox)' },
+    });
+    const body = (await response.json()) as { totalCount?: number; data?: Array<{ id: string; status: string }> };
+
+    logSmoke('asaas-sandbox', {
+      chamada: 'GET /subscriptions/:id/payments',
+      http: response.status,
+      cobrancas: body.totalCount,
+      primeira_cobranca: body.data?.[0]?.id,
+      estado: body.data?.[0]?.status,
+      latencia_ms: Date.now() - start,
+    });
+    expect(response.status).toBe(200);
   }, 30000);
 
   it('credencial inválida é recusada com erro que não expõe a chave', async () => {

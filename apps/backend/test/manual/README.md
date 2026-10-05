@@ -1,4 +1,4 @@
-# test/manual/ — nunca automático, nunca em CI
+# test/manual/ — MANUAL / EXTERNAL: nunca automático, nunca em CI
 
 Testes aqui chamam **serviços externos de verdade** (Meta, Anthropic, Asaas).
 Diferente de `test/unit`, `test/integration` e `test/critical`, nada nesta
@@ -15,14 +15,16 @@ sem nada configurado não chama serviço nenhum.
 
 | Arquivo | Chama | Efeito externo |
 |---|---|---|
-| `whatsapp-smoke.test.ts` | Graph API da Meta | 1 mensagem de texto para o destinatário que você indicar |
+| `providers-rejection-smoke.test.ts` | Meta, Anthropic e Asaas sandbox, com credencial inválida de propósito | Nenhum — cada serviço recusa a chamada |
+| `whatsapp-worker-smoke.test.ts` | A fila de saída inteira até a Graph API | Nenhum sem credencial; com ela, 1 mensagem para o destinatário que você indicar |
+| `whatsapp-smoke.test.ts` | Graph API da Meta, só o provider | 1 mensagem de texto para o destinatário que você indicar |
 | `anthropic-smoke.test.ts` | API da Anthropic | 3 chamadas, centavos de dólar |
 | `asaas-sandbox-smoke.test.ts` | Asaas **sandbox** | 1 cliente e 1 assinatura de teste, sem dinheiro real |
 | `asaas-production-smoke.test.ts` | Asaas **produção** | cliente e assinatura reais (ver a última seção) |
 
 As variáveis podem ficar em `apps/backend/.env` (nunca commitado) ou ser
-exportadas no terminal. Os três smoke tests novos leem o `.env` sozinhos; o de
-produção da Asaas depende das variáveis exportadas no terminal.
+exportadas no terminal. Todos os arquivos leem o `.env` sozinhos, menos o de
+produção da Asaas, que depende das variáveis exportadas no terminal.
 
 Cada execução imprime uma linha `[SMOKE …]` com horário, chamada, id
 devolvido pelo provider e latência. Nenhuma linha traz chave, token, telefone
@@ -36,6 +38,41 @@ Contrato de cada integração:
 - Nunca usar número de paciente, cartão real nem dado de clínica real.
 - Nunca colar credencial em arquivo versionado, em teste ou em mensagem de commit.
 - Nunca cadastrar estas credenciais como secrets do CI sem decisão prévia.
+
+## Sem credencial nenhuma — `providers-rejection-smoke.test.ts`
+
+```bash
+EXTERNAL_SMOKE=1 pnpm --filter @luxora/backend test:manual
+```
+
+Faz uma chamada real a cada provider com uma credencial **inválida de
+propósito**. Não usa nem exige credencial real, não custa nada e não produz
+efeito. Prova que o endereço responde a partir desta máquina, que o corpo de
+erro verdadeiro é lido pelo nosso código, que a falha é classificada como
+permanente e que nada da credencial aparece na mensagem de erro. Também
+registra a versão da Graph API pedida pelo código e a que a Meta está servindo.
+
+A Asaas é chamada sempre no endereço de sandbox, fixado dentro do teste,
+qualquer que seja o valor do `.env`.
+
+Não prova o caminho feliz de nenhum provider.
+
+## A fila de saída inteira — `whatsapp-worker-smoke.test.ts`
+
+Também exige `EXTERNAL_SMOKE=1`, e mais o Postgres e o Redis do
+`docker compose`. Sobe a aplicação com o worker de saída real e percorre
+produtor → Redis → worker → Use Case → provider → Graph API, sem interceptar
+nada. Usa o banco lógico 15 do Redis (nunca o 0, onde `pnpm dev` trabalha) e
+clínicas descartáveis, apagadas ao final.
+
+- Sem credencial: uma clínica com token inválido — a Meta recusa, o job
+  encerra na primeira tentativa.
+- Com as três variáveis `WHATSAPP_SMOKE_*` da próxima seção: envia **uma**
+  mensagem pela fila, confere o registro com o id da Meta e que um segundo job
+  com a mesma chave não envia de novo.
+
+Se o número de teste já estiver conectado a uma clínica do banco local, o
+teste para e avisa — o número só pode pertencer a uma clínica.
 
 ## Meta / WhatsApp — `whatsapp-smoke.test.ts`
 
@@ -92,8 +129,9 @@ ASAAS_API_KEY=<chave da conta sandbox>
 O arquivo só roda quando `ASAAS_BASE_URL` aponta para um host de sandbox. Com
 a URL de produção ele é pulado, mesmo com a chave definida.
 
-Cria um cliente e uma assinatura via PIX, confere que uma chave inválida é
-recusada sem expor a chave real, e cancela a assinatura ao final. O CPF do
+Cria um cliente e uma assinatura via PIX, consulta as cobranças geradas e
+registra o estado, confere que uma chave inválida é recusada sem expor a chave
+real, e cancela a assinatura ao final. O CPF do
 cliente é gerado na hora (só dígitos verificadores válidos); para usar um
 documento específico, defina `ASAAS_SANDBOX_CPF_CNPJ`.
 
@@ -110,8 +148,9 @@ Asaas simulada. Nunca usar cartão real.
 
 ## Asaas produção — `asaas-production-smoke.test.ts`
 
-Anterior aos demais e mantido como estava. Toca a **API real de produção da
-Asaas** — dinheiro de verdade, clientes e assinaturas reais no painel deles.
+Anterior aos demais e mantido como estava, salvo o rótulo. Toca a **API real
+de produção da Asaas** — dinheiro de verdade, clientes e assinaturas reais no
+painel deles.
 
 A documentação de ambiente do projeto registra a produção como único ambiente
 Asaas da Luxora. A Fase 3 da auditoria pede o contrário — sandbox primeiro —,
