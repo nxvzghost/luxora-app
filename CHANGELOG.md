@@ -4,6 +4,29 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Fase 3 da auditoria — Integrações reais (2026-10-05)
+
+Execução da Fase 3 definida pela auditoria de 04/10/2026. **Estado: parcial.** O que dependia só do código foi corrigido e testado; nenhuma chamada real a Meta, Anthropic ou Asaas foi feita, porque o ambiente não tem credencial de teste de nenhuma das três (`ANTHROPIC_API_KEY` e `ASAAS_API_KEY` vazias, nenhuma clínica com WhatsApp conectado). Contratos e situação de cada integração em [`docs/04-API/02-Contratos-de-Integracoes-Externas.md`](./docs/04-API/02-Contratos-de-Integracoes-Externas.md).
+
+**Fila de saída do WhatsApp sem consumidor ([`ADR-0058`](./docs/02-Arquitetura/ADRs/ADR-0058-worker-de-saida-whatsapp.md)).** Achado da auditoria confirmado: `MessageQueueWorker` herdava o escopo de requisição de `PrismaService` e nunca era instanciado — 366 jobs parados na fila `messages` do Redis local, nenhum concluído. Nenhuma resposta do agente, resumo de agenda ou cobrança saía de fato.
+- O worker passa a depender só de `ModuleRef` e resolve `EnviarMensagemUseCase` por job, com o `TenantContext` preenchido a partir do `tenantId` do payload (mesmo mecanismo do worker de entrada). Payload sem `tenantId` válido é descartado.
+- `WhatsAppMessageProvider` classifica a falha (`MessageProviderError`): rede, tempo limite, 429 e 5xx voltam para a fila; clínica sem canal, credencial recusada e demais 4xx encerram o job na primeira tentativa. Antes, toda falha seria repetida 3 vezes.
+- Tempo limite de 10 s na chamada à Graph API (`WHATSAPP_PROVIDER_TIMEOUT_MS`).
+- A mensagem de erro do envio traz só os códigos e o `fbtrace_id` da Meta; o texto livre devolvido por ela (que pode repetir o telefone) não entra mais em log nem no Redis.
+- Limitação registrada na ADR, não corrigida: a entrega é "ao menos uma vez" — se a gravação em `message_log` falhar depois de a Meta aceitar o envio, a nova tentativa envia de novo.
+- Testes: `test/critical/whatsapp-outbound-worker.test.ts` (9, Postgres/Redis/BullMQ reais; os 9 falham com o worker anterior) e `test/unit/infrastructure/messaging/whatsapp-message.provider.test.ts` (16).
+
+**Webhook da Asaas.** O fluxo só tinha teste unitário com repositórios simulados. Achado novo: um corpo autenticado sem `id` ou sem `event` estourava na consulta de idempotência e respondia 500, o que faz a Asaas reenviar o mesmo corpo.
+- `ProcessarWebhookAssinaturaUseCase` confirma o recebimento e não altera nada quando falta `id` ou `event`.
+- Testes: `test/critical/asaas-webhook.test.ts` (10, Postgres real) — token ausente e errado, ativação só da clínica dona da assinatura, reentrega sem efeito, evento desconhecido, assinatura inexistente, payload inválido; 4 casos novos no teste unitário do Use Case.
+- Limitações registradas no documento de contratos, não corrigidas: verificação e registro do evento não são atômicos (duas entregas simultâneas do mesmo evento podem ser processadas duas vezes), não há tratamento de eventos fora de ordem, e o token é comparado sem tempo constante.
+
+**Smoke tests reais (manuais, fora do CI).** `test/manual/` ganha `whatsapp-smoke.test.ts`, `anthropic-smoke.test.ts` e `asaas-sandbox-smoke.test.ts`. Todos pulam sem credencial; o da Asaas só roda com o endereço de sandbox, e o da Anthropic só envia conteúdo sintético. Nenhum foi executado.
+
+**Dados enviados à Anthropic — auditados no código.** Vão: o texto da conversa inteira (sem limite de tamanho), nome da clínica e dos terapeutas, e o resultado de ações (data e hora de consulta, valor e estado de cobrança, nome do paciente recém-cadastrado). Não vão: telefone, CPF, identificadores internos, prontuário, tokens.
+
+**Validação.** `nest build` e `eslint` limpos; 752 testes unitários, 9 de integração e 255 críticos (1 skip pré-existente), 0 falhas.
+
 ### Fase 2 da auditoria — Segurança e dependências (2026-10-05)
 
 Execução da Fase 2 definida pela auditoria de 04/10/2026. Cada bloco abaixo corresponde a um commit próprio e cita o risco da auditoria que ele fecha.

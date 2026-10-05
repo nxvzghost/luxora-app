@@ -111,6 +111,7 @@ As ADRs foram organizadas em uma sequência lógica.
 | ADR-0055 | Contact: identidade de comunicação, promoção e desambiguação (AD-018, Epic 9) — **ADOTADA E IMPLEMENTADA** |
 | ADR-0056 | Sessão revogável por versão de token (`User.tokenVersion`) — refresh, logout e usuário desativado (Fase 2 da auditoria, R4) — **ADOTADA E IMPLEMENTADA** |
 | ADR-0057 | Configuração validada no boot, headers de segurança (Helmet) e Swagger por ambiente (Fase 2 da auditoria, R7) — **ADOTADA E IMPLEMENTADA** |
+| ADR-0058 | Worker da fila de saída do WhatsApp: instanciação por job, clínica do payload e classificação de falhas (Fase 3 da auditoria) — **ADOTADA E IMPLEMENTADA** |
 
 
 

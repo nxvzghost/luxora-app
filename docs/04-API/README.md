@@ -18,6 +18,7 @@ Nenhum cliente da plataforma — Frontend, agente de IA ou automação n8n — a
 
 - **00 - Principios-da-API.md** — regras gerais de contrato, versionamento, autenticação, formato de erro.
 - **01 - Contratos-REST.md** — endpoints por módulo, mapeados diretamente aos Casos de Uso já definidos em `02-Arquitetura/03-Backend.md`.
+- **02 - Contratos-de-Integracoes-Externas.md** — contrato mínimo com Meta (WhatsApp), Anthropic e Asaas: entrada, saída, idempotência, repetição, segurança e o que já foi validado contra o serviço real.
 
 ---
 
