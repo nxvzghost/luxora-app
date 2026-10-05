@@ -36,7 +36,18 @@ BEGIN
     'appointment', 'session', 'billing', 'billing_session', 'payment', 'audit_log',
     'availability_calendar', 'clinic_holiday', 'recurring_block', 'tenant_api_key',
     'conversation', 'message', 'inbound_processing_inbox',
-    'contact', 'contact_patient_association'
+    'contact', 'contact_patient_association',
+    'notification', 'message_log'
+    -- notification (Epic 12/AD-021): RLS aplicada pela própria migration
+    -- 20260813171216_add_notification; faltava só nesta lista de referência.
+    -- message_log (Fase 2 da auditoria, R6): migration
+    -- 20261005040856_enable_rls_message_log. Único acesso é
+    -- PrismaMessageLogRepository via PrismaService.forTenant(), sem filtro
+    -- de tenant na consulta — nunca precisa de bypass.
+    -- clinic_subscription DELIBERADAMENTE FORA desta lista (Fase 2, R6): o
+    -- webhook da Asaas localiza a assinatura por asaasSubscriptionId antes
+    -- de conhecer o Tenant, e todo outro acesso filtra por tenantId vindo de
+    -- contexto autenticado (JWT ou API key), nunca do cliente.
     -- inbound_processing_inbox (ADR-0054/AD-036): sem conflito do tipo
     -- whatsapp_integration — todo acesso acontece dentro do worker, já com
     -- TenantContext setado via ContextIdFactory, nunca precisa de bypass.
