@@ -27,6 +27,32 @@ Execução da Fase 3 definida pela auditoria de 04/10/2026. **Estado: parcial.**
 
 **Validação.** `nest build` e `eslint` limpos; 752 testes unitários, 9 de integração e 255 críticos (1 skip pré-existente), 0 falhas.
 
+#### Fechamento da Fase 3 (2026-10-05) — estado: parcial
+
+As credenciais de teste continuam ausentes do ambiente local; nenhum caminho feliz foi exercitado contra Meta, Anthropic ou Asaas. O que mudou em relação ao bloco acima:
+
+**Primeiras chamadas reais, com credencial inválida de propósito** (`test/manual/providers-rejection-smoke.test.ts` e `whatsapp-worker-smoke.test.ts`, só com `EXTERNAL_SMOKE=1`). Não usam credencial real e não produzem efeito. Meta: 401, `code=190`, lido pelo provider e classificado como permanente — inclusive pela cadeia completa produtor → Redis → worker → Use Case → provider, com o job encerrado na primeira tentativa. Anthropic: 401 `authentication_error`, uma única chamada. Asaas sandbox: 401 `invalid_access_token`.
+
+**Achados novos, corrigidos.**
+- **Webhook da Asaas respondia 500 a evento que não cabe no estado da assinatura.** Uma assinatura cancelada não aceita nenhuma transição; um `PAYMENT_RECEIVED` da liquidação de um cartão (que a Asaas envia 32 dias depois do `PAYMENT_CONFIRMED`) chegando depois do cancelamento virava erro. A Asaas reenvia o evento e, após 15 falhas seguidas, pode interromper a fila do webhook — que é um só para todas as clínicas. O Use Case passa a confirmar o recebimento, registrar o evento e não alterar nada. Testes: 3 críticos (falham sem a correção) e 4 unitários.
+- **Token do webhook da Asaas comparado em tempo constante**, como já era no webhook do WhatsApp. Teste unitário novo do guard (8 casos).
+- **`User-Agent` nas chamadas à Asaas**, exigido pela documentação oficial para contas criadas a partir de 13/06/2024.
+- **A Suíte Crítica deixava jobs no Redis de desenvolvimento.** Cada execução acrescentava jobs de saída ao índice 0 (389 acumulados desde julho); com o worker de saída agora ativo, eles seriam consumidos na subida seguinte do backend. A suíte passou a usar o índice 13. Os 389 jobs antigos **não foram apagados**.
+
+**Achados novos, não corrigidos** (decisões em `docs/04-API/02-Contratos-de-Integracoes-Externas.md`, "Decisões pendentes").
+- **Paciente cadastrado não é reconhecido pelo telefone com o formato real da Meta.** A Meta envia o número só em dígitos; o cadastro grava `+55…`; a busca é por igualdade exata. Fixado em teste de caracterização.
+- **Versão da Graph API expirada.** O código pede `v19.0` (expirada em 21/05/2026); a Meta atende com a `v21.0`, que expira em 21/01/2027.
+- **Mapeamento de eventos da Asaas.** `PAYMENT_CONFIRMED` e `PAYMENT_RECEIVED` têm o mesmo efeito, e uma cobrança por cartão ou boleto gera os dois.
+- **Modo de envio do webhook da Asaas.** O backend pressupõe o modo sequencial; no não sequencial, eventos chegam em paralelo e fora de ordem.
+- **Retenção no Redis.** Jobs concluídos e falhados ficam guardados para sempre, com telefone e texto.
+- **Custo do histórico enviado à IA** cresce a cada turno; estimado no mesmo documento.
+
+**Testes de contrato novos.** O webhook do WhatsApp é exercitado com o envelope completo documentado pela Meta (mensagem de texto, notificação de status, mensagem que não é texto); o worker de saída ganha o caso do 429.
+
+**Análise registrada, sem implementação.** Mensagem repetida × mensagem perdida, na ADR-0058.
+
+**Validação.** `nest build` e `eslint` limpos; 765 testes unitários, 9 de integração e 263 críticos (1 skip pré-existente), 0 falhas; 18 testes manuais pulados por padrão.
+
 ### Fase 2 da auditoria — Segurança e dependências (2026-10-05)
 
 Execução da Fase 2 definida pela auditoria de 04/10/2026. Cada bloco abaixo corresponde a um commit próprio e cita o risco da auditoria que ele fecha.

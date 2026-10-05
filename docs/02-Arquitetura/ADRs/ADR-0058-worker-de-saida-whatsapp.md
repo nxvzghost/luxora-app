@@ -36,20 +36,52 @@ O worker converte `retryable: false` em `UnrecoverableError` do BullMQ: o job é
 
 **Resposta 2xx sem id de mensagem é sucesso.** A Meta já aceitou o envio; tratar como erro faria a fila reenviar.
 
-**Suíte crítica.** O app de teste passa a substituir `MessageQueueWorker` por um objeto inerte, como já fazia com o worker de entrada. Só `whatsapp-outbound-worker.test.ts` pede o worker real, em um banco lógico próprio do Redis (índice 14) e com `fetch` interceptado.
+**Suíte crítica.** O app de teste passa a substituir `MessageQueueWorker` por um objeto inerte, como já fazia com o worker de entrada. Só `whatsapp-outbound-worker.test.ts` pede o worker real, em um banco lógico próprio do Redis (índice 14) e com `fetch` interceptado. No fechamento da fase, a suíte inteira passou a usar um banco lógico próprio (índice 13): antes, cada execução deixava jobs de saída no índice 0, o mesmo de `pnpm dev`, e o worker — agora ativo — tentaria enviá-los na subida seguinte do backend.
 
 ## Limitações conhecidas (documentadas, não corrigidas)
 
-- **Entrega "ao menos uma vez".** `EnviarMensagemUseCase` envia e depois grava em `message_log`. Se a gravação falhar depois de a Meta aceitar a mensagem, a nova tentativa envia de novo. A Graph API não aceita chave de idempotência, então não há como delegar isso ao provider. Inverter a ordem (gravar antes, enviar depois) troca o risco de mensagem repetida pelo de mensagem perdida. **Decisão pendente** — o comportamento atual foi mantido.
+- **Entrega "ao menos uma vez".** `EnviarMensagemUseCase` envia e depois grava em `message_log`. Se a gravação falhar depois de a Meta aceitar a mensagem, a nova tentativa envia de novo. **Decisão pendente** — o comportamento atual foi mantido; ver "Análise: mensagem repetida × mensagem perdida" abaixo.
 - **Job falhado bloqueia a mesma chave.** O job que falhou em definitivo continua no Redis com `jobId` igual à `idempotencyKey`; enfileirar a mesma chave de novo não o reexecuta. Reenvio exige remover o job falhado ou usar outra chave.
 - **Retenção no Redis.** Jobs concluídos e falhados não têm prazo de expiração e guardam telefone e texto da mensagem.
 - **Sem alerta de falha definitiva.** A falha é registrada em log; nada notifica a clínica nem a operação.
-- **Resíduo local.** O Redis de desenvolvimento tem jobs antigos de teste na fila `messages`. Com o worker ativo, subir o backend contra esse Redis faz com que sejam consumidos; como nenhuma clínica local tem canal conectado, todos terminam como falha permanente, sem chamada externa.
+- **Resíduo local.** O índice 0 do Redis de desenvolvimento tem 389 jobs antigos de teste na fila `messages`. Com o worker ativo, subir o backend contra esse Redis faz com que sejam consumidos; como nenhuma clínica local tem canal conectado, todos terminam como falha permanente, sem chamada externa. Dez deles são de clínicas que ainda existem no banco local: se uma delas for conectada a um canal real antes de a fila ser limpa, esses dez seriam enviados. A limpeza é destrutiva e depende de autorização.
 - **Encerramento do processo.** O SIGTERM continua sem tratamento adequado (achado da Fase 2); um job em execução no momento do encerramento é reprocessado pelo BullMQ depois do tempo de bloqueio.
+
+## Análise: mensagem repetida × mensagem perdida
+
+Feita no fechamento da Fase 3. Nenhuma das alternativas foi implementada.
+
+**Por que não existe "exatamente uma vez".** O envio envolve dois sistemas independentes — a Graph API e o nosso banco — sem transação comum, e `POST /{phone-number-id}/messages` não aceita chave de idempotência: a Meta não tem como reconhecer que a segunda chamada é a mesma mensagem. Entre "a Meta aceitou" e "nós gravamos" sempre existe um instante em que só um dos lados sabe do envio.
+
+**A) Enviar e depois gravar (comportamento atual) — pode repetir.**
+
+| Onde falha | O que acontece |
+|---|---|
+| Antes de a Meta receber | Nada foi enviado; a nova tentativa envia. Sem problema |
+| A Meta aceita, mas a resposta não chega em 10 s | Tratado como falha repetível; a nova tentativa envia de novo — **repetida** |
+| A Meta aceita, a resposta chega e a gravação em `message_log` falha (banco fora, processo morto) | A nova tentativa não encontra o registro e envia de novo — **repetida** |
+
+A janela entre a resposta da Meta e a gravação é de milissegundos. O que a torna relevante é o encerramento do processo: o SIGTERM não é tratado (achado da Fase 2), então um deploy pode matar um job nesse intervalo, e o BullMQ o reexecuta depois do tempo de bloqueio. Impacto: o paciente recebe a mesma mensagem duas vezes. Recuperação: nenhuma é necessária — a segunda execução grava o registro e o estado fica coerente.
+
+**B) Gravar e depois enviar — pode perder.**
+
+| Onde falha | O que acontece |
+|---|---|
+| A reserva em `message_log` falha | Nada foi enviado; a nova tentativa recomeça. Sem problema |
+| A reserva é gravada e o processo morre antes de a Meta receber | A nova tentativa encontra a reserva e não envia — **perdida**, em silêncio |
+| A reserva é gravada e a Meta devolve erro | Dá para distinguir: a reserva é desfeita e a nova tentativa envia |
+| A reserva é gravada, a chamada expira sem resposta | Ambíguo: reenviar pode repetir, não reenviar pode perder |
+
+Impacto: o paciente não recebe a resposta, a confirmação ou o lembrete, e nada avisa a clínica. Recuperação: exige um processo que revisite reservas antigas — e ele recai na mesma ambiguidade, porque não sabe se a Meta recebeu.
+
+**Reduzir a ambiguidade, sem eliminá-la.** A Graph API devolve, nas notificações de status (`statuses[]`), o campo `biz_opaque_callback_data` enviado junto com a mensagem. Gravar ali a `idempotencyKey` permitiria confirmar, pelo webhook, que uma mensagem com aquela chave foi de fato enviada, e só então liberar ou descartar uma reserva pendente. Exige tratar `statuses[]`, que hoje são ignorados — mudança estrutural no fluxo de entrada.
+
+**Recomendação.** Manter A. Neste produto uma mensagem repetida é um incômodo visível e sem consequência; uma resposta ou confirmação de consulta que nunca chega, sem ninguém saber, é pior. Reduzir a janela com encerramento gracioso do processo (Fase 4). Avaliar a conciliação por `statuses[]` quando houver volume real. **Decisão necessária** — fica com o responsável pelo produto.
 
 ## Evidências
 
-- `test/critical/whatsapp-outbound-worker.test.ts` — 9 testes contra Postgres, Redis e BullMQ reais: instanciação, envio com a credencial da clínica do job, isolamento entre duas clínicas, idempotência em duas camadas, repetição em falha transitória, teto de 3 tentativas, falha permanente sem repetição, clínica sem canal, payload sem `tenantId`. Com o worker anterior: 9 falhas.
+- `test/critical/whatsapp-outbound-worker.test.ts` — 10 testes contra Postgres, Redis e BullMQ reais: instanciação, envio com a credencial da clínica do job, isolamento entre duas clínicas, idempotência em duas camadas, repetição em falha transitória (500 e 429), teto de 3 tentativas, falha permanente sem repetição, clínica sem canal, payload sem `tenantId`. Com o worker anterior, os 9 testes que existiam falhavam.
 - `test/unit/infrastructure/messaging/whatsapp-message.provider.test.ts` — 16 testes da classificação e do conteúdo da mensagem de erro.
 - Backend real (`node dist/main.js`) em Redis isolado: 1 consumidor registrado na fila; job para clínica sem canal encerrado na primeira tentativa.
-- Envio real pela Graph API: **não executado** — nenhuma credencial de teste da Meta disponível. `test/manual/whatsapp-smoke.test.ts` faz essa chamada quando houver.
+- Cadeia completa contra a Meta real, em 05/10/2026 (`test/manual/whatsapp-worker-smoke.test.ts`, `EXTERNAL_SMOKE=1`): produtor → Redis → worker → Use Case → provider → Graph API, com um token inválido de propósito. A Meta respondeu 401, `code=190`, `OAuthException`; o job foi encerrado na primeira tentativa, com o `fbtrace_id` no motivo da falha e nada em `message_log`.
+- Envio aceito pela Meta (caminho feliz): **não executado** — nenhuma credencial de teste da Meta disponível. O mesmo arquivo faz esse envio quando as variáveis `WHATSAPP_SMOKE_*` existirem.
