@@ -30,6 +30,9 @@ let fixturePrisma: PrismaClient;
 let sharedPrismaClientProvider: PrismaClientProvider;
 let fixture: DedicatedFixture;
 let phoneNumberId: string;
+// Fase 3 da auditoria — segunda clínica, só para o teste de isolamento.
+let fixtureB: DedicatedFixture;
+let phoneNumberIdB: string;
 
 const APP_SECRET = process.env.WHATSAPP_APP_SECRET ?? '';
 
@@ -158,10 +161,10 @@ function toSuperuserUrl(databaseUrl: string): string {
   return url.toString();
 }
 
-async function cleanupInboundData() {
-  await fixturePrisma.inboxEntry.deleteMany({ where: { tenantId: fixture.tenantId } });
+async function cleanupInboundData(tenantId: string) {
+  await fixturePrisma.inboxEntry.deleteMany({ where: { tenantId } });
   const conversations = await fixturePrisma.conversation.findMany({
-    where: { tenantId: fixture.tenantId },
+    where: { tenantId },
     select: { id: true },
   });
   const conversationIds = conversations.map((c) => c.id);
@@ -175,9 +178,9 @@ async function cleanupInboundData() {
   // ReconhecerOuCriarContatoUseCase; sem apagar isso primeiro,
   // cleanupDedicatedFixture() falhava ao apagar o Tenant
   // (contact_tenant_id_fkey).
-  await fixturePrisma.contactPatientAssociation.deleteMany({ where: { tenantId: fixture.tenantId } });
-  await fixturePrisma.contact.deleteMany({ where: { tenantId: fixture.tenantId } });
-  await fixturePrisma.whatsAppIntegration.deleteMany({ where: { tenantId: fixture.tenantId } });
+  await fixturePrisma.contactPatientAssociation.deleteMany({ where: { tenantId } });
+  await fixturePrisma.contact.deleteMany({ where: { tenantId } });
+  await fixturePrisma.whatsAppIntegration.deleteMany({ where: { tenantId } });
 }
 
 beforeAll(async () => {
@@ -225,11 +228,21 @@ beforeAll(async () => {
   await fixturePrisma.whatsAppIntegration.create({
     data: { tenantId: fixture.tenantId, phoneNumberId, accessToken: 'v1:fake:fake:fake', active: true },
   });
+
+  fixtureB = await createDedicatedFixture(fixturePrisma, 'WAINBOXB');
+  phoneNumberIdB = `pnid-${randomUUID()}`;
+  await fixturePrisma.whatsAppIntegration.create({
+    data: { tenantId: fixtureB.tenantId, phoneNumberId: phoneNumberIdB, accessToken: 'v1:fake:fake:fake', active: true },
+  });
 });
 
 afterAll(async () => {
-  await cleanupInboundData();
+  await cleanupInboundData(fixture.tenantId);
   await cleanupDedicatedFixture(fixturePrisma, fixture);
+  if (fixtureB) {
+    await cleanupInboundData(fixtureB.tenantId);
+    await cleanupDedicatedFixture(fixturePrisma, fixtureB);
+  }
   await sharedPrismaClientProvider.$disconnect();
   await fixturePrisma.$disconnect();
   await app?.close();
@@ -358,6 +371,72 @@ describe('[AD-036] Idempotência ponta-a-ponta do processamento assíncrono (ADR
       }
     },
     35000,
+  );
+
+  it(
+    'Fase 3 — isolamento: o mesmo telefone falando com duas clínicas; a IA da clínica B nunca recebe histórico nem dados da clínica A',
+    async () => {
+      const fetchMock = mockAnthropicFetch();
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        const from = `+554198${Math.floor(Math.random() * 900000 + 100000)}`;
+        const wamidA = `wamid.${randomUUID()}`;
+        const wamidB = `wamid.${randomUUID()}`;
+        const onlyInClinicA = `assunto-exclusivo-da-clinica-A-${randomUUID()}`;
+
+        const therapistA = await fixturePrisma.therapist.findUniqueOrThrow({ where: { id: fixture.therapistId } });
+        const therapistB = await fixturePrisma.therapist.findUniqueOrThrow({ where: { id: fixtureB.therapistId } });
+
+        expect((await postSigned(inboundMessagePayload(wamidA, from, `${onlyInClinicA} ${wamidA}`))).status).toBe(200);
+        expect((await waitForInboxStatusAtLeast(wamidA, 'generated')).status).not.toBe('failed');
+
+        expect(
+          (await postSigned(inboundMessagePayload(wamidB, from, `mensagem para a clínica B ${wamidB}`, phoneNumberIdB))).status,
+        ).toBe(200);
+        const inboxB = await waitForInboxStatusAtLeast(wamidB, 'generated');
+        expect(inboxB.status).not.toBe('failed');
+        expect(inboxB.tenantId).toBe(fixtureB.tenantId);
+
+        const bodies = (wamid: string) =>
+          fetchMock.mock.calls.map(([, opts]) => (opts as { body: string }).body).filter((body) => body.includes(wamid));
+
+        // Tudo o que foi enviado à IA em nome da clínica B.
+        const sentForB = bodies(wamidB);
+        expect(sentForB).toHaveLength(3);
+        for (const body of sentForB) {
+          expect(body).not.toContain(onlyInClinicA);
+          expect(body).not.toContain(wamidA);
+          expect(body).not.toContain(therapistA.name);
+        }
+        // O prompt de resposta da clínica B usa os terapeutas da própria B.
+        expect(sentForB.some((body) => body.includes(therapistB.name))).toBe(true);
+
+        // E o inverso: nada da clínica B no que foi enviado em nome da A.
+        for (const body of bodies(wamidA)) {
+          expect(body).not.toContain(therapistB.name);
+        }
+
+        // Duas conversas e dois Contacts distintos para o mesmo telefone.
+        const conversationA = await fixturePrisma.conversation.findUniqueOrThrow({
+          where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: from } },
+        });
+        const conversationB = await fixturePrisma.conversation.findUniqueOrThrow({
+          where: { tenantId_phoneNumber: { tenantId: fixtureB.tenantId, phoneNumber: from } },
+        });
+        expect(conversationB.id).not.toBe(conversationA.id);
+
+        const messagesB = await fixturePrisma.message.findMany({ where: { conversationId: conversationB.id } });
+        expect(messagesB.length).toBeGreaterThan(0);
+        expect(messagesB.every((message) => message.tenantId === fixtureB.tenantId)).toBe(true);
+        expect(messagesB.some((message) => message.content.includes(onlyInClinicA))).toBe(false);
+
+        expect(await fixturePrisma.contact.count({ where: { tenantId: fixtureB.tenantId } })).toBe(1);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+    45000,
   );
 
   it('índice único (channel, externalId) recusa fisicamente uma segunda entrada para o mesmo evento', async () => {
