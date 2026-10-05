@@ -112,6 +112,7 @@ As ADRs foram organizadas em uma sequência lógica.
 | ADR-0056 | Sessão revogável por versão de token (`User.tokenVersion`) — refresh, logout e usuário desativado (Fase 2 da auditoria, R4) — **ADOTADA E IMPLEMENTADA** |
 | ADR-0057 | Configuração validada no boot, headers de segurança (Helmet) e Swagger por ambiente (Fase 2 da auditoria, R7) — **ADOTADA E IMPLEMENTADA** |
 | ADR-0058 | Worker da fila de saída do WhatsApp: instanciação por job, clínica do payload e classificação de falhas (Fase 3 da auditoria) — **ADOTADA E IMPLEMENTADA** |
+| ADR-0059 | Normalização única de telefone na comparação: paciente, conversa e remetente do WhatsApp (Fase 3B da auditoria) — **ADOTADA E IMPLEMENTADA** |
 
 
 

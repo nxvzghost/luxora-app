@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { TenantContext } from '@shared/tenant-context';
@@ -9,6 +9,7 @@ import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-
 import { AuditService } from '@domain-services/platform/audit.service';
 import { WhatsAppInboundQueueProducer } from '@infrastructure/messaging/whatsapp-inbound-queue.producer';
 import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-ou-criar-contato.use-case';
+import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 
 export interface WhatsAppWebhookPayload {
   entry?: Array<{
@@ -36,6 +37,8 @@ export interface WhatsAppWebhookPayload {
  */
 @Injectable()
 export class ReceberMensagemWhatsAppUseCase {
+  private readonly logger = new Logger(ReceberMensagemWhatsAppUseCase.name);
+
   constructor(
     private readonly prismaClient: PrismaClientProvider,
     private readonly tenantContext: TenantContext,
@@ -60,6 +63,21 @@ export class ReceberMensagemWhatsAppUseCase {
 
         for (const message of change.value?.messages ?? []) {
           if (message.type !== 'text' || !message.text?.body) continue; // só texto nesta AD
+          // Fase 3B da auditoria — ACHADO REAL: um remetente que não é um
+          // telefone do Brasil fazia a normalização do Contact lançar, o
+          // webhook respondia 500 e a Meta reenviava o mesmo POST por dias —
+          // junto com as mensagens das outras pessoas que vinham nele. O
+          // produto hoje atende só números do Brasil: a mensagem é
+          // confirmada e ignorada, sem interromper as demais. A Meta sempre
+          // envia o número com o código do país, por isso a leitura aqui é a
+          // estrita (tryFromInternational), que não confunde um número de
+          // outro país com "DDD + número".
+          if (!PhoneNumber.tryFromInternational(message.from)) {
+            this.logger.warn(
+              `Mensagem ${message.id} ignorada: o remetente não é um telefone do Brasil, único formato atendido hoje.`,
+            );
+            continue;
+          }
           await this.processInboundMessage(tenantId, message.id, message.from, message.text.body);
         }
         // statuses[] (entregue/lida) — fora do mínimo necessário desta AD;

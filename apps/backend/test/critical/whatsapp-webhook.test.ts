@@ -163,11 +163,17 @@ describe('[AD-007] Resolução de Tenant via phoneNumberId (PD-007)', () => {
 
   it('número que já corresponde a um Patient cadastrado: Conversation nasce com patientId resolvido', async () => {
     const patient = await fixturePrisma.patient.findUniqueOrThrow({ where: { id: fixture.patientId } });
-    const res = await postSigned(inboundMessagePayload(`wamid.${randomUUID()}`, patient.phone, 'Oi, sou eu'));
+    // Fase 3B — o telefone da fixture está no formato nacional ("11999999999").
+    // Este teste enviava esse mesmo texto como remetente, o que a Meta nunca
+    // faz: o remetente chega sempre com o código do país. Passou a usar o
+    // formato real e, com isso, cobre também o reconhecimento entre grafias
+    // diferentes do mesmo número.
+    const from = `55${patient.phone}`;
+    const res = await postSigned(inboundMessagePayload(`wamid.${randomUUID()}`, from, 'Oi, sou eu'));
     expect(res.status).toBe(200);
 
     const conversation = await fixturePrisma.conversation.findUniqueOrThrow({
-      where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: patient.phone } },
+      where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: from } },
     });
     expect(conversation.patientId).toBe(fixture.patientId);
   });
@@ -354,20 +360,20 @@ describe('[Fase 3] Payload no formato documentado pela Meta', () => {
   });
 
   /**
-   * CARACTERIZAÇÃO de um limite encontrado nesta fase — não é o
-   * comportamento desejado. O telefone do paciente é texto livre e
-   * `PatientRepository.findByPhone()` compara por igualdade exata; o
-   * cadastro feito pelo próprio sistema grava "+55…" (PromoverContatoUseCase),
-   * e a Meta envia só dígitos. O paciente já cadastrado não é reconhecido
-   * na primeira mensagem. A correção envolve normalizar o telefone do
-   * Patient (regra de identidade, com dado já gravado) e está registrada
-   * como decisão pendente em docs/04-API/02-Contratos-de-Integracoes-Externas.md.
-   * Quando for corrigido, este teste passa a falhar e deve ser invertido.
+   * Fase 3B (ADR-0059) — até aqui o paciente gravado como "+55…" não era
+   * reconhecido quando a Meta enviava o mesmo número só em dígitos: a busca
+   * comparava o texto exato. A comparação agora é entre formas normalizadas;
+   * o telefone gravado continua como foi digitado.
    */
-  it('LIMITE CONHECIDO (decisão pendente): paciente gravado como "+55…" não é reconhecido quando a Meta envia o mesmo número só em dígitos', async () => {
+  it.each<[string, (digits: string) => string]>([
+    ['"+55…" (como o próprio sistema grava)', (d) => `+${d}`],
+    ['com "+", espaços, parênteses e hífen', (d) => `+55 (${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`],
+    ['com máscara, sem o código do país', (d) => `(${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`],
+    ['só dígitos, sem o código do país', (d) => d.slice(2)],
+  ])('paciente gravado %s é reconhecido quando a Meta envia o número só em dígitos', async (_label, stored) => {
     const digits = metaPhone();
     const patient = await fixturePrisma.patient.create({
-      data: { tenantId: fixture.tenantId, name: `Paciente Formato E164 — ${randomUUID()}`, phone: `+${digits}` },
+      data: { tenantId: fixture.tenantId, name: `Paciente telefone — ${randomUUID()}`, phone: stored(digits) },
     });
     fixture.patientIds.push(patient.id);
 
@@ -382,6 +388,81 @@ describe('[Fase 3] Payload no formato documentado pela Meta', () => {
     const conversation = await fixturePrisma.conversation.findUniqueOrThrow({
       where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: digits } },
     });
-    expect(conversation.patientId).toBeNull();
+    expect(conversation.patientId).toBe(patient.id);
+    // Nada gravado foi reescrito.
+    expect((await fixturePrisma.patient.findUniqueOrThrow({ where: { id: patient.id } })).phone).toBe(stored(digits));
+  });
+
+  it('paciente com o mesmo telefone cadastrado em OUTRA clínica não é reconhecido', async () => {
+    const other = await createDedicatedFixture(fixturePrisma, 'WHATSAPPWEBHOOKOUTRA');
+    try {
+      const digits = metaPhone();
+      const patientOfOther = await fixturePrisma.patient.create({
+        data: { tenantId: other.tenantId, name: `Paciente de outra clínica — ${randomUUID()}`, phone: `+${digits}` },
+      });
+      other.patientIds.push(patientOfOther.id);
+
+      const res = await postSigned(
+        metaEnvelope({
+          messages: [{ from: digits, id: `wamid.${randomUUID()}`, timestamp: unixNow(), text: { body: 'Olá' }, type: 'text' }],
+        }),
+      );
+      expect(res.status).toBe(200);
+
+      const conversation = await fixturePrisma.conversation.findUniqueOrThrow({
+        where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: digits } },
+      });
+      expect(conversation.patientId).toBeNull();
+    } finally {
+      await cleanupDedicatedFixture(fixturePrisma, other);
+    }
+  });
+
+  it('a mesma pessoa com o número em outra grafia não abre uma segunda conversa', async () => {
+    const digits = metaPhone();
+
+    // Conversa antiga, gravada com "+" (como os registros de teste e de carga inicial).
+    expect((await postSigned(inboundMessagePayload(`wamid.${randomUUID()}`, `+${digits}`, 'Primeira mensagem'))).status).toBe(200);
+    // A Meta envia o mesmo número só em dígitos.
+    expect(
+      (
+        await postSigned(
+          metaEnvelope({
+            messages: [{ from: digits, id: `wamid.${randomUUID()}`, timestamp: unixNow(), text: { body: 'Segunda mensagem' }, type: 'text' }],
+          }),
+        )
+      ).status,
+    ).toBe(200);
+
+    const conversations = await fixturePrisma.conversation.findMany({
+      where: { tenantId: fixture.tenantId, phoneNumber: { in: [digits, `+${digits}`] } },
+    });
+    expect(conversations).toHaveLength(1);
+    expect(await fixturePrisma.message.count({ where: { conversationId: conversations[0].id } })).toBe(2);
+    expect(await fixturePrisma.contact.count({ where: { tenantId: fixture.tenantId, phoneNumber: `+${digits}` } })).toBe(1);
+  });
+
+  it('remetente de outro país: 200, ignorado; a mensagem seguinte do mesmo POST é processada', async () => {
+    // Celular do Peru: os mesmos dígitos de um celular de Porto Alegre escrito sem o 55.
+    const foreign = `519${Math.floor(Math.random() * 90000000 + 10000000)}`;
+    const brazilian = metaPhone();
+    const foreignWamid = `wamid.${randomUUID()}`;
+    const brazilianWamid = `wamid.${randomUUID()}`;
+
+    const res = await postSigned(
+      metaEnvelope({
+        messages: [
+          { from: foreign, id: foreignWamid, timestamp: unixNow(), text: { body: 'Hola' }, type: 'text' },
+          { from: brazilian, id: brazilianWamid, timestamp: unixNow(), text: { body: 'Olá' }, type: 'text' },
+        ],
+      }),
+    );
+    // Antes da Fase 3B a resposta era 500, e a Meta reenviaria o POST inteiro.
+    expect(res.status).toBe(200);
+
+    expect(await fixturePrisma.conversation.count({ where: { tenantId: fixture.tenantId, phoneNumber: foreign } })).toBe(0);
+    expect(await fixturePrisma.message.count({ where: { externalId: foreignWamid } })).toBe(0);
+    expect(await fixturePrisma.contact.count({ where: { tenantId: fixture.tenantId, phoneNumber: `+55${foreign}` } })).toBe(0);
+    expect(await fixturePrisma.message.count({ where: { externalId: brazilianWamid } })).toBe(1);
   });
 });

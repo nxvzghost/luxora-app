@@ -219,8 +219,8 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
       entry: [
         {
           changes: [
-            { value: { metadata: { phone_number_id: 'pnid-A' }, messages: [{ id: 'wamid.a', from: '+551', type: 'text', text: { body: 'A' } }] } },
-            { value: { metadata: { phone_number_id: 'pnid-B' }, messages: [{ id: 'wamid.b', from: '+552', type: 'text', text: { body: 'B' } }] } },
+            { value: { metadata: { phone_number_id: 'pnid-A' }, messages: [{ id: 'wamid.a', from: '5541999990001', type: 'text', text: { body: 'A' } }] } },
+            { value: { metadata: { phone_number_id: 'pnid-B' }, messages: [{ id: 'wamid.b', from: '5541999990002', type: 'text', text: { body: 'B' } }] } },
           ],
         },
       ],
@@ -230,5 +230,56 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
 
     const enqueuedTenants = inboundQueue.enqueue.mock.calls.map((c) => c[0].tenantId);
     expect(enqueuedTenants).toEqual(['tenant-A', 'tenant-B']);
+  });
+});
+
+describe('ReceberMensagemWhatsAppUseCase — remetente que não é do Brasil (Fase 3B)', () => {
+  function payloadFrom(messages: Array<{ id: string; from: string }>): WhatsAppWebhookPayload {
+    return {
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: PHONE_NUMBER_ID },
+                messages: messages.map((m) => ({ id: m.id, from: m.from, type: 'text', text: { body: 'Olá' } })),
+              },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it.each([
+    ['Peru (mesmos dígitos de um DDD 51 sem o 55)', '51987654321'],
+    ['Estados Unidos', '14155552671'],
+    ['Portugal', '351912345678'],
+  ])('%s: não lança, não cria Contact nem Conversation e não enfileira', async (_label, from) => {
+    const { useCase, reconhecerOuCriarContatoUseCase, conversationRepo, patientRepo, inboundQueue } = makeDeps({});
+
+    await expect(useCase.execute(payloadFrom([{ id: 'wamid.estrangeiro', from }]))).resolves.toBeUndefined();
+
+    expect(reconhecerOuCriarContatoUseCase.execute).not.toHaveBeenCalled();
+    expect(patientRepo.findByPhone).not.toHaveBeenCalled();
+    expect(conversationRepo.save).not.toHaveBeenCalled();
+    expect(conversationRepo.appendMessages).not.toHaveBeenCalled();
+    expect(inboundQueue.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('a mensagem seguinte do mesmo POST, de um número do Brasil, é processada normalmente', async () => {
+    const { useCase, reconhecerOuCriarContatoUseCase, inboundQueue } = makeDeps({});
+
+    await useCase.execute(
+      payloadFrom([
+        { id: 'wamid.estrangeiro', from: '351912345678' },
+        { id: 'wamid.brasil', from: '5541999990000' },
+      ]),
+    );
+
+    expect(reconhecerOuCriarContatoUseCase.execute).toHaveBeenCalledTimes(1);
+    expect(reconhecerOuCriarContatoUseCase.execute).toHaveBeenCalledWith(TENANT_ID, '5541999990000');
+    expect(inboundQueue.enqueue).toHaveBeenCalledTimes(1);
+    expect(inboundQueue.enqueue.mock.calls[0][0]).toMatchObject({ externalId: 'wamid.brasil' });
   });
 });

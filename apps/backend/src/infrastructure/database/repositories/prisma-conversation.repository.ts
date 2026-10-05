@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 import { Conversation as PrismaConversation, Message as PrismaMessage, Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { Conversation, Message, MessageDirection } from '@domain/communication/conversation.entity';
@@ -10,9 +11,27 @@ const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 export class PrismaConversationRepository implements ConversationRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Fase 3B da auditoria (ADR-0059) — `phone_number` guarda o valor como
+   * chegou (ADR-0053). A Meta envia só dígitos; um registro mais antigo pode
+   * estar como "+55…". Procurar só pelo texto exato abriria uma segunda
+   * conversa para a mesma pessoa. A busca aceita as três grafias do mesmo
+   * número — a recebida, a E.164 e a de só dígitos — e, havendo mais de uma
+   * conversa, devolve a mais antiga. Nada gravado é alterado. A leitura é a
+   * estrita (o número de uma conversa sempre veio da Meta, com o código do
+   * país); um número de outro país é procurado só pelo texto exato.
+   */
   async findByTenantAndPhone(tenantId: string, phoneNumber: string): Promise<Conversation | null> {
+    const normalized = PhoneNumber.tryFromInternational(phoneNumber);
+    const spellings = normalized
+      ? Array.from(new Set([phoneNumber, normalized.toE164(), normalized.toDigits()]))
+      : [phoneNumber];
+
     const record = await this.prisma.forTenant((tx) =>
-      tx.conversation.findUnique({ where: { tenantId_phoneNumber: { tenantId, phoneNumber } } }),
+      tx.conversation.findFirst({
+        where: { tenantId, phoneNumber: { in: spellings } },
+        orderBy: { createdAt: 'asc' },
+      }),
     );
     return record ? this.toDomain(record) : null;
   }
