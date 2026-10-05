@@ -86,6 +86,14 @@ O access token dura `JWT_EXPIRES_IN` (padrão `15m`) e o refresh token `JWT_REFR
 
 ---
 
+## Validação no boot, headers de segurança e Swagger (ADR-0057)
+
+A aplicação confere a configuração antes de subir e termina com erro se algo obrigatório faltar ou for inválido; a mensagem cita só o nome da variável. Em qualquer ambiente são obrigatórias `DATABASE_URL`, `JWT_SECRET` e `WHATSAPP_TOKEN_ENCRYPTION_KEY` (as duas últimas com 32 caracteres ou mais). Com `NODE_ENV=production` passam a ser obrigatórias também `REDIS_URL`, `FRONTEND_URL`, `WHATSAPP_APP_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `ASAAS_WEBHOOK_TOKEN`, `AUTOMATION_API_KEY` e `METRICS_ACCESS_TOKEN`; nenhum segredo pode estar com o valor de exemplo do `.env.example` ou com um valor de teste; e `DATABASE_URL` não pode usar o usuário `postgres`. As demais variáveis são opcionais — as numéricas, quando definidas, precisam ser inteiros positivos.
+
+Toda resposta sai com os headers de segurança do Helmet. A documentação interativa (`/api/v1/docs`) existe em desenvolvimento e teste e não é registrada em produção: com `NODE_ENV=production` a rota responde 404. Por isso `NODE_ENV=production` precisa estar definido no ambiente implantado (o `Dockerfile.backend` já define). Detalhes em [ADR-0057](docs/02-Arquitetura/ADRs/ADR-0057-configuracao-no-boot-helmet-swagger.md).
+
+---
+
 ## Observabilidade — Correlation ID, OpenTelemetry, Prometheus (AD-016)
 
 `GET /metrics` (fora do prefixo `api/v1`, convenção de scrapers Prometheus) expõe métricas HTTP/Express/ioredis coletadas pelo OpenTelemetry — protegido por `METRICS_ACCESS_TOKEN`, comparado ao header `X-Metrics-Token`. Sem essa variável configurada, a rota lança erro em vez de responder sem autenticação (mesmo padrão de `AUTOMATION_API_KEY`). Todo request HTTP recebe um `X-Correlation-Id` (aceito do cliente/proxy ou gerado como UUID) desde o primeiro middleware do processo — nenhuma variável de ambiente nova é necessária para isso. Traces são exportados via `ConsoleSpanExporter` (nenhum backend de tracing provisionado ainda — ver ADR-0051). Detalhes completos, incluindo por que a instrumentação do Prisma foi adiada, em [ADR-0051](docs/02-Arquitetura/ADRs/ADR-0051-observabilidade-correlation-id-otel-prometheus.md).

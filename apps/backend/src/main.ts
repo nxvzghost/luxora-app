@@ -2,10 +2,10 @@ import './tracing';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { LuxoraExceptionFilter } from '@shared/luxora-exception.filter';
 import { correlationIdMiddleware } from '@shared/correlation-id.middleware';
+import { applySecurityHeaders, setupSwagger } from '@shared/http-hardening';
 
 /**
  * Luxora — Backend entry point.
@@ -30,6 +30,10 @@ async function bootstrap() {
   // shared/correlation-id.middleware.ts para o porquê de ser um middleware
   // Express puro, não um Guard/Interceptor do Nest.
   app.use(correlationIdMiddleware);
+
+  // ADR-0057 — headers de segurança (Helmet). Logo depois do Correlation ID
+  // e antes de qualquer rota, para valer também em respostas de erro.
+  applySecurityHeaders(app);
 
   // AD-006 — necessário para que req.ip (usado pelo ThrottlerGuard de
   // POST /auth/login) reflita o IP real do cliente, não o do reverse
@@ -74,16 +78,9 @@ async function bootstrap() {
   // (04-API/00-Principios-da-API.md) — nunca no formato padrão do NestJS.
   app.useGlobalFilters(new LuxoraExceptionFilter());
 
-  const config = new DocumentBuilder()
-    .setTitle('Luxora API')
-    .setDescription(
-      'API oficial da plataforma Luxora — ver docs/04-API/01-Contratos-REST.md para o contrato completo.',
-    )
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/v1/docs', app, document);
+  // ADR-0057 — a documentação interativa (api/v1/docs) só é registrada fora
+  // de produção; com NODE_ENV=production a rota não existe.
+  setupSwagger(app);
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);

@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { AppModule } from '../../../src/app.module';
 import { LuxoraExceptionFilter } from '@shared/luxora-exception.filter';
 import { correlationIdMiddleware } from '@shared/correlation-id.middleware';
+import { applySecurityHeaders, setupSwagger } from '@shared/http-hardening';
 import { WhatsAppInboundQueueWorker } from '@infrastructure/messaging/whatsapp-inbound-queue.worker';
 
 export interface BootstrapTestAppOptions {
@@ -39,6 +40,11 @@ export interface BootstrapTestAppOptions {
  *
  * AD-016 — app.use(correlationIdMiddleware) e o exclude de '/metrics' do
  * prefixo global precisam espelhar main.ts exatamente pelo mesmo motivo.
+ *
+ * ADR-0057 — applySecurityHeaders() e setupSwagger() são as MESMAS funções
+ * chamadas por main.ts, na mesma ordem; ambas leem NODE_ENV no momento da
+ * chamada, então um teste pode subir o app "como produção" definindo
+ * NODE_ENV antes de chamar bootstrapTestApp().
  */
 export async function bootstrapTestApp(options: BootstrapTestAppOptions = {}): Promise<INestApplication> {
   const builder = Test.createTestingModule({ imports: [AppModule] });
@@ -50,9 +56,11 @@ export async function bootstrapTestApp(options: BootstrapTestAppOptions = {}): P
   // críticos de WhatsAppWebhookGuard (assinatura HMAC sobre o corpo bruto).
   const app = moduleRef.createNestApplication({ rawBody: true });
   app.use(correlationIdMiddleware);
+  applySecurityHeaders(app);
   app.setGlobalPrefix('api/v1', { exclude: ['metrics'] });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new LuxoraExceptionFilter());
+  setupSwagger(app);
   await app.init();
   return app;
 }

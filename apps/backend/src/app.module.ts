@@ -6,6 +6,7 @@ import { MetricsAccessGuard } from './api/metrics/metrics-access.guard';
 import { TenantContextModule } from '@shared/tenant-context.module';
 import { CorrelationContextModule } from '@shared/correlation-context.module';
 import { MetricsModule } from '@shared/metrics.module';
+import { validateEnv } from '@shared/env.validation';
 import { AuthModule } from './api/auth/auth.module';
 import { PatientsModule } from './api/patients/patients.module';
 import { TherapistsModule } from './api/therapists/therapists.module';
@@ -32,6 +33,9 @@ import { NotificationModule } from './api/notification/notification.module';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env'],
+      // ADR-0057 — se uma variável obrigatória faltar ou for inválida, a
+      // montagem dos módulos falha e a aplicação não chega a subir.
+      validate: validateEnv,
     }),
     TenantContextModule,
     CorrelationContextModule,

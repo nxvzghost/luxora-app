@@ -33,6 +33,14 @@ Execução da Fase 2 definida pela auditoria de 04/10/2026. Cada bloco abaixo co
 - Nenhuma mudança visual e nenhum `middleware.ts`. O painel continua sem um controle de "Sair": o logout do servidor existe e está testado, mas nenhuma tela o chama.
 - Testes: `apps/frontend/test/lib/api-client.test.ts` (13 testes novos). Frontend: 56 testes passando; `next build` e `next lint` limpos.
 
+**R7 — Configuração validada no boot, Helmet e Swagger por ambiente ([`ADR-0057`](./docs/02-Arquitetura/ADRs/ADR-0057-configuracao-no-boot-helmet-swagger.md)).** Achados confirmados: nada conferia as variáveis de ambiente antes de subir (sem `JWT_SECRET` o login respondia 500 só na primeira tentativa); nenhuma resposta saía com headers de segurança; o Swagger era registrado em qualquer ambiente. Os guards por segredo já falhavam fechado quando a variável faltava — não havia brecha de acesso, havia falta de falha cedo.
+- `validateEnv` (`src/shared/env.validation.ts`) ligada ao `ConfigModule` existente. Sempre obrigatórias: `DATABASE_URL`, `JWT_SECRET` e `WHATSAPP_TOKEN_ENCRYPTION_KEY` (as duas últimas com 32 caracteres ou mais). Só em produção: mais 7 variáveis obrigatórias, recusa de segredo com valor de exemplo ou de teste e recusa de `DATABASE_URL` com o usuário `postgres`. A mensagem de erro cita o nome da variável, nunca o valor.
+- Helmet com a configuração padrão (nova dependência `helmet` 8.3). A CSP só é relaxada para o Swagger UI, fora de produção.
+- Swagger não é registrado com `NODE_ENV=production`: `api/v1/docs`, `docs-json` e `docs-yaml` respondem 404.
+- `main.ts` e o bootstrap dos Testes Críticos passam a chamar as mesmas funções (`src/shared/http-hardening.ts`).
+- Testes: `test/unit/shared/env.validation.test.ts` (33) e `test/critical/http-hardening.test.ts` (7, app real subido como desenvolvimento e como produção). Prova adicional no processo real (`node dist/main.js`): CORS do frontend e Helmet juntos, saída com código 1 quando falta configuração, Swagger 404 em produção. Suítes: 725 unitários, 9 de integração e 221 críticos (1 skip pré-existente), 0 falhas.
+- Observado e não alterado: `tracing.ts` registra um handler de `SIGTERM` que não encerra o processo — a aplicação só para com `SIGKILL`.
+
 ### Reconciliação documental — Fase 1 da auditoria (2026-10-05)
 
 Alteração exclusivamente documental, sem nenhuma mudança em código, testes, migrations, workflows ou configuração. Fonte de verdade confirmada no Git: repositório `/root/luxora-app` (WSL2/ext4), branch `master`, último commit anterior a esta reconciliação `e622d52` (`feat(notification): expose notification API`, 21/08/2026), `origin/master` no mesmo commit e working tree limpa. O checkpoint anterior `18c3086` (`ci: add redis service for critical tests`, 18/08/2026) deixou de ser o estado atual: está dois commits atrás (`465779d` e `e622d52`).
