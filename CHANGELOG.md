@@ -25,6 +25,14 @@ Execução da Fase 2 definida pela auditoria de 04/10/2026. Cada bloco abaixo co
 - Limitações registradas na ADR: o access token já emitido vale até expirar (15 minutos); o logout encerra todas as sessões do usuário, não só a do dispositivo; o refresh token não é de uso único (sem detecção automática de roubo).
 - Testes: `test/critical/auth-session-revocation.test.ts` (16 testes, Postgres real), `auth.service.test.ts` (22) e `jwt-auth.guard.test.ts` (5, novo). Suítes: 692 unitários, 9 de integração e 214 críticos (1 skip pré-existente), 0 falhas; `nest build` e `eslint` limpos.
 
+**R12 — Sessão no frontend: 401 e renovação.** `apps/frontend/lib/api-client/client.ts` não tratava 401: passados os 15 minutos do access token, toda tela falhava com o usuário ainda "logado".
+- Um 401 numa requisição autenticada dispara uma renovação em `/auth/refresh` e a requisição original é repetida uma única vez com o token novo. A repetição é segura para qualquer método porque o 401 vem do guard de autenticação, antes de o handler executar; método, corpo e `Idempotency-Key` são preservados.
+- Várias requisições com 401 ao mesmo tempo compartilham uma única renovação. Uma requisição que chega depois de a sessão já ter sido renovada reaproveita o token novo, sem renovar de novo.
+- Só um 401 do próprio `/auth/refresh` encerra a sessão local (o `AuthGuard` então leva ao login). Falha de rede ou erro 5xx na renovação mantém os tokens.
+- Rotas `/auth/*` e requisições sem token nunca disparam renovação; não há laço possível.
+- Nenhuma mudança visual e nenhum `middleware.ts`. O painel continua sem um controle de "Sair": o logout do servidor existe e está testado, mas nenhuma tela o chama.
+- Testes: `apps/frontend/test/lib/api-client.test.ts` (13 testes novos). Frontend: 56 testes passando; `next build` e `next lint` limpos.
+
 ### Reconciliação documental — Fase 1 da auditoria (2026-10-05)
 
 Alteração exclusivamente documental, sem nenhuma mudança em código, testes, migrations, workflows ou configuração. Fonte de verdade confirmada no Git: repositório `/root/luxora-app` (WSL2/ext4), branch `master`, último commit anterior a esta reconciliação `e622d52` (`feat(notification): expose notification API`, 21/08/2026), `origin/master` no mesmo commit e working tree limpa. O checkpoint anterior `18c3086` (`ci: add redis service for critical tests`, 18/08/2026) deixou de ser o estado atual: está dois commits atrás (`465779d` e `e622d52`).
