@@ -20,6 +20,12 @@ export interface EnviarMensagemInput {
  * tem custo real e efeito colateral visível ao paciente) + constraint
  * @unique no banco como rede de segurança contra corrida (dois workers de
  * fila processando o mesmo job por engano).
+ *
+ * POLÍTICA DE ENTREGA: AT-LEAST-ONCE (ADR-0058). A ordem "envia e depois
+ * grava" é deliberada. Se a gravação falhar depois de a Meta aceitar a
+ * mensagem, a nova tentativa envia de novo: a mensagem pode chegar
+ * repetida, mas não se perde em silêncio. Inverter a ordem trocaria esse
+ * risco pelo de perder a mensagem — não inverter sem decisão explícita.
  */
 @Injectable()
 export class EnviarMensagemUseCase {

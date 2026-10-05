@@ -1,6 +1,6 @@
 # 02 - Contratos de Integrações Externas
 
-**Origem:** Fase 3 da auditoria técnica de 04/10/2026 (Integrações reais). Escrito em 5 de outubro de 2026 e revisado no mesmo dia, no fechamento da fase.
+**Origem:** Fase 3 da auditoria técnica de 04/10/2026 (Integrações reais). Escrito em 5 de outubro de 2026 e revisado no mesmo dia, no fechamento da fase e na Fase 3B (preparação para os testes externos).
 
 Contrato mínimo de cada serviço externo que o backend chama ou do qual recebe chamadas: Meta (WhatsApp), Anthropic e Asaas. Cada seção descreve o que o código faz hoje, conferido no próprio código, nos testes citados e na documentação oficial de cada provider.
 
@@ -52,7 +52,7 @@ Fluxo: Meta → `WhatsAppWebhookController` → `WhatsAppWebhookGuard` (HMAC) �
 - **Conteúdo tratado:** só mensagens `type: "text"`. Áudio, imagem, botões e as notificações `statuses[]` (enviada, entregue, lida) são confirmados com 200 e ignorados.
 - **Resposta:** 200 assim que a mensagem está gravada e enfileirada; a IA nunca segura a resposta.
 
-**Telefone do remetente.** A Meta envia `messages[].from` só em dígitos, com DDI e sem "+" (`5541…`). `Conversation.phoneNumber` guarda esse valor como veio; `Contact` guarda a forma normalizada (`+5541…`). O reconhecimento de um paciente já cadastrado compara o telefone por igualdade exata com `patient.phone`, que é texto livre — ver D5.
+**Telefone do remetente** ([ADR-0059](../02-Arquitetura/ADRs/ADR-0059-normalizacao-unica-de-telefone.md)). A Meta envia `messages[].from` só em dígitos, com o código do país e sem "+" (`5541…`). `Conversation.phoneNumber` guarda esse valor como veio; `Contact` guarda a forma normalizada (`+5541…`). O paciente já cadastrado e a conversa já aberta são encontrados pela forma normalizada do número, qualquer que seja a grafia gravada (`+55…`, só dígitos, com máscara, com ou sem o código do país); nada gravado é reescrito. Remetente que não é um telefone do Brasil é confirmado com 200 e ignorado, sem interromper as outras mensagens do mesmo POST.
 
 **Idempotência.** Três barreiras, todas pelo id da mensagem na Meta (WAMID): consulta a `message.external_id` antes de gravar (índice único global), `jobId` do BullMQ igual ao WAMID, e a tabela `inbound_processing_inbox` (ADR-0054), que impede a IA de ser chamada duas vezes para a mesma mensagem.
 
@@ -69,7 +69,7 @@ Fluxo: Use Case → `MessageQueueProducer` → fila `messages` → `MessageQueue
 - **Chamada:** `POST /{phone-number-id}/messages`, `Authorization: Bearer <token da clínica>`, corpo `{ messaging_product, to, type: "text", text.body }`, tempo limite de 10 s (`WHATSAPP_PROVIDER_TIMEOUT_MS`).
 - **Sucesso:** qualquer 2xx. O id da mensagem (`messages[0].id`) é gravado em `message_log.provider_message_id`.
 
-**Versão da Graph API.** O código pede `v19.0`, que expirou em 21/05/2026. A Meta não devolve erro para versão expirada: atende com a mais antiga ainda disponível — medido em 05/10/2026, `facebook-api-version: v21.0`, que por sua vez expira em 21/01/2027. Ver D6.
+**Versão da Graph API.** Fixada em `v21.0`, num único ponto (`src/infrastructure/messaging/whatsapp-graph-api.ts`). Até a Fase 3B o código pedia `v19.0`, expirada em 21/05/2026; a Meta não devolve erro para versão expirada, atende com a mais antiga ainda disponível — que era a `v21.0` (medido em 05/10/2026). Fixar a `v21.0` tornou explícito o que já acontecia, sem mudar o comportamento. **Ela expira em 21/01/2027.** Um teste unitário falha quando essa data chega e quando outro arquivo escreve uma versão por conta própria; o smoke externo falha se a Meta servir uma versão diferente da pedida.
 
 **Erros e repetição.**
 
@@ -83,11 +83,11 @@ Fluxo: Use Case → `MessageQueueProducer` → fila `messages` → `MessageQueue
 | Clínica sem canal conectado, token que não decifra | Permanente | Job encerrado, nenhuma chamada externa | Localmente |
 | Payload sem `tenantId` válido | Permanente | Job descartado, nenhuma chamada externa | Localmente |
 
-A espera entre tentativas é fixa (2 s e 4 s); o cabeçalho `Retry-After` de um 429 não é lido.
+A espera entre tentativas é de 2 s e 4 s. Se a resposta repetível (429 ou 5xx) trouxer o cabeçalho `Retry-After`, a espera passa a ser a que o provider pediu, nunca menor que a padrão daquela tentativa e nunca maior que 60 s; o número de tentativas não muda. A Meta não documenta `Retry-After` para os limites da Cloud API — o suporte é defensivo, usa o cabeçalho se ele vier.
 
 **Idempotência.** `jobId` do BullMQ igual à `idempotencyKey`; consulta a `message_log` antes de enviar; índice único em `message_log.idempotency_key`. A Graph API **não aceita chave de idempotência**: a garantia é toda do lado da Luxora.
 
-**Limite conhecido — entrega "ao menos uma vez".** Se o envio é aceito pela Meta e a gravação em `message_log` falha logo depois, a nova tentativa envia de novo. Análise das alternativas na ADR-0058; decisão pendente (D1).
+**Política de entrega: AT-LEAST-ONCE.** O envio acontece antes da gravação em `message_log`. Se a gravação falhar depois de a Meta aceitar a mensagem, a nova tentativa envia de novo: a mensagem pode chegar repetida, mas não se perde em silêncio dentro das garantias atuais. Não existe "exatamente uma vez" com a Graph API. Análise das alternativas na ADR-0058 (D1).
 
 **Outros limites.** Um job que falhou em definitivo continua no Redis com o mesmo id; reenfileirar a mesma `idempotencyKey` não o reexecuta. Ver também "Redis".
 
@@ -204,9 +204,9 @@ Fluxo: Asaas → `WebhookController` → `AsaasWebhookGuard` → `ProcessarWebho
 
 **Limites conhecidos.**
 
-- A verificação e o registro do evento não são atômicos. Duas entregas **simultâneas** do mesmo evento podem ser processadas duas vezes (auditoria duplicada; a segunda responde 500). No modo sequencial isso exige que o processamento demore mais que o tempo de espera da Asaas.
+- A verificação e o registro do evento não são atômicos. Duas entregas **simultâneas** do mesmo evento podem ser processadas duas vezes (auditoria duplicada; a segunda responde 500). No modo sequencial isso exige que o processamento demore mais que o tempo de espera da Asaas. Avaliado na Fase 3B como suficiente para o estágio atual — ver D8.
 - Não há tratamento de ordem. Um `PAYMENT_OVERDUE` antigo que chegue depois de um `PAYMENT_CONFIRMED` coloca a assinatura em atraso. No modo sequencial a Asaas preserva a ordem.
-- `PAYMENT_CONFIRMED` e `PAYMENT_RECEIVED` têm o mesmo efeito (ativar ou renovar). Pela documentação da Asaas, uma mesma cobrança por cartão gera `PAYMENT_CONFIRMED` e, 32 dias depois, `PAYMENT_RECEIVED`; por boleto, os dois em sequência; por PIX, só `PAYMENT_RECEIVED`. Uma única cobrança por cartão ou boleto conta, portanto, como duas confirmações. A validar no sandbox (D8).
+- `PAYMENT_CONFIRMED` e `PAYMENT_RECEIVED` têm o mesmo efeito (ativar ou renovar). Pela documentação da Asaas, uma mesma cobrança por cartão gera `PAYMENT_CONFIRMED` e, 32 dias depois, `PAYMENT_RECEIVED`; por boleto, os dois em sequência; por PIX, só `PAYMENT_RECEIVED`. Uma única cobrança por cartão conta, portanto, como duas confirmações — com consequência real, analisada em D8. Decisão pendente.
 - Estorno, remoção de cobrança e chargeback (`PAYMENT_REFUNDED`, `PAYMENT_DELETED`, `PAYMENT_CHARGEBACK_REQUESTED`) são registrados e ignorados: a assinatura continua ativa.
 
 ### Cartão
@@ -237,14 +237,14 @@ O payload dos jobs é confiável por construção: só o backend escreve no Redi
 
 Auditado em 05/10/2026 (BullMQ 5.80, Redis 7 do `docker-compose`).
 
-- **Retenção.** Os produtores não definem `removeOnComplete` nem `removeOnFail`; o padrão do BullMQ é guardar para sempre. Medido no Redis local: jobs de 23/07/2026 ainda presentes, sem prazo de expiração.
+- **Retenção (definida na Fase 3B).** Jobs concluídos: 24 horas, nas duas filas. Falhados da fila de saída: 14 dias. Falhados da fila de entrada: 7 dias. Antes não havia retenção nenhuma — o padrão do BullMQ é guardar para sempre, e havia no Redis local jobs de 23/07/2026 sem prazo de expiração. A política vale para jobs enfileirados a partir de agora; a limpeza acontece quando outro job da mesma fila termina, e jobs em espera (nunca processados) não são afetados.
 - **O que fica guardado.** Fila de saída: `tenantId`, `toPhoneNumber`, `body`, `idempotencyKey`, `correlationId` — cerca de 1 KB por job. Fila de entrada: `tenantId`, `conversationId`, `patientId`, `externalId`, `message` (o texto do paciente), `correlationId` — cerca de 1,5 KB por job.
 - **Crescimento.** O Redis guarda tudo em memória. Para uma clínica com cerca de 250 conversas por mês, a estimativa é da ordem de 1.300 jobs e 1,6 MB por mês, nunca liberados; com 100 clínicas, perto de 2 GB por ano. Estimativa, não medição de produção.
 - **A idempotência não depende dessa retenção.** As barreiras duráveis estão no Postgres (`message_log`, `message.external_id`, `inbound_processing_inbox`). O `jobId` no Redis é só a primeira camada.
 - **O job falhado é hoje o único rastro de uma falha definitiva** — não há alerta. Apagar cedo demais os falhados tira esse rastro.
 - **Configuração local.** Sem limite de memória, política `noeviction` (a que o BullMQ exige), sem senha, porta publicada, cópia periódica em disco dentro do contêiner. Adequado só para desenvolvimento.
 
-Definir prazos de retenção é decisão (D7). Nenhuma configuração foi alterada.
+Os 14 dias da fila de saída existem porque o job falhado é o único rastro de um envio que não aconteceu; na de entrada o rastro durável já está no Postgres e a cópia no Redis carrega o texto do paciente, por isso 7. Os valores estão em `src/infrastructure/messaging/queue-retention.ts`.
 
 **Bancos lógicos usados em teste.** A Suíte Crítica usa o índice 13 (`test/critical/support/global-setup.ts`), `whatsapp-outbound-worker.test.ts` usa o 14 e os smoke tests manuais usam o 15. Nenhum teste toca o índice 0, onde `pnpm dev` trabalha. Antes desta separação a suíte deixava jobs de saída no índice 0 a cada execução — ver D10.
 
@@ -254,7 +254,7 @@ Definir prazos de retenção é decisão (D7). Nenhuma configuração foi altera
 
 Nenhuma destas foi tomada pelo código. Cada item traz a recomendação técnica; a escolha é do responsável pelo produto.
 
-**D1 — Mensagem repetida × mensagem perdida.** Análise completa na ADR-0058. Não existe "exatamente uma vez" com a Graph API. Recomendação: manter o comportamento atual (pode repetir, nunca perde em silêncio) e reduzir a janela com encerramento gracioso do processo na Fase 4.
+**D1 — Mensagem repetida × mensagem perdida. Registrada: AT-LEAST-ONCE.** Não existe "exatamente uma vez" com a Graph API. A política vigente é a que o código já seguia: envia e depois grava — duplicação possível, perda silenciosa evitada dentro das garantias atuais. A janela de duplicação foi reduzida na Fase 3B com o encerramento gracioso (o SIGTERM agora espera o job em andamento). Mudar a política exige decisão explícita; análise na ADR-0058.
 
 **D2 — Histórico enviado à IA.** A `Conversation` é uma só por clínica e telefone, para sempre, e é reenviada inteira nas 3 chamadas de cada turno. Estimativa (cerca de 3 caracteres por token; prompts de sistema somando 4.038 caracteres; cada turno acrescenta por volta de 135 tokens ao histórico; preços do código):
 
@@ -268,27 +268,49 @@ Nenhuma destas foi tomada pelo código. Cada item traz a recomendação técnica
 
 Com a premissa de `05-IA/00-Provedor-e-Interface.md` (3 interações por paciente por mês, 2 a 3 turnos cada — cerca de 8 turnos por mês), o custo mensal por paciente sobe cerca de R$ 0,14 a cada mês de relacionamento: R$ 0,17 no primeiro mês, R$ 0,89 no sexto, R$ 1,74 no décimo segundo. O orçamento de IA do plano Professional (R$ 59,70 para cerca de 70 pacientes, ou R$ 0,85 por paciente) é ultrapassado a partir do sexto mês; com 70 pacientes no décimo segundo mês, o custo chega a cerca de R$ 120 por mês, 20 % da mensalidade. São estimativas — não houve chamada real para medir tokens.
 
-| Opção | Efeito no custo | Esforço | Contrapartida |
-|---|---|---|---|
-| Limite de mensagens (últimas N) | Teto fixo por turno | Pequeno | Perde contexto antigo; o estado real (consultas, cobranças) já vem do sistema, não do histórico |
-| Janela de tempo (últimas horas ou dias) | Teto por sessão | Pequeno | Sessão longa ainda cresce; combina bem com o limite de mensagens |
-| Resumo da conversa | Teto, mantendo memória | Alto | Chamada extra de IA; novo dado derivado do paciente a guardar (LGPD); resumo pode errar |
-| Cache de prompt do provider | Barateia o trecho repetido | Médio | Validade de minutos e tamanho mínimo; não reduz o dado enviado |
-| Retenção (apagar ou anonimizar mensagens antigas) | Teto por política | Decisão jurídica e de produto | Muda também o histórico visível no painel |
+Comparação das alternativas pedidas na Fase 3B (mesmas premissas da estimativa acima):
 
-Recomendação: limite de mensagens combinado com janela de tempo. Com as últimas 20 mensagens o turno fica em até R$ 0,036 e o custo mensal por paciente em até R$ 0,29, estável. A retenção é uma decisão própria, de LGPD.
+| Opção | Custo por turno | Contexto que o agente mantém | Risco de perder informação | Efeito no comportamento do agente |
+|---|---|---|---|---|
+| Hoje: histórico inteiro | Cresce sem limite (tabela acima) | Tudo, para sempre | Nenhum | Nenhum; o texto antigo do paciente é reenviado ao provider em todo turno |
+| Últimas 20 mensagens | Até R$ 0,036, estável (R$ 0,29 por paciente por mês) | Os últimos 10 turnos | Baixo: uma interação típica tem 2 a 3 turnos. Perde o que foi dito há mais de 10 turnos — por exemplo, uma preferência de horário mencionada semanas antes | Pode perguntar de novo algo já respondido há muito tempo. Consultas e cobranças não se perdem: vêm do sistema, não do histórico |
+| Janela de tempo (por exemplo 24 horas) | Cerca de R$ 0,02 numa interação típica; sem teto numa conversa longa no mesmo dia | Só a sessão em curso | Médio: "como combinamos ontem" chega sem o contexto de ontem; uma conversa que atravessa o limite da janela perde o começo | Cada dia começa do zero; mais repetição de perguntas entre um dia e outro |
+| Resumo da conversa | Cerca de R$ 0,02 a R$ 0,03, mais uma chamada de IA a cada atualização do resumo | Fatos de longo prazo, na forma resumida | Médio: o resumo pode omitir ou distorcer; o erro se propaga para os turnos seguintes | Mantém a memória, mas passa a depender de um texto gerado pela própria IA. Cria um dado novo, derivado do que o paciente escreveu, que precisa ser guardado (LGPD) |
+| Janela de tempo + resumo | Cerca de R$ 0,03 | Sessão em curso literal e o restante resumido | O menor entre as opções com teto | O mais próximo do comportamento atual; é a opção mais complexa e a com mais pontos de falha |
+
+**Não há regra escrita que defina o tamanho do histórico.** `05-IA/00-Provedor-e-Interface.md` calcula o orçamento supondo "histórico curto", sem dizer o que é curto. Por isso nada foi escolhido nem alterado: **decisão pendente**.
+
+Recomendação técnica: começar pelo limite de mensagens combinado com uma janela de tempo — é a mudança pequena, com teto de custo e que reduz o dado enviado ao provider. Resumo só se o produto precisar de memória longa. A retenção das mensagens em si (apagar ou anonimizar) é outra decisão, de LGPD.
 
 **D3 — Checkout do cartão.** Checkout hospedado pela Asaas ou tokenização no navegador. Pendente desde a Fase 2; sem alteração.
 
 **D4 — Sandbox da Asaas.** `CONFIGURACAO_AMBIENTE.md` registra a produção como único ambiente Asaas da Luxora. A Fase 3 exige sandbox primeiro. Sem uma conta de sandbox (gratuita, separada da de produção), a saída para a Asaas continua sem validação real. Recomendação: criar a conta de sandbox e revisar aquele documento.
 
-**D5 — Formato do telefone do paciente.** Encontrado nesta fase e fixado em teste (`whatsapp-webhook.test.ts`, "LIMITE CONHECIDO"). `patient.phone` é texto livre (mínimo de 8 caracteres); o cadastro feito pelo próprio sistema grava `+55…`; a Meta envia só dígitos; a busca é por igualdade exata. Consequência com tráfego real: o paciente já cadastrado não é reconhecido na primeira mensagem, a conversa nasce sem paciente, o agente não encontra as consultas e cobranças dele e o fluxo de identificação pode cadastrar a mesma pessoa de novo. Soma-se o limite já aceito na ADR-0055 (números antigos chegam sem o nono dígito). Recomendação: gravar o telefone do paciente já normalizado (mesma regra do `Contact`), corrigir os registros existentes e buscar pela forma normalizada — muda a validação da API de pacientes e toca dado gravado, por isso não foi feito aqui.
+**D5 — Formato do telefone do paciente. Resolvida na Fase 3B, sem migration ([ADR-0059](../02-Arquitetura/ADRs/ADR-0059-normalizacao-unica-de-telefone.md)).** A busca de paciente e a de conversa passaram a comparar a forma normalizada do telefone, pela mesma regra do `Contact`. Nenhum dado gravado foi alterado e a API de pacientes não mudou. Uma migration (coluna normalizada com índice) é opcional e está descrita na ADR; não foi executada. Restam três pontos, cada um uma decisão própria:
 
-**D6 — Versão da Graph API.** O código pede uma versão expirada e recebe a mais antiga disponível, que muda sozinha a cada expiração (a próxima em 21/01/2027). Recomendação: fixar uma versão vigente junto com o primeiro envio real de teste, e registrar a data de expiração para revisão.
+- **D5a — Nono dígito.** O WhatsApp pode entregar o remetente de contas antigas sem o nono dígito; o paciente cadastrado com 9 dígitos não seria reconhecido. A confirmar na primeira entrada real. Comparar também essa variante revê um limite aceito na ADR-0055.
+- **D5b — Cadastro duplicado pelo fluxo de identificação.** Mesmo reconhecido pelo telefone, o paciente pode ser cadastrado de novo se a IA classificar a mensagem como primeira identificação: a promoção do Contact não considera o paciente já conhecido. É a lacuna do "Cenário 13" da ADR-0055.
+- **D5c — Telefone do destinatário no envio.** Lembretes e resumos usam o telefone do paciente e do terapeuta como estão gravados. Sem o código do país, a Meta pode recusar o envio ou ler os primeiros dígitos como código de outro país. Recomendação: normalizar o destinatário pela mesma regra no momento do envio.
 
-**D7 — Retenção de jobs no Redis.** Recomendação: apagar jobs concluídos em até 24 horas e manter os falhados por 7 a 14 dias (são o único rastro da falha). A mudança é de duas linhas por fila; os prazos são política de retenção de dado pessoal.
+**D6 — Versão da Graph API. Resolvida na Fase 3B; resta uma escolha com prazo.** A versão está fixada em `v21.0`, a que a Meta já vinha servindo, num único ponto e com teste contra regressão. Ela **expira em 21/01/2027**: a partir dessa data o teste unitário falha, de propósito. Trocar por uma versão de vida mais longa é uma alteração de duas linhas, a fazer logo depois do primeiro envio real — quando o smoke externo puder confirmar a versão nova contra a Meta.
 
-**D8 — Webhook da Asaas.** (a) Cadastrar o webhook no modo sequencial — requisito deste contrato. (b) Tornar verificação e registro do evento atômicos exige transação entre repositórios ou uma tabela de controle como a `inbound_processing_inbox`, com migration; fica como endurecimento antes do piloto, não como correção local. (c) Decidir qual evento vale como confirmação de pagamento por cartão e boleto, e o que fazer em estorno e chargeback — regra de negócio, a confirmar com eventos reais do sandbox.
+**D7 — Retenção de jobs no Redis. Resolvida na Fase 3B.** Concluídos: 24 horas. Falhados: 14 dias na fila de saída, 7 na de entrada. Ver "Redis". Os jobs antigos não foram apagados (D10).
+
+**D8 — Webhook da Asaas.**
+
+*(a) Modo de envio — requisito de configuração.* O webhook precisa ser cadastrado no modo **sequencial**. Registrado em `CONFIGURACAO_AMBIENTE.md`; o smoke do sandbox confere o modo dos webhooks cadastrados.
+
+*(b) Atomicidade — avaliada na Fase 3B: o modo sequencial é suficiente para o estágio atual.* Há uma conta e um webhook; o processamento é síncrono e faz poucas consultas ao banco, na casa dos milissegundos; no modo sequencial a Asaas envia um evento por vez. Uma segunda entrega do mesmo evento ao mesmo tempo só aconteceria se ela desistisse de esperar a resposta da primeira — ou seja, se esse processamento demorasse mais que o tempo de espera dela. Se acontecer, o efeito é uma auditoria duplicada e um 500 na segunda entrega — o estado da assinatura continua correto, porque as transições são as mesmas. Nenhuma migration foi feita. A mudança, se um dia for necessária (por exemplo, ao adotar o modo não sequencial): uma coluna de estado em `asaas_webhook_event` (`processing`, `processed`), reserva do evento por inserção com conflito ignorado, e a mudança de estado da assinatura, a auditoria e a conclusão do evento na mesma transação — o que obriga os repositórios de assinatura e de evento a receberem a transação de fora.
+
+*(c) Qual evento confirma o pagamento — decisão pendente, de negócio.* Estados da assinatura: `Trialing`, `Active`, `PastDue`, `Cancelled`. `PAYMENT_CONFIRMED` e `PAYMENT_RECEIVED` chamam o mesmo método, que ativa a assinatura, recalcula o fim do ciclo para hoje mais um ciclo e, numa renovação, aplica o downgrade agendado.
+
+| Alternativa | Avaliação |
+|---|---|
+| A — os dois eventos confirmam (hoje) | Correta só para PIX, que gera apenas `PAYMENT_RECEIVED`. Para cartão, a mesma cobrança confirma duas vezes, com 32 dias de intervalo |
+| B — só um dos dois confirma | `PAYMENT_CONFIRMED` sozinho deixa o PIX sem confirmação; `PAYMENT_RECEIVED` sozinho atrasa o cartão em 32 dias |
+| C — cada cobrança confirma uma única vez, no primeiro dos dois eventos | É a regra coerente com a documentação da Asaas |
+
+O que a alternativa A causa com cartão: (1) uma assinatura em atraso pela mensalidade atual é reativada quando chega a liquidação da mensalidade anterior — fixado em teste de caracterização; (2) num plano anual, o downgrade agendado é aplicado 32 dias depois do pagamento, não no fim do ano; (3) o fim do ciclo é empurrado 32 dias. A alternativa C exige lembrar qual cobrança já foi contabilizada: ou gravar o id da cobrança (coluna nova, com migration), ou decidir pelo meio de pagamento que vem no evento — campo que ainda não foi observado num evento real. Envolve regra de acesso e de cobrança da clínica; **nada foi alterado**. Estorno, remoção de cobrança e chargeback continuam sem efeito sobre a assinatura, também à espera dessa decisão.
 
 **D9 — Entrada real dos webhooks.** A Meta e a Asaas só chamam um endereço público com HTTPS. Expor o backend é atividade da Fase 4. Ou a entrada real é validada lá, em ambiente de homologação, ou se autoriza um túnel temporário para esta fase.
 
@@ -296,17 +318,31 @@ Recomendação: limite de mensagens combinado com janela de tempo. Com as últim
 
 ---
 
+## Pronto para credenciais
+
+Situação em 05/10/2026, ao fim da Fase 3B: o código e os smoke tests estão prontos; nenhuma credencial de teste existe no ambiente local e nenhuma chamada externa foi feita nesta etapa.
+
+| Para validar | Variáveis no `.env` local (nunca no repositório, nunca em conversa) | Arquivo |
+|---|---|---|
+| Alcance e rejeição nos três providers; versão da Graph API | `EXTERNAL_SMOKE=1` | `providers-rejection-smoke.test.ts` |
+| Envio real pela fila até a Meta | `EXTERNAL_SMOKE=1`, `WHATSAPP_SMOKE_PHONE_NUMBER_ID`, `WHATSAPP_SMOKE_ACCESS_TOKEN`, `WHATSAPP_SMOKE_TO` | `whatsapp-worker-smoke.test.ts` |
+| Envio real, só o provider | `WHATSAPP_SMOKE_PHONE_NUMBER_ID`, `WHATSAPP_SMOKE_ACCESS_TOKEN`, `WHATSAPP_SMOKE_TO` | `whatsapp-smoke.test.ts` |
+| As 3 chamadas de IA, com conteúdo sintético | `ANTHROPIC_SMOKE=1`, `ANTHROPIC_API_KEY` | `anthropic-smoke.test.ts` |
+| Cliente, assinatura e cobrança no sandbox | `ASAAS_ENV=sandbox`, `ASAAS_BASE_URL` de sandbox, `ASAAS_API_KEY` de sandbox (prefixo `$aact_hmlg_`) | `asaas-sandbox-smoke.test.ts` |
+
+Antes de conectar um canal real a uma clínica do banco local, limpar a fila antiga do Redis (D10). A entrada real dos webhooks continua dependendo de endereço público (D9).
+
 ## Smoke tests reais
 
 Ficam em `apps/backend/test/manual/`, identificados como `[MANUAL / EXTERNAL]`, rodam só com `pnpm --filter @luxora/backend test:manual` e pulam sozinhos quando a condição de cada um não é atendida. Passo a passo em [`test/manual/README.md`](../../apps/backend/test/manual/README.md).
 
 | Arquivo | Chama | Exige | Executado |
 |---|---|---|---|
-| `providers-rejection-smoke.test.ts` | Meta, Anthropic e Asaas sandbox, com credencial inválida de propósito; versão da Graph API | `EXTERNAL_SMOKE=1` | Sim, 05/10/2026 |
+| `providers-rejection-smoke.test.ts` | Meta, Anthropic e Asaas sandbox, com credencial inválida de propósito; confere que a Meta serve a versão da Graph API fixada | `EXTERNAL_SMOKE=1` | Sim, 05/10/2026 (antes de a versão ser fixada) |
 | `whatsapp-worker-smoke.test.ts` | A fila de saída inteira até a Meta | `EXTERNAL_SMOKE=1`, Postgres e Redis locais; o envio real exige também as credenciais de teste da Meta | Só a rejeição de token inválido |
 | `whatsapp-smoke.test.ts` | Graph API, 1 mensagem, só o provider | Número de teste, token temporário e destinatário autorizado do App da Meta | Não |
 | `anthropic-smoke.test.ts` | Anthropic, 3 chamadas com conteúdo sintético | `ANTHROPIC_SMOKE=1` e `ANTHROPIC_API_KEY` | Não |
-| `asaas-sandbox-smoke.test.ts` | Asaas sandbox: cliente, assinatura PIX, consulta das cobranças, cancelamento | `ASAAS_ENV=sandbox`, endereço de sandbox e chave de sandbox | Não |
+| `asaas-sandbox-smoke.test.ts` | Asaas sandbox: cliente, assinatura PIX, consulta das cobranças, modo de envio dos webhooks, cancelamento | `ASAAS_ENV=sandbox`, endereço de sandbox e chave de sandbox | Não |
 | `asaas-production-smoke.test.ts` | Asaas **produção** (anterior a esta fase) | `ASAAS_ENV=production` e chave de produção | Não |
 
 Resultado das chamadas reais de 05/10/2026 (credencial inválida de propósito):

@@ -23,7 +23,7 @@ sem nada configurado não chama serviço nenhum.
 | `asaas-production-smoke.test.ts` | Asaas **produção** | cliente e assinatura reais (ver a última seção) |
 
 As variáveis podem ficar em `apps/backend/.env` (nunca commitado) ou ser
-exportadas no terminal. Todos os arquivos leem o `.env` sozinhos, menos o de
+exportadas no terminal; os nomes estão no fim do `.env.example` da raiz. Todos os arquivos leem o `.env` sozinhos, menos o de
 produção da Asaas, que depende das variáveis exportadas no terminal.
 
 Cada execução imprime uma linha `[SMOKE …]` com horário, chamada, id
@@ -50,7 +50,9 @@ propósito**. Não usa nem exige credencial real, não custa nada e não produz
 efeito. Prova que o endereço responde a partir desta máquina, que o corpo de
 erro verdadeiro é lido pelo nosso código, que a falha é classificada como
 permanente e que nada da credencial aparece na mensagem de erro. Também
-registra a versão da Graph API pedida pelo código e a que a Meta está servindo.
+confere que a Meta serve exatamente a versão da Graph API fixada no código
+(`src/infrastructure/messaging/whatsapp-graph-api.ts`) — o teste falha se ela
+tiver expirado, porque a Meta passa a atender com outra versão sem avisar.
 
 A Asaas é chamada sempre no endereço de sandbox, fixado dentro do teste,
 qualquer que seja o valor do `.env`.
@@ -130,7 +132,8 @@ O arquivo só roda quando `ASAAS_BASE_URL` aponta para um host de sandbox. Com
 a URL de produção ele é pulado, mesmo com a chave definida.
 
 Cria um cliente e uma assinatura via PIX, consulta as cobranças geradas e
-registra o estado, confere que uma chave inválida é recusada sem expor a chave
+registra o estado, lista os webhooks cadastrados e confere que o modo de envio
+é o sequencial, confere que uma chave inválida é recusada sem expor a chave
 real, e cancela a assinatura ao final. O CPF do
 cliente é gerado na hora (só dígitos verificadores válidos); para usar um
 documento específico, defina `ASAAS_SANDBOX_CPF_CNPJ`.

@@ -66,6 +66,18 @@ Por não haver sandbox, nenhum teste automatizado (`test:unit`, `test:integratio
 
 ---
 
+## Webhook da Asaas — como cadastrar
+
+O backend recebe os eventos da Asaas em `POST /api/v1/webhooks/asaas`. Ao cadastrar o webhook no painel da Asaas (Integrações > Webhooks) ou pela API:
+
+- **Tipo de envio: sequencial.** É um requisito, não uma preferência. No modo não sequencial a Asaas pode enviar eventos ao mesmo tempo e fora de ordem, e o backend pressupõe um evento por vez, na ordem. Ver `docs/04-API/02-Contratos-de-Integracoes-Externas.md`, seção "Asaas".
+- **Token de autenticação:** o mesmo valor de `ASAAS_WEBHOOK_TOKEN`. Nunca a chave da API.
+- **Eventos:** `PAYMENT_CONFIRMED`, `PAYMENT_RECEIVED`, `PAYMENT_OVERDUE` e `SUBSCRIPTION_DELETED`. Os demais são confirmados e ignorados.
+
+A Asaas pode interromper a fila do webhook depois de 15 falhas seguidas, e apaga eventos parados há mais de 14 dias. Uma fila interrompida precisa ser reativada no painel.
+
+---
+
 ## Configuração do WhatsApp (por clínica, não global)
 
 Diferente do Asaas (uma única conta da Luxora), o WhatsApp **não tem variável de ambiente global** — cada clínica conecta seu próprio número e token, armazenados por Tenant no banco de dados (`whatsapp_integration`), nunca em `.env`. A Luxora não possui número de WhatsApp próprio — cada clínica preserva sua identidade no canal.

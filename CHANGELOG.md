@@ -53,6 +53,34 @@ As credenciais de teste continuam ausentes do ambiente local; nenhum caminho fel
 
 **Validação.** `nest build` e `eslint` limpos; 765 testes unitários, 9 de integração e 263 críticos (1 skip pré-existente), 0 falhas; 18 testes manuais pulados por padrão.
 
+#### Fase 3B — Preparação para os testes externos (2026-10-05)
+
+A Fase 3 continua **parcial**: nenhuma credencial de teste existe no ambiente e nenhuma chamada externa foi feita nesta etapa. O que mudou foi o código, para os smoke tests reais encontrarem o backend pronto.
+
+**Versão da Graph API fixada e protegida.** O provider pedia `v19.0`, expirada desde 21/05/2026; a Meta atendia com a `v21.0`. A versão passou a ter um único ponto de definição (`whatsapp-graph-api.ts`) e está fixada na `v21.0`, a que já vinha sendo servida — sem mudança de comportamento. **Ela expira em 21/01/2027**: um teste unitário falha quando a data chega e quando outro arquivo escreve uma versão por conta própria; o smoke externo falha se a Meta servir uma versão diferente da pedida.
+
+**Paciente reconhecido pelo telefone, qualquer que seja a grafia ([`ADR-0059`](./docs/02-Arquitetura/ADRs/ADR-0059-normalizacao-unica-de-telefone.md)).** A busca de paciente e a de conversa comparavam o texto exato; passaram a comparar a forma normalizada, pela regra do `PhoneNumber`, que já era a do `Contact`. Nenhum dado gravado foi alterado, a API de pacientes não mudou e **nenhuma migration foi feita** — a ADR descreve a migration opcional.
+- A regra do `PhoneNumber` recusava telefones do DDD 55 escritos sem o código do país; passou a decidir pelo tamanho e pelo "+" inicial.
+- Remetente de outro país fazia o webhook do WhatsApp responder 500, e a Meta reenviaria o POST inteiro; agora é confirmado e ignorado, sem interromper as outras mensagens.
+- O remetente da Meta é lido de forma estrita (sempre com o código do país), para um número de outro país não ser confundido com "DDD + número".
+- Dois testes existentes usavam um remetente que a Meta nunca envia (`+551`, e o telefone da fixture sem o código do país); passaram a usar o formato real.
+
+**Retenção de jobs no Redis.** Concluídos: 24 horas. Falhados: 14 dias na fila de saída (o job é o único rastro do envio que não aconteceu), 7 na de entrada (o rastro durável está no Postgres). Vale para jobs novos; os 389 jobs antigos não foram apagados.
+
+**`Retry-After` respeitado, com teto.** Numa resposta repetível da Meta com `Retry-After`, a espera é a pedida, nunca menor que a padrão (2 s, 4 s) e nunca maior que 60 s. As 3 tentativas continuam sendo o limite. A Meta não documenta o cabeçalho para a Cloud API; o suporte é defensivo.
+
+**Encerramento gracioso.** O SIGTERM não encerrava o processo: os hooks do Nest nunca eram ligados e a telemetria mantinha um listener permanente do sinal. Agora os workers esperam o job em andamento e o processo termina. Medido no processo real: antes, vivo 10 s depois do sinal; depois, terminado em 215 ms. Requisito registrado para a Fase 4: a plataforma precisa dar ao menos 60 s entre o SIGTERM e o SIGKILL.
+
+**Política de entrega registrada: AT-LEAST-ONCE** (ADR-0058). Nenhuma mudança de comportamento.
+
+**Webhook da Asaas.** Avaliado: o modo de envio sequencial é suficiente para o estágio atual; nenhuma migration. A exigência de cadastro no modo sequencial está em `CONFIGURACAO_AMBIENTE.md`, e o smoke do sandbox passou a conferi-la.
+
+**Decisões que continuam pendentes** (em `docs/04-API/02-Contratos-de-Integracoes-Externas.md`): tamanho do histórico enviado à IA — sem regra escrita, nada foi alterado; qual evento da Asaas confirma o pagamento — os dois eventos de uma mesma cobrança por cartão contam hoje como duas confirmações, e a liquidação da mensalidade anterior reativa uma assinatura em atraso (fixado em teste de caracterização); nono dígito; cadastro duplicado pelo fluxo de identificação; telefone do destinatário no envio.
+
+**Achado fora do escopo, não corrigido.** A alteração do telefone de um paciente não é gravada: `PrismaPatientRepository.save()` não inclui `phone` na atualização.
+
+**Validação.** `nest build` e `eslint` limpos; 839 testes unitários, 23 de integração e 273 críticos (1 skip pré-existente), 0 falhas, com a Suíte Crítica rodada duas vezes; 56 de frontend; 19 testes manuais pulados por padrão.
+
 ### Fase 2 da auditoria — Segurança e dependências (2026-10-05)
 
 Execução da Fase 2 definida pela auditoria de 04/10/2026. Cada bloco abaixo corresponde a um commit próprio e cita o risco da auditoria que ele fecha.
