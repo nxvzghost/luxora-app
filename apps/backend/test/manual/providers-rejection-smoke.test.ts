@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { WhatsAppMessageProvider } from '@infrastructure/messaging/whatsapp-message.provider';
 import { MessageProviderError } from '@domain-services/communication/message-provider';
+import {
+  WHATSAPP_GRAPH_API_URL,
+  WHATSAPP_GRAPH_API_VERSION,
+  WHATSAPP_GRAPH_API_VERSION_EXPIRES_ON,
+} from '@infrastructure/messaging/whatsapp-graph-api';
 import { AnthropicAIProvider } from '@infrastructure/ai/anthropic-ai.provider';
 import { AsaasPaymentProvider } from '@infrastructure/payment/asaas-payment.provider';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
@@ -20,7 +25,8 @@ import { loadBackendEnv, logSmoke } from './support/smoke-env';
  * O que isto prova contra a API real: o endereço responde a partir deste
  * ambiente, o corpo de erro verdadeiro é lido pelo nosso código, a falha é
  * classificada como permanente (sem nova tentativa) e nada da credencial
- * aparece na mensagem de erro. O que isto NÃO prova: o caminho feliz —
+ * aparece na mensagem de erro. Confere também que a Meta serve exatamente a
+ * versão da Graph API fixada no código. O que isto NÃO prova: o caminho feliz —
  * esse continua dependendo de credencial de teste (ver os outros arquivos
  * desta pasta).
  *
@@ -95,23 +101,20 @@ describe.skipIf(!enabled)('[MANUAL / EXTERNAL] Rejeição de credencial inválid
     expect(failure.message).not.toContain(INVALID_CREDENTIAL);
   }, 30000);
 
-  it('Meta: versão da Graph API pedida pelo provider × versão que a Meta está servindo', async () => {
-    const apiUrl = (buildWhatsAppProvider() as unknown as { apiUrl: string }).apiUrl;
-    const requested = apiUrl.split('/').pop();
-
-    const response = await fetch(`${apiUrl}/`, { signal: AbortSignal.timeout(15000) });
+  it('Meta: a Graph API serve exatamente a versão fixada no código', async () => {
+    const response = await fetch(`${WHATSAPP_GRAPH_API_URL}/`, { signal: AbortSignal.timeout(15000) });
     const served = response.headers.get('facebook-api-version');
 
-    // Versão expirada não dá erro: a Meta atende com a mais antiga ainda
-    // disponível. Por isso é só um registro — o que importa é a linha abaixo.
     logSmoke('meta', {
       chamada: 'GET /{versão}/ (sem credencial)',
-      versao_pedida: requested,
+      versao_pedida: WHATSAPP_GRAPH_API_VERSION,
       versao_servida: served ?? undefined,
-      situacao: served === requested ? 'vigente' : 'ATENCAO_versao_pedida_expirada',
+      expira_em: WHATSAPP_GRAPH_API_VERSION_EXPIRES_ON,
     });
 
-    expect(served).toMatch(/^v\d+\.\d+$/);
+    // Versão expirada não dá erro: a Meta atende com outra. Se este teste
+    // falhar, a versão fixada em whatsapp-graph-api.ts precisa ser trocada.
+    expect(served).toBe(WHATSAPP_GRAPH_API_VERSION);
   }, 30000);
 
   it('Anthropic: chave inválida → 401, uma única chamada (sem nova tentativa) e sem a chave na mensagem de erro', async () => {

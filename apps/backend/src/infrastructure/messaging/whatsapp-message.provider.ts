@@ -7,6 +7,7 @@ import {
 } from '@domain-services/communication/message-provider';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { TokenCipherService } from '@shared/token-cipher.service';
+import { WHATSAPP_GRAPH_API_URL } from './whatsapp-graph-api';
 
 const DEFAULT_TIMEOUT_MS = 10000;
 
@@ -64,7 +65,7 @@ function describeMetaError(rawBody: string): string {
  */
 @Injectable()
 export class WhatsAppMessageProvider implements MessageProvider {
-  private readonly apiUrl = 'https://graph.facebook.com/v19.0';
+  private readonly apiUrl = WHATSAPP_GRAPH_API_URL;
   private readonly timeoutMs = Number(process.env.WHATSAPP_PROVIDER_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
 
   constructor(
