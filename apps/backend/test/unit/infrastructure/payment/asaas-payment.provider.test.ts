@@ -114,3 +114,29 @@ describe('AsaasPaymentProvider.attachCreditCard', () => {
     expect(error.message.length).toBeLessThan(700);
   });
 });
+
+describe('AsaasPaymentProvider — identificação da aplicação (Fase 3)', () => {
+  const originalKey = process.env.ASAAS_API_KEY;
+  const originalEnv = process.env.ASAAS_ENV;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    process.env.ASAAS_API_KEY = originalKey;
+    process.env.ASAAS_ENV = originalEnv;
+  });
+
+  it('toda chamada leva um User-Agent que identifica a aplicação e o ambiente, e a chave só no header access_token', async () => {
+    process.env.ASAAS_API_KEY = 'chave-de-teste-unitario';
+    process.env.ASAAS_ENV = 'sandbox';
+    const fetchMock = vi.fn().mockResolvedValue(response(200, '{"id":"cus_teste"}'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await new AsaasPaymentProvider().createCustomer({ name: 'Clínica Teste', email: 'c@clinica.dev', cpfCnpj: '12345678909' });
+
+    const [, options] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(options.headers['User-Agent']).toBe('Luxora-Backend (Node.js; sandbox)');
+    expect(options.headers.access_token).toBe('chave-de-teste-unitario');
+    expect(options.headers['User-Agent']).not.toContain('chave-de-teste-unitario');
+    expect(options.headers.Authorization).toBeUndefined();
+  });
+});

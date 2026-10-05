@@ -53,6 +53,10 @@ export class AsaasPaymentProvider implements PaymentProvider {
       method,
       headers: {
         'Content-Type': 'application/json',
+        // Fase 3 da auditoria — a Asaas exige um User-Agent que identifique
+        // a aplicação em contas criadas a partir de 13/06/2024 (doc oficial,
+        // "Autenticação"). Sem este header o runtime enviaria só "node".
+        'User-Agent': `Luxora-Backend (Node.js; ${process.env.ASAAS_ENV ?? 'sandbox'})`,
         access_token: this.apiKey, // header confirmado na doc oficial — nunca Bearer/Authorization
       },
       body: body ? JSON.stringify(body) : undefined,
