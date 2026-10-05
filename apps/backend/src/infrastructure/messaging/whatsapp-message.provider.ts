@@ -7,6 +7,7 @@ import {
 } from '@domain-services/communication/message-provider';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { TokenCipherService } from '@shared/token-cipher.service';
+import { parseRetryAfterMs } from './outbound-retry';
 import { WHATSAPP_GRAPH_API_URL } from './whatsapp-graph-api';
 
 const DEFAULT_TIMEOUT_MS = 10000;
@@ -62,6 +63,11 @@ function describeMetaError(rawBody: string): string {
  * classificada (repetível ou permanente), com tempo limite na chamada
  * (WHATSAPP_PROVIDER_TIMEOUT_MS, padrão 10 s) e sem texto livre do
  * provider na mensagem.
+ *
+ * Fase 3B: a versão da Graph API vem de whatsapp-graph-api.ts (único ponto
+ * de definição), e uma resposta repetível (429 ou 5xx) com `Retry-After`
+ * leva esse valor no erro — quem decide a espera, com teto, é
+ * outbound-retry.ts.
  */
 @Injectable()
 export class WhatsAppMessageProvider implements MessageProvider {
@@ -128,10 +134,14 @@ export class WhatsAppMessageProvider implements MessageProvider {
 
     if (!response.ok) {
       const retryable = response.status === 429 || response.status >= 500;
+      const retryAfterMs = retryable
+        ? parseRetryAfterMs((response.headers as Headers | undefined)?.get('retry-after'))
+        : undefined;
       throw new MessageProviderError(
         `Falha ao enviar mensagem via WhatsApp (${response.status}): ${describeMetaError(await response.text())}`,
         retryable,
         response.status,
+        retryAfterMs,
       );
     }
 

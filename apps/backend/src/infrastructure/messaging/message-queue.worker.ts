@@ -7,6 +7,7 @@ import { TenantContext } from '@shared/tenant-context';
 import { MessageProviderError } from '@domain-services/communication/message-provider';
 import { EnviarMensagemUseCase } from '@use-cases/communication/enviar-mensagem.use-case';
 import { MessageJobData } from './message-queue.producer';
+import { outboundRetryDelayMs } from './outbound-retry';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -51,6 +52,10 @@ export class MessageQueueWorker implements OnModuleDestroy {
   constructor(private readonly moduleRef: ModuleRef) {
     this.worker = new Worker<MessageJobData>('messages', (job) => this.process(job), {
       connection: this.connection,
+      // Fase 3B — espera entre tentativas: 2 s e 4 s, ou o `Retry-After` do
+      // provider dentro de piso e teto próprios (ver outbound-retry.ts). Só
+      // vale para jobs enfileirados com o tipo de espera da fila de saída.
+      settings: { backoffStrategy: (attemptsMade, _type, err) => outboundRetryDelayMs(attemptsMade, err) },
     });
 
     // Nunca registra `job.data` (telefone e texto da mensagem) — só o

@@ -159,3 +159,58 @@ describe('WhatsAppMessageProvider — classificação de falhas (Fase 3)', () =>
     expect(result.providerMessageId).toBe('');
   });
 });
+
+describe('WhatsAppMessageProvider — Retry-After (Fase 3B)', () => {
+  function rejection(status: number, retryAfter: string | null) {
+    return {
+      ok: false,
+      status,
+      headers: { get: (name: string) => (name.toLowerCase() === 'retry-after' ? retryAfter : null) },
+      text: async () => JSON.stringify({ error: { type: 'OAuthException', code: 130429, fbtrace_id: 'trace-1' } }),
+    };
+  }
+
+  it.each([
+    [429, '7', 7000],
+    [503, '12', 12000],
+    [429, '86400', 86_400_000],
+  ])('HTTP %i com Retry-After "%s": o valor lido vai no erro (%i ms) — o teto é aplicado pela fila', async (status, header, expected) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(rejection(status, header)));
+
+    const err = await failure(buildProvider(ACTIVE));
+
+    expect(err.retryable).toBe(true);
+    expect(err.retryAfterMs).toBe(expected);
+  });
+
+  it.each([
+    ['ausente', null],
+    ['inválido', 'daqui a pouco'],
+    ['negativo', '-3'],
+  ])('HTTP 429 com Retry-After %s: erro repetível, sem indicação de espera', async (_label, header) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(rejection(429, header)));
+
+    const err = await failure(buildProvider(ACTIVE));
+
+    expect(err.retryable).toBe(true);
+    expect(err.retryAfterMs).toBeUndefined();
+  });
+
+  it('falha permanente (401) ignora o Retry-After — o job não será repetido', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(rejection(401, '30')));
+
+    const err = await failure(buildProvider(ACTIVE));
+
+    expect(err.retryable).toBe(false);
+    expect(err.retryAfterMs).toBeUndefined();
+  });
+
+  it('resposta de erro sem objeto de cabeçalhos não quebra a classificação', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(metaError(429, 130429)));
+
+    const err = await failure(buildProvider(ACTIVE));
+
+    expect(err.retryable).toBe(true);
+    expect(err.retryAfterMs).toBeUndefined();
+  });
+});

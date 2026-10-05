@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
+import { OUTBOUND_BACKOFF_TYPE, OUTBOUND_BASE_BACKOFF_MS } from './outbound-retry';
 
 export interface MessageJobData {
   tenantId: string;
@@ -37,7 +38,9 @@ export class MessageQueueProducer implements OnModuleDestroy {
     await this.queue.add('send-message', data, {
       jobId: data.idempotencyKey, // 3ª camada de idempotência — gratuita, nativa do BullMQ
       attempts: 3,
-      backoff: { type: 'exponential', delay: 2000 },
+      // Fase 3B — mesma espera de antes (2 s, 4 s); o tipo próprio só existe
+      // para o worker poder respeitar o `Retry-After` do provider, com teto.
+      backoff: { type: OUTBOUND_BACKOFF_TYPE, delay: OUTBOUND_BASE_BACKOFF_MS },
     });
   }
 

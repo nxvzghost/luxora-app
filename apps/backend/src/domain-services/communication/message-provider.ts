@@ -34,12 +34,17 @@ export const MESSAGE_PROVIDER = Symbol('MESSAGE_PROVIDER');
  *
  * A mensagem nunca carrega token, corpo da mensagem nem o texto livre
  * devolvido pelo provider — só códigos e o id de rastreio dele.
+ *
+ * `retryAfterMs` (Fase 3B): espera que o provider pediu antes da próxima
+ * tentativa, quando ele informa. É só uma indicação — a fila aplica piso e
+ * teto próprios e nunca espera um tempo que o provider controle sozinho.
  */
 export class MessageProviderError extends Error {
   constructor(
     message: string,
     readonly retryable: boolean,
     readonly status?: number,
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'MessageProviderError';
