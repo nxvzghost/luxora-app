@@ -23,3 +23,25 @@ export interface MessageProvider {
 }
 
 export const MESSAGE_PROVIDER = Symbol('MESSAGE_PROVIDER');
+
+/**
+ * Falha de envio já classificada pelo provider (Fase 3 da auditoria).
+ *
+ * `retryable` decide o que a fila faz com o job: `true` (rede, timeout,
+ * 429, 5xx) volta para nova tentativa; `false` (clínica sem canal
+ * conectado, credencial recusada, requisição inválida) encerra o job na
+ * hora — repetir a mesma chamada falharia do mesmo jeito.
+ *
+ * A mensagem nunca carrega token, corpo da mensagem nem o texto livre
+ * devolvido pelo provider — só códigos e o id de rastreio dele.
+ */
+export class MessageProviderError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'MessageProviderError';
+  }
+}

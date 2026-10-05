@@ -6,6 +6,7 @@ import { LuxoraExceptionFilter } from '@shared/luxora-exception.filter';
 import { correlationIdMiddleware } from '@shared/correlation-id.middleware';
 import { applySecurityHeaders, setupSwagger } from '@shared/http-hardening';
 import { WhatsAppInboundQueueWorker } from '@infrastructure/messaging/whatsapp-inbound-queue.worker';
+import { MessageQueueWorker } from '@infrastructure/messaging/message-queue.worker';
 
 export interface BootstrapTestAppOptions {
   /**
@@ -30,6 +31,16 @@ export interface BootstrapTestAppOptions {
    * (este arquivo já é exclusivo de teste) e sem desabilitar paralelismo.
    */
   realWhatsAppInboundWorker?: boolean;
+  /**
+   * Fase 3 da auditoria — mesmo raciocínio, para a fila de saída
+   * 'messages'. Desde que MessageQueueWorker passou a ser instanciado de
+   * fato, cada app de teste subiria um consumidor real dessa fila, que
+   * tentaria ENVIAR pela Graph API da Meta qualquer job enfileirado por
+   * qualquer arquivo da suíte. Por padrão fica desligado; só a suíte que
+   * prova o consumo da fila de saída pede o worker real — e ela mesma
+   * intercepta `fetch`, então nenhuma chamada sai da máquina.
+   */
+  realMessageQueueWorker?: boolean;
 }
 
 /**
@@ -50,6 +61,9 @@ export async function bootstrapTestApp(options: BootstrapTestAppOptions = {}): P
   const builder = Test.createTestingModule({ imports: [AppModule] });
   if (!options.realWhatsAppInboundWorker) {
     builder.overrideProvider(WhatsAppInboundQueueWorker).useValue({});
+  }
+  if (!options.realMessageQueueWorker) {
+    builder.overrideProvider(MessageQueueWorker).useValue({});
   }
   const moduleRef = await builder.compile();
   // ADR-0053 — espelha main.ts: rawBody:true, necessário para os testes
