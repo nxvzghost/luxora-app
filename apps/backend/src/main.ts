@@ -1,7 +1,7 @@
 import './tracing';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ShutdownSignal, ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { LuxoraExceptionFilter } from '@shared/luxora-exception.filter';
 import { correlationIdMiddleware } from '@shared/correlation-id.middleware';
@@ -81,6 +81,19 @@ async function bootstrap() {
   // ADR-0057 — a documentação interativa (api/v1/docs) só é registrada fora
   // de produção; com NODE_ENV=production a rota não existe.
   setupSwagger(app);
+
+  // Fase 3B da auditoria — encerramento gracioso. Sem isto o SIGTERM de um
+  // deploy não chamava nenhum onModuleDestroy(): os workers das filas eram
+  // cortados no meio de um job, e um envio já aceito pela Meta mas ainda não
+  // gravado seria repetido na subida seguinte. Com os hooks ligados, o Nest
+  // fecha os workers (cada um espera o job em andamento terminar), as filas,
+  // o banco e o servidor HTTP, e só então deixa o processo terminar.
+  //
+  // Requisito de implantação (Fase 4): o tempo de espera que a plataforma dá
+  // entre o SIGTERM e o SIGKILL precisa cobrir o job mais longo — hoje, o de
+  // entrada, com até 3 chamadas de IA. Se o SIGKILL chegar antes, o BullMQ
+  // reexecuta o job depois (entrega "ao menos uma vez", ver ADR-0058).
+  app.enableShutdownHooks([ShutdownSignal.SIGTERM, ShutdownSignal.SIGINT]);
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);

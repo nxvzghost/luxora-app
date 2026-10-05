@@ -58,5 +58,11 @@ async function shutdown(): Promise<void> {
   }
 }
 
-process.on('SIGTERM', () => void shutdown());
-process.on('SIGINT', () => void shutdown());
+// Fase 3B da auditoria — `once`, não `on`. Um listener permanente de SIGTERM
+// tira do Node o comportamento padrão de terminar: o processo recebia o
+// sinal, encerrava só a telemetria e continuava de pé. Com `once`, este
+// listener sai no primeiro sinal; quando o Nest termina o encerramento
+// gracioso e reenvia o sinal (enableShutdownHooks, em main.ts), não sobra
+// listener nenhum e o processo termina.
+process.once('SIGTERM', () => void shutdown());
+process.once('SIGINT', () => void shutdown());

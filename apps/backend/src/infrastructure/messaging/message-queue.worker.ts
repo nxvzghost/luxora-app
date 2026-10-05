@@ -40,6 +40,11 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  * inválido viram UnrecoverableError — o BullMQ encerra o job sem novas
  * tentativas. Todo o resto segue a política de MessageQueueProducer
  * (3 tentativas, espera exponencial).
+ *
+ * Encerramento (Fase 3B): onModuleDestroy() fecha o worker de forma
+ * graciosa — ele para de pegar jobs novos e espera o que está em andamento
+ * terminar. main.ts liga isso ao SIGTERM (enableShutdownHooks), para um
+ * deploy não cortar um envio no meio.
  */
 @Injectable()
 export class MessageQueueWorker implements OnModuleDestroy {
