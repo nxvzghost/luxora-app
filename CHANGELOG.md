@@ -4,6 +4,39 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Reconciliação documental — Fase 1 da auditoria (2026-10-05)
+
+Alteração exclusivamente documental, sem nenhuma mudança em código, testes, migrations, workflows ou configuração. Fonte de verdade confirmada no Git: repositório `/root/luxora-app` (WSL2/ext4), branch `master`, último commit anterior a esta reconciliação `e622d52` (`feat(notification): expose notification API`, 21/08/2026), `origin/master` no mesmo commit e working tree limpa. O checkpoint anterior `18c3086` (`ci: add redis service for critical tests`, 18/08/2026) deixou de ser o estado atual: está dois commits atrás (`465779d` e `e622d52`).
+
+- Documentos reconciliados: `README.md` (contagens de testes obsoletas, estado do CI, Fase 2 do Motor de Disponibilidade, abrangência da RLS, nomenclatura Vertex × Luxora), `docs/PLANO_DE_EXECUCAO.md` (Epics 10, 11, 12 e 13, Kanban e seção "Checkpoint canônico do repositório"), `docs/04-API/01-Contratos-REST.md` (rotas de notificações já implementadas) e este arquivo (entrada abaixo, reconstruída a partir do histórico Git).
+- A cópia do repositório no Windows (HEAD `9550869`, divergente do WSL) não foi alterada, copiada nem sincronizada.
+
+### Registro retroativo — entregas de 13 a 21 de agosto de 2026 (Epics 10, 11 e 12; ajustes de CI)
+
+Estas entregas chegaram ao código depois do último registro deste arquivo (01/08/2026) e não tinham entrada no CHANGELOG nem no PLANO. O texto abaixo foi reconstruído em 05/10/2026 a partir do histórico Git (hashes e datas dos commits) e da leitura do código; não existe relatório de handoff nem ADR dessas entregas. Nenhuma contagem de testes é afirmada, porque a suíte não foi reexecutada na reconciliação; a única evidência de execução citada é o resultado do GitHub Actions, consultado pela API pública do GitHub.
+
+**Epics 10 e 11 — Frontend e Dashboard** (`73fdc3e`, 13/08/2026, `feat: complete epics 10 and 11 frontend reliability and dashboard`; 41 arquivos, +2367/−107):
+- **AD-019 (Epic 11):** `GET /dashboard/summary` (`DashboardController` e `ObterResumoDashboardUseCase`, `@Roles('admin', 'therapist')`) devolve `activePatients`, `overdueBillings` e `totalPending`, agregados no banco; `app/dashboard/page.tsx` passou a consumi-lo. Testes: `test/critical/dashboard-summary.test.ts` (afirma os três valores) e teste unitário do use case. A lista "Pacientes recentes" continua lendo `/patients`.
+- **AD-013:** tokens persistidos em `localStorage` (`zustand/persist`, `lib/stores/auth.store.ts`). O arquivo registra que não há refresh automático e que o trade-off de exposição a XSS foi aceito.
+- **AD-014:** `isError` tratado nas páginas do painel que consultam a API.
+- **AD-015:** confirmar e cancelar consulta na agenda (`appointments.hooks.ts`).
+- **AD-020 (parcial):** enviar cobrança e registrar pagamento (`billing.hooks.ts`). Criar cobrança e estorno **não** foram implementados; o próprio arquivo registra o motivo (ausência de endpoint de descoberta de sessões faturáveis e de listagem de pagamentos).
+- **AD-028 (parcial, implementação diferente do critério do PLANO):** `AuthGuard` no cliente (`components/auth-guard.tsx`). Não existe `middleware.ts`.
+- **AD-029:** páginas de Terapeutas e de Auditoria.
+- Testes de frontend: 9 arquivos em `apps/frontend/test` (43 casos pela contagem estática).
+
+**Epic 12 — Notificações internas (AD-021)** (`6eb04fe`, 13/08/2026, `feat(notification): implement payment divergence notifications`; `9911f15`, 16/08/2026, `chore: update prisma schema for epic 12`; `e622d52`, 21/08/2026, `feat(notification): expose notification API`):
+- Tabela `notification` (migration `20260813171216_add_notification`): `id`, `tenant_id`, `type`, `title`, `message`, `entity_type`, `entity_id`, `read_at`, `created_at`; índices em `(tenant_id, created_at)` e `(tenant_id, read_at)`; RLS habilitada e forçada com a policy `tenant_isolation`.
+- Entidade `Notification` e `NotificationService` (síncrono, sem fila): ao registrar um pagamento (`RegistrarPagamentoUseCase`), um `PaymentStateChangedEvent` com `toState = Divergente` gera uma notificação do tipo `payment_divergent`. É o único gatilho existente.
+- API (`NotificationController`, `@Roles('admin', 'therapist')`): `GET /notifications` (paginação por cursor: `cursor`, `limit`, padrão 20, resposta com `next_cursor`), `GET /notifications/unread-count` e `POST /notifications/:id/read`.
+- Testes: `test/critical/notification-payment-divergent.test.ts` (cobre a geração da notificação e as rotas de listagem e de contagem) e testes unitários da entidade, dos use cases e do serviço.
+- Limitações vigentes, não corrigidas: notificação por Tenant, sem destinatário por usuário; canal único in-app (sem e-mail nem push); nenhuma tela do frontend consome a API; nenhuma ADR registra a escolha do canal.
+
+**CI e configuração da suíte crítica** (17 a 18/08/2026; apenas `.github/workflows/ci.yml`, `turbo.json`, `.gitignore` e `apps/backend/test/critical/vitest.config.ts`):
+- 17/08: `95a8850` ignora `.claude/` no `.gitignore`; `be6a702` faz o workflow disparar em `master` (antes `main`); `d84d294` gera o Prisma Client (`prisma:generate`) antes dos testes nos jobs `test-unit`, `test-integration` e `test-critical`; `a31a7a8` repassa `DATABASE_URL` pelo Turbo; `7d7284b` e `4fba53f` configuram `WHATSAPP_TOKEN_ENCRYPTION_KEY` de teste no workflow e no Turbo.
+- 18/08: `cdd31fb` configura `JWT_SECRET` de teste; `d6b8a2b` configura `WHATSAPP_APP_SECRET` e `WHATSAPP_WEBHOOK_VERIFY_TOKEN` de teste; `18c3086` adiciona o serviço Redis 7 ao job `test-critical`; `465779d` reduz `maxWorkers` da suíte crítica de 6 para 4 (o comentário no mesmo arquivo ainda cita 6).
+- Resultado no GitHub Actions: as 7 execuções dos commits `d84d294` a `18c3086` terminaram em falha (os logs não foram lidos); `465779d` e `e622d52` terminaram com sucesso.
+
 ### Encerramento — AD-018, Fase 8 (Hardening de produção: concorrência, resiliência e observabilidade) (2026-08-01)
 
 **Com as 7 Fases funcionais de AD-018 já aprovadas e aguardando commit, o usuário autorizou uma fase adicional de hardening de produção — sem nenhuma nova regra de negócio, sem tocar `Contact`/`Conversation`/`Patient` (Aggregates) nem a decisão arquitetural da [`ADR-0055`](./docs/02-Arquitetura/ADRs/ADR-0055-contact-identidade-de-comunicacao.md) — em 3 subfases sequenciais, cada uma implementada, testada e aprovada individualmente antes da próxima.**

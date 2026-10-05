@@ -158,6 +158,20 @@ Somente leitura — nunca altera dados (mesmo princípio já definido em `02-Arq
 
 ---
 
+# Notificações (`/api/v1/notifications`) — implementado no Epic 12 (AD-021)
+
+Notificações internas por Tenant (isoladas por RLS), sem destinatário por usuário; papéis `admin` e `therapist`. `GET /notifications` usa paginação por cursor (`cursor`, `limit`, padrão 20; resposta com `data` e `next_cursor`).
+
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/api/v1/notifications` | Lista as notificações do Tenant |
+| GET | `/api/v1/notifications/unread-count` | Devolve `{ "count": n }` com o total de não lidas |
+| POST | `/api/v1/notifications/:id/read` | Marca a notificação como lida e a devolve |
+
+Gatilho existente: um pagamento registrado com valor divergente gera uma notificação `payment_divergent`. Não há outros gatilhos nem canal externo (e-mail ou push).
+
+---
+
 # Relatórios — Fechamento Mensal (`/api/v1/reports`)
 
 Ver detalhamento completo em `06-UX/05-Fluxo-Fechamento-Mensal.md`.

@@ -2,6 +2,7 @@
 
 **Status:** Documento oficial de execução. Única fonte de trabalho a partir deste ponto.
 **Origem:** deriva exclusivamente do backlog `AD-001`–`AD-032` registrado em [`AUDITORIA_TECNICA_DEFINITIVA.md`](./AUDITORIA_TECNICA_DEFINITIVA.md), seção 5 (e seu anexo, seção 6). Nenhuma tarefa nova foi criada aqui — este documento apenas agrupa, sequencia e opera o que já foi aprovado.
+**Estado reconciliado em 05/10/2026:** este documento foi atualizado na Fase 1 da auditoria (reconciliação) para refletir entregas dos Epics 10 a 12 (commits de 13 a 21/08/2026) que não tinham registro aqui, e ganhou a seção "Checkpoint canônico do repositório" (ao fim da seção 4). Nada foi marcado como concluído sem evidência no código; itens sem evidência permanecem abertos. A origem do backlog continua sendo `AD-001`–`AD-032` da auditoria original, acrescida dos itens `AD-033` a `AD-036` descobertos durante a execução.
 **Papel a partir de agora:** Lead Engineer executando o backlog. Sem novas auditorias, sem novas arquiteturas, sem reorganizações — salvo se uma implementação revelar um problema real de código (nesse caso, o problema é registrado e tratado como uma nova entrada de backlog, não como pretexto para reabrir escopo).
 
 ---
@@ -218,23 +219,25 @@
 **Dependências:** Epic 3 (RBAC precisa existir antes de expor ações sensíveis na UI), Epic 6 (ciclo financeiro fechado antes de expor "marcar como pago" de forma coerente)
 
 **Tarefas:**
-- AD-013 — Persistir token de autenticação (hoje memory-only)
-- AD-014 — Tratamento de `isError` nas 8 páginas que não têm
-- AD-015 — Ações de mutação de estado (confirmar/cancelar consulta, marcar cobrança como paga, enviar cobrança)
-- AD-020 — Ações de mutação na tela Financeiro (criar cobrança, registrar pagamento, estorno)
-- AD-028 — `middleware.ts` para proteção de rota no Next.js
-- AD-029 — Páginas de Terapeutas e Auditoria (endpoints já existem no backend)
+- ~~AD-013 — Persistir token de autenticação (hoje memory-only)~~ **CONCLUÍDA (13/08/2026, `73fdc3e`; registro retroativo)** — tokens persistidos em `localStorage` via `zustand/persist` (`apps/frontend/lib/stores/auth.store.ts`). O arquivo registra que não há refresh automático e que o trade-off de exposição a XSS foi aceito.
+- ~~AD-014 — Tratamento de `isError` nas 8 páginas que não têm~~ **CONCLUÍDA (13/08/2026, `73fdc3e`; registro retroativo)** — `isError` tratado em todas as páginas do painel que consultam a API (agenda, auditoria, configurações, dashboard, financeiro, pacientes, assinatura e terapeutas).
+- ~~AD-015 — Ações de mutação de estado (confirmar/cancelar consulta, marcar cobrança como paga, enviar cobrança)~~ **CONCLUÍDA (13/08/2026, `73fdc3e`; registro retroativo)** — confirmar e cancelar consulta (`appointments.hooks.ts`); enviar cobrança e registrar pagamento (`billing.hooks.ts`).
+- AD-020 — Ações de mutação na tela Financeiro (criar cobrança, registrar pagamento, estorno) — **PARCIAL (13/08/2026, `73fdc3e`; registro retroativo)**: implementados enviar cobrança e registrar pagamento; **não implementados** criar cobrança e estorno (`billing.hooks.ts` registra o motivo: ausência de endpoint de descoberta de sessões faturáveis e de listagem de pagamentos). Permanece aberta.
+- AD-028 — `middleware.ts` para proteção de rota no Next.js — **PARCIAL (13/08/2026, `73fdc3e`; registro retroativo)**: implementada de forma diferente do critério — `AuthGuard` no cliente (`apps/frontend/components/auth-guard.tsx`); **não existe `middleware.ts`** no repositório. Permanece aberta.
+- ~~AD-029 — Páginas de Terapeutas e Auditoria (endpoints já existem no backend)~~ **CONCLUÍDA (13/08/2026, `73fdc3e`; registro retroativo)** — páginas `terapeutas` e `auditoria` em `apps/frontend/app`, com `therapists.hooks.ts` e `audit.hooks.ts`.
 
 **Critério objetivo de conclusão:**
-- Token sobrevive a reload de página
-- `isError` tratado em 100% das páginas que fazem `useQuery`
-- Cada ação de mutação nova cobre o RBAC do Epic 3 (não reinventa controle de acesso na UI)
-- `middleware.ts` bloqueia acesso a rota protegida sem token válido
-- Páginas de Terapeutas e Auditoria funcionais, consumindo endpoints reais
+- [x] Token sobrevive a reload de página
+- [x] `isError` tratado em 100% das páginas que fazem `useQuery`
+- [ ] Cada ação de mutação nova cobre o RBAC do Epic 3 (não reinventa controle de acesso na UI) — não confirmado: as ações consomem rotas já protegidas no backend, mas não foi auditado se a UI esconde ações por papel
+- [ ] `middleware.ts` bloqueia acesso a rota protegida sem token válido — não atendido: não existe `middleware.ts`; o `AuthGuard` do cliente só verifica a presença do token, não a validade
+- [x] Páginas de Terapeutas e Auditoria funcionais, consumindo endpoints reais (cobertas por testes de componente; sem teste E2E)
 
 **Riscos:** cada ação nova aumenta a superfície de mutação exposta — checklist obrigatório: toda ação nova precisa ter a rota correspondente já coberta pelo Epic 3 antes de ser exposta na UI.
 
 **Resultado esperado:** o painel deixa de ser majoritariamente somente-leitura.
+
+**Epic 10 — PARCIAL (reconciliado em 05/10/2026).** AD-013, AD-014, AD-015 e AD-029 concluídas; AD-020 e AD-028 parciais e abertas. O frontend também não renova o access token (não há tratamento de 401 nem uso do refresh token), fato registrado em `apps/frontend/lib/stores/auth.store.ts` e não previsto como item do backlog original.
 
 ---
 
@@ -245,15 +248,17 @@
 **Dependências:** Epic 6 (indicadores dependem de estados corretos de `Billing`/`Session`, já fechados)
 
 **Tarefas:**
-- AD-019 — Endpoint de agregação dedicado (`GET /dashboard/summary` ou equivalente) + frontend consumindo-o
+- ~~AD-019 — Endpoint de agregação dedicado (`GET /dashboard/summary` ou equivalente) + frontend consumindo-o~~ **CONCLUÍDA (13/08/2026, `73fdc3e`; registro retroativo)** — `GET /dashboard/summary` (`@Roles('admin', 'therapist')`) devolve `activePatients`, `overdueBillings` e `totalPending`; `app/dashboard/page.tsx` consome o endpoint. A lista "Pacientes recentes" continua usando `GET /patients` (não é indicador agregado).
 
 **Critério objetivo de conclusão:**
-- Endpoint dedicado de agregação no backend, com teste cobrindo os números retornados
-- `app/dashboard/page.tsx` consumindo o novo endpoint, sem mais `.reduce`/`.filter` client-side sobre listas cruas
+- [x] Endpoint dedicado de agregação no backend, com teste cobrindo os números retornados (`test/critical/dashboard-summary.test.ts`)
+- [x] `app/dashboard/page.tsx` consumindo o novo endpoint, sem mais `.reduce`/`.filter` client-side sobre listas cruas
 
 **Riscos:** baixo.
 
 **Resultado esperado:** indicadores confiáveis, sem recálculo no cliente, prontos para crescer sem penalizar performance do navegador.
+
+**Epic 11 — CONCLUÍDO INTEGRALMENTE (13/08/2026, `73fdc3e`; reconciliado em 05/10/2026).** Os 2 critérios objetivos de conclusão estão marcados.
 
 ---
 
@@ -264,15 +269,17 @@
 **Dependências:** Epic 4 (observabilidade ajuda a decidir/depurar quando disparar notificações), Epic 6 (eventos financeiros são o gatilho mais óbvio)
 
 **Tarefas:**
-- AD-021 — Mecanismo de notificação interna (e-mail, push ou in-app) disparando em pelo menos 1 evento crítico (ex.: pagamento divergente)
+- ~~AD-021 — Mecanismo de notificação interna (e-mail, push ou in-app) disparando em pelo menos 1 evento crítico (ex.: pagamento divergente)~~ **CONCLUÍDA no mínimo do critério (`6eb04fe`, 13/08/2026; `9911f15`, 16/08/2026; `e622d52`, 21/08/2026; registro retroativo)** — canal in-app: tabela `notification` (migration `20260813171216_add_notification`, RLS forçada) e API (`GET /notifications`, `GET /notifications/unread-count`, `POST /notifications/:id/read`, `admin` e `therapist`). Único gatilho: pagamento registrado com valor divergente (`payment_divergent`). Sem tela no frontend, sem e-mail nem push.
 
 **Critério objetivo de conclusão:**
-- Canal escolhido e implementado, com teste cobrindo o disparo em pelo menos 1 evento
-- Nenhum evento "notifica só no papel" — string genérica de erro anterior (`luxora-exception.filter.ts`) não conta como notificação real
+- [x] Canal escolhido e implementado, com teste cobrindo o disparo em pelo menos 1 evento (`test/critical/notification-payment-divergent.test.ts`)
+- [x] Nenhum evento "notifica só no papel" — string genérica de erro anterior (`luxora-exception.filter.ts`) não conta como notificação real
 
-**Riscos:** decisão de canal (e-mail vs. push vs. in-app) não está definida no backlog — decisão de produto pendente, a ser resolvida antes de iniciar este epic.
+**Riscos:** decisão de canal (e-mail vs. push vs. in-app) não está definida no backlog — decisão de produto pendente, a ser resolvida antes de iniciar este epic. **Estado reconciliado:** o canal implementado é in-app (tabela `notification` e API REST). Nenhum documento aprovado registra essa escolha — não existe ADR de notificações. Não foram implementados e-mail nem push.
 
 **Resultado esperado:** a equipe da clínica é avisada de eventos relevantes sem precisar checar o painel manualmente.
+
+**Epic 12 — CONCLUÍDO NO MÍNIMO DO CRITÉRIO (reconciliado em 05/10/2026).** Os 2 critérios objetivos de conclusão estão marcados (canal in-app e teste do disparo em 1 evento). Limitações vigentes: único gatilho (pagamento divergente); notificação por Tenant, sem destinatário por usuário; nenhuma tela do frontend consome a API; o resultado esperado acima (equipe avisada sem checar o painel) não é atendido, pois não há tela nem canal externo.
 
 ---
 
@@ -283,13 +290,13 @@
 **Dependências:** todos os epics funcionais anteriores (Epics 2–12) — escrever teste de algo que ainda vai mudar é retrabalho; este epic fecha a cobertura depois que a superfície estabiliza.
 
 **Tarefas:**
-- AD-011 — Decidir e formalizar `test/integration` (torná-lo real ou consolidar oficialmente em `test/critical`, ajustando o job de CI para não ser mais um no-op silencioso)
-- AD-012 — Introduzir Playwright ou Cypress, cobrindo Login→Agenda→Pacientes→Financeiro
-- AD-022 — Teste do caminho de leitura de Auditoria (`ConsultarAuditLogUseCase`, `GET /audit-log`)
-- AD-031 — Testes unitários/componente no frontend (hoje zero)
-- AD-032 — Testes dedicados para `PatientsController`/`AppointmentsController`
+- AD-011 — Decidir e formalizar `test/integration` (torná-lo real ou consolidar oficialmente em `test/critical`, ajustando o job de CI para não ser mais um no-op silencioso) — **PARCIAL (verificado na reconciliação de 05/10/2026)**: `apps/backend/test/integration/` passou a ter 1 arquivo (`database/prisma-contact.repository.test.ts`), executado pelo job `test-integration` do CI com Postgres e Redis; a decisão não foi formalizada — o comentário de `apps/backend/vitest.config.ts` ainda diz que o diretório não tem arquivos e `passWithNoTests: true` permanece.
+- AD-012 — Introduzir Playwright ou Cypress, cobrindo Login→Agenda→Pacientes→Financeiro — **aberta** (verificado na reconciliação de 05/10/2026: nenhuma dependência de Playwright ou Cypress nos `package.json`).
+- AD-022 — Teste do caminho de leitura de Auditoria (`ConsultarAuditLogUseCase`, `GET /audit-log`) — **aberta** (verificado na reconciliação de 05/10/2026: nenhum teste do `GET /audit-log` nem do `ConsultarAuditLogUseCase` encontrado; `test/critical/audit-immutability.test.ts` cobre apenas a rejeição de PATCH/DELETE).
+- AD-031 — Testes unitários/componente no frontend (hoje zero) — **PARCIAL (verificado na reconciliação de 05/10/2026)**: `apps/frontend/test` tem 9 arquivos de teste (43 casos pela contagem estática), cobrindo 7 páginas, o store de autenticação e o `AuthGuard`; sem testes das páginas de login e de assinatura nem dos componentes de `components/ui`.
+- AD-032 — Testes dedicados para `PatientsController`/`AppointmentsController` — **aberta** (verificado na reconciliação de 05/10/2026: não existe arquivo de teste dedicado aos dois controllers; o RBAC das rotas mutantes de ambos é coberto por `test/critical/rbac-mutating-routes.test.ts`).
 - ~~AD-034~~ **Concluída (23/07/2026)** — 3 causas raízes corrigidas (bug determinístico de FK + 2 causas de pressão de conexão). Arquitetura oficial documentada em [`09-Testes/02-Dedicated-Fixtures.md`](../09-Testes/02-Dedicated-Fixtures.md). Ver evidências no CHANGELOG e fechamento do ciclo em [`CICLO_ESTABILIZACAO_INFRAESTRUTURA.md`](../CICLO_ESTABILIZACAO_INFRAESTRUTURA.md).
-- AD-035 (novo, descoberto em 23/07/2026, durante a auditoria de fechamento da AD-034) — 4 arquivos de `test/critical` divergem da arquitetura oficial de Dedicated Fixtures (`clinic-holiday-persistence.test.ts` e `recurring-block-persistence.test.ts` acumulam dado real no Tenant seedado sem nenhuma limpeza; `recurring-block-materialization.test.ts` e `recurring-block-management.test.ts` reimplementam manualmente a criação/limpeza de Tenant dedicado, duplicando lógica). Não corrigido — fora do escopo dos 3 arquivos com causa raiz confirmada na AD-034. Ver auditoria completa em `CICLO_ESTABILIZACAO_INFRAESTRUTURA.md`.
+- AD-035 (novo, descoberto em 23/07/2026, durante a auditoria de fechamento da AD-034) — 4 arquivos de `test/critical` divergem da arquitetura oficial de Dedicated Fixtures (`clinic-holiday-persistence.test.ts` e `recurring-block-persistence.test.ts` acumulam dado real no Tenant seedado sem nenhuma limpeza; `recurring-block-materialization.test.ts` e `recurring-block-management.test.ts` reimplementam manualmente a criação/limpeza de Tenant dedicado, duplicando lógica). Não corrigido — fora do escopo dos 3 arquivos com causa raiz confirmada na AD-034. Ver auditoria completa em `CICLO_ESTABILIZACAO_INFRAESTRUTURA.md`. **Verificado na reconciliação de 05/10/2026: aberta** — os 4 arquivos não importam `support/dedicated-fixture`.
 
 **Critério objetivo de conclusão:**
 - `test/integration` deixa de ser um no-op documentado — ou some formalmente, com o CI atualizado
@@ -299,6 +306,8 @@
 **Riscos:** introduzir Playwright do zero é o maior item de tooling novo do plano — estimar à parte, não subestimar.
 
 **Resultado esperado:** nenhum módulo crítico do sistema sem teste automatizado de regressão.
+
+**Epic 13 — PARCIAL (reconciliado em 05/10/2026).** AD-034 concluída; AD-011 e AD-031 parciais; AD-012, AD-022, AD-032 e AD-035 abertas (cada uma verificada, ver acima).
 
 ---
 
@@ -409,10 +418,10 @@ A ordem segue dependência real, não facilidade nem urgência de negócio: fund
 ## 4. Kanban
 
 **BACKLOG**
-AD-011, AD-012, AD-013, AD-014, AD-015, AD-017, AD-019, AD-020, AD-021, AD-022, AD-023, AD-025, AD-027, AD-028, AD-029, AD-030, AD-031, AD-032, AD-035
+AD-011 (parcial), AD-012, AD-017, AD-020 (parcial), AD-022, AD-023, AD-025, AD-027, AD-028 (parcial), AD-030, AD-031 (parcial), AD-032, AD-035
 
 **PRÓXIMO**
-Epic 5 (Gestão de Usuários) concluído com a AD-001; Epic 6 (Fechamento do Ciclo Financeiro) concluído com a AD-009; Epic 7 concluído com a AD-008; Epic 8 (Canal WhatsApp) concluído para o caminho síncrono com AD-007/AD-010, com idempotência ponta-a-ponta do processamento assíncrono reforçada pela AD-036; Epic 9 (Domínio Contact) concluído para o gap original (contato novo consegue agendar) e Cenários 11/12 com a AD-018 — Cenário 13 (troca de número) pendente de AD dedicada, `vincularAPacienteExistente()` existe no Aggregate mas sem wiring; AD-024 formalmente descartada (colisão de nome cosmética, sem dependência técnica real). Único item de Epic 8 ainda pendente: AD-027 (testes contra a API real da Meta), bloqueado por credenciais externas. Fase 8 (autorizada, em execução) foca em hardening de produção do pipeline de IA/Contact entregue pela AD-018 — observabilidade, resiliência, custo/latência, carga, concorrência — sem novas regras de negócio. Próximo item de escopo funcional novo a definir entre os Epics 10-15.
+Epic 5 (Gestão de Usuários) concluído com a AD-001; Epic 6 (Fechamento do Ciclo Financeiro) concluído com a AD-009; Epic 7 concluído com a AD-008; Epic 8 (Canal WhatsApp) concluído para o caminho síncrono com AD-007/AD-010, com idempotência ponta-a-ponta do processamento assíncrono reforçada pela AD-036; Epic 9 (Domínio Contact) concluído para o gap original (contato novo consegue agendar) e Cenários 11/12 com a AD-018 — Cenário 13 (troca de número) pendente de AD dedicada, `vincularAPacienteExistente()` existe no Aggregate mas sem wiring; AD-024 formalmente descartada (colisão de nome cosmética, sem dependência técnica real). Único item de Epic 8 ainda pendente: AD-027 (testes contra a API real da Meta), bloqueado por credenciais externas. A Fase 8 de hardening de produção do pipeline de IA/Contact entregue pela AD-018 foi concluída em 01/08/2026 (ver CHANGELOG). Epic 10 (parcial — AD-020 e AD-028 abertas), Epic 11 (concluído) e Epic 12 (concluído no mínimo do critério) foram entregues no código entre 13 e 21/08/2026 (commits `73fdc3e`, `6eb04fe` e `e622d52`) e registrados aqui na reconciliação de 05/10/2026. Próximo item: não definido neste documento.
 
 **EM EXECUÇÃO**
 _(vazio)_
@@ -421,6 +430,9 @@ _(vazio)_
 _(vazio)_
 
 **CONCLUÍDO**
+- AD-021 — Notificações internas (Epic 12), registro retroativo feito na reconciliação de 05/10/2026. Tabela `notification` (migration `20260813171216_add_notification`, RLS forçada com a policy `tenant_isolation`), entidade `Notification`, `NotificationService` síncrono (sem fila) e `NotificationController` (`GET /notifications`, `GET /notifications/unread-count`, `POST /notifications/:id/read`, papéis `admin` e `therapist`). Único gatilho: pagamento registrado com valor divergente (`payment_divergent`). Commits `6eb04fe` (13/08/2026), `9911f15` (16/08/2026) e `e622d52` (21/08/2026). Teste crítico `notification-payment-divergent.test.ts` e testes unitários. Concluída no mínimo do critério: canal in-app apenas, sem tela no frontend, sem e-mail nem push, sem ADR registrando a escolha do canal.
+- AD-019 — `GET /dashboard/summary` (Epic 11), registro retroativo feito na reconciliação de 05/10/2026. Commit `73fdc3e` (13/08/2026). Teste crítico `dashboard-summary.test.ts` (afirma `activePatients`, `overdueBillings` e `totalPending`) e teste unitário do use case; `app/dashboard/page.tsx` consome o endpoint. Epic 11 concluído integralmente com este item.
+- AD-013, AD-014, AD-015 e AD-029 — Epic 10 (parcial), registro retroativo feito na reconciliação de 05/10/2026. Commit `73fdc3e` (13/08/2026): token persistido em `localStorage`; `isError` nas páginas que consultam a API; confirmar e cancelar consulta, enviar cobrança e registrar pagamento; páginas de Terapeutas e Auditoria. 9 arquivos de teste de frontend (43 casos pela contagem estática). AD-020 e AD-028 seguem parciais (ver Epic 10).
 - AD-018 — Aggregate `Contact`: identidade de comunicação, promoção e desambiguação. Gap funcional real: `Conversation.patientId` só é resolvido uma vez, na criação; sem `Patient` prévio fica `null` para sempre, e `IntentActionRouter` nunca agenda sem `patientId` — um contato genuinamente novo não conseguia completar um agendamento pelo WhatsApp. Implementado o Aggregate `Contact` (já modelado e congelado em ADR-0043/0044/0045/0046) em 7 Fases sequenciais, cada uma revisada e aprovada individualmente: Fase 1 (schema/migration/RLS), Fase 2 (domínio — Aggregate, VO `PhoneNumber`, máquina de estados, 9 Domain Events), Fase 3 (`ContactRepository`/`ContactModule`), Fase 4 (`ReconhecerOuCriarContatoUseCase`), Fase 5 (integração com `ReceberMensagemWhatsAppUseCase`), Fase 6 (`ContactIntentActionRouter` + `ContactIntentClassifier`, construídos isolados do pipeline ao vivo por decisão explícita, dado o custo real de uma terceira chamada de IA por turno), Fase 7 (integração ao vivo, custo somado ao teto RNF-021, timeout+retry+correlationId no classificador, regressão completa). Decisão completa em `ADR-0055`. `Patient`, `Conversation`/`Message` e o Inbox Pattern (ADR-0054/AD-036) permanecem 100% intocados. `ContactId`/`TenantId`/`PatientId` permanecem `string` puro (divergência aprovada da v1 — nenhuma entidade do codebase encapsula IDs em Value Objects). AD-024 formalmente descartada do escopo (ver Epic 9). Achados reais corrigidos ao longo das Fases: `contact.phone_number` nullable (LGPD); `ContactModule` precisa importar `AuditModule` diretamente (Nest não "achata" o grafo de módulos); cleanup de `contact`/`contact_patient_association` em 2 critical tests; na revisão técnica final, corpo malformado numa resposta 2xx do classificador tratado incorretamente como repetível (corrigido) e duplicação literal da regra de dedupe do Aggregate em `ContactIntentActionRouter.handleAssociar()` (corrigida, removida). **Gap conhecido, não fechado por esta AD:** Cenário 13 (troca de número) — `Contact.vincularAPacienteExistente()` existe no Aggregate mas nenhum Use Case/Router o chama; nenhum dos 3 cenários (11/12/13) ganhou teste crítico dedicado contra Postgres real. Suíte unitária 605/605, suíte de integração (Prisma↔Domínio↔RLS real) 8/8, suíte crítica (Postgres/Redis/BullMQ reais, incluindo o pipeline de 3 chamadas de IA) 183/184 (1 skip pré-existente), 0 falhas. Ver `ADR-0055` e evidência completa no CHANGELOG.
 - AD-036 — Idempotência ponta-a-ponta do processamento assíncrono de WhatsApp (Inbox Pattern). A revisão técnica do commit AD-007/AD-010 identificou risco Alto: um retry do BullMQ depois da IA já ter respondido com sucesso reexecutava tudo do zero — custo de IA duplicado, possível ação de negócio duplicada (`IntentActionRouter`), `Message` de saída duplicada, auditoria duplicada. Passou por 3 rodadas de revisão arquitetural antes de qualquer código (v1: checkpoint embutido em `Message`, rejeitada por acoplar idempotência ao domínio; v2: Inbox Pattern dedicado; v3: correção de uma falha real na v2 — ciclo de 2 estados não protegia contra falha no despacho após a IA ter sucesso, corrigido para 4 estados). Decisão completa em `ADR-0054`. Tabela nova `inbound_processing_inbox` (genérica por `channel`, reutilizável por canais futuros), ciclo `processing → generated → dispatched` com o checkpoint `generated` estritamente entre a Fase 1 (IA + `IntentActionRouter` + persistência + auditoria) e a Fase 2 (despacho, já idempotente). `ProcessarMensagemWhatsAppUseCase` perdeu a chamada de enfileiramento de saída (movida para o worker) e passou a retornar `{ responseMessage, toPhoneNumber }` — única mudança nesse Use Case. `ProcessarMensagemUseCase`, `IntentActionRouter`, pipeline de saída e `Conversation`/`Message` permanecem 100% inalterados. Achado real adicional durante a validação: a fila `whatsapp-inbound` é real e compartilhada entre arquivos da suíte crítica — cada arquivo instanciava seu próprio worker real, todos competindo pelos mesmos jobs; corrigido em `bootstrap-app.ts` (arquivo exclusivo de teste) com o worker real desligado por padrão, ligado só via opt-in explícito no único arquivo que precisa dele. 1 migration nova, 3 arquivos de produção novos + 3 modificados, 1 arquivo crítico novo (6 testes, BullMQ/Postgres/Redis reais, incluindo retry ponta-a-ponta forçado), suíte unitária 499/499, suíte crítica 183/184 (1 skip pré-existente), 0 falhas, confirmado em duas execuções consecutivas da suíte completa. Ver `ADR-0054` e evidência completa no CHANGELOG.
 - AD-007/AD-010 — Canal WhatsApp, entrada real. `POST /webhooks/whatsapp` recebe mensagem real, valida assinatura HMAC-SHA256 sobre o corpo bruto (`WhatsAppWebhookGuard`), resolve o Tenant via `phoneNumberId` (PD-007, índice único novo em `WhatsAppIntegration.phoneNumberId`), persiste de forma idempotente por WAMID (`Message.externalId` único) e despacha o pipeline de IA já existente (`ProcessarMensagemUseCase`/`IntentActionRouter`) de forma assíncrona, via fila BullMQ nova (`whatsapp-inbound`), nunca bloqueando a resposta síncrona ao webhook. Novo Bounded Context `Conversation`/`Message` (PD-008, versão mínima aprovada — sem máquina de estados, sem escalonamento humano, restrições explícitas). `IntentActionRouter` passa de 4 para 6 intents roteados (`remarcar_consulta`, `consultar_disponibilidade` — os Use Cases já existiam prontos em `AppointmentsModule`, só não conectados). Decisão completa em `ADR-0053`. 3 achados reais corrigidos durante a implementação: (1) importar `Response` de `'express'` no Controller quebrava a resolução de módulo do Vitest, derrubando a suíte crítica inteira — corrigido eliminando o import (retorno de string primitiva já produz texto puro via o `RouterResponseController` padrão do Nest); (2) habilitar RLS em `whatsapp_integration` quebrava `WhatsAppMessageProvider.send()` (fluxo de saída já existente, consulta deliberadamente fora de `TenantContext`) — corrigido revertendo a RLS só dessa tabela (nova migration), preservando a arquitetura de saída intocada; (3) um `??` no próprio teste mascarava um cenário — corrigido com checagem explícita de presença de chave. Achado adicional sinalizado (não estava nos princípios pré-aprovados): `PatientRepository.findByPhone()`, sem o qual nenhum intent de ação executaria para uma mensagem real. 33 testes novos (23 unitários + 10 críticos, Postgres/Redis reais), suíte unitária 499/499, suíte crítica 177/178 (1 skip documentado pré-existente), 0 falhas. AD-027 (testes contra API real da Meta) permanece pendente, bloqueado por credenciais externas. Ver `ADR-0053` e evidência completa no CHANGELOG.
@@ -464,6 +476,21 @@ Decisão arquitetural formalizada em **[`ADR-0047`](./02-Arquitetura/ADRs/ADR-00
 **AD-033 e AD-034 são itens de backlog independentes, não bloqueiam a Sprint 4.** Ambos foram descobertos como efeito colateral da validação (RLS genuinamente ativa pela primeira vez expôs AD-033; execução completa e repetida da suíte expôs AD-034) — nenhum dos dois impede o uso normal do ambiente restaurado, da AD-004 validada, ou do início da AD-002. Seguem no Kanban em BACKLOG, sem prioridade sobre o restante da fila.
 
 A hipótese de que a causa é uma limitação conhecida do Go/Windows na manipulação de reparse points de sockets AF_UNIX é **plausível, com evidência pública de apoio, mas não confirmada** — permanece registrada apenas como hipótese em `ADR-0047`, não como fato.
+
+---
+
+### Checkpoint canônico do repositório (reconciliado em 05/10/2026)
+
+Fonte de verdade para Git, ambiente e documentação, confirmada na Fase 1 da auditoria (reconciliação). Substitui qualquer checkpoint anterior que cite `18c3086` como estado atual.
+
+- **Repositório canônico:** `/root/luxora-app`, no WSL2 em ext4 ([`ADR-0048`](./02-Arquitetura/ADRs/ADR-0048-repositorio-ext4-wsl2.md)). Branch `master`; remoto `origin` = `https://github.com/nxvzghost/luxora-app.git`.
+- **Último commit anterior a esta reconciliação:** `e622d52` — `feat(notification): expose notification API` (21/08/2026). `origin/master` estava no mesmo commit (0 à frente, 0 atrás) e a working tree estava limpa.
+- **Checkpoint superado:** `18c3086` (`ci: add redis service for critical tests`, 18/08/2026) existe no histórico, mas está dois commits atrás de `e622d52`; depois dele vieram `465779d` e `e622d52`. O histórico não foi reescrito.
+- **CI (GitHub Actions, consultado na reconciliação):** `e622d52` e `465779d` terminaram com sucesso; as 7 execuções anteriores (`d84d294` a `18c3086`) terminaram em falha.
+- **Cópia do repositório no Windows** (pasta `Desktop/projeto/luxora-app/luxora-app`): não é fonte de verdade. Segundo a auditoria, o HEAD dela é `9550869` (16/07/2026), com 11 commits e 291 alterações não commitadas. Foi mantida intacta (não apagada, não sincronizada, não copiada) e será investigada em tarefa própria, se necessário.
+- **GitHub:** repositório **público** e **sem licença** (API pública do GitHub). Nenhuma decisão sobre visibilidade ou licença foi tomada nesta reconciliação.
+- **Proteção da branch `master`:** a API pública informa `protected: false` e `protection.enabled: false`. As regras detalhadas e eventuais rulesets exigem autenticação e não foram consultados: **não confirmado** além disso.
+- **Nomenclatura:** Luxora = plataforma/ecossistema-base; Vertex = produto/projeto construído dentro da Luxora; repositório técnico `luxora-app`. Os identificadores técnicos (pacotes `@luxora/*`, pastas, imports) não são renomeados.
 
 ---
 
