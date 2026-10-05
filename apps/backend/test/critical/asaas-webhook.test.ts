@@ -192,6 +192,42 @@ describe('[Fase 3] POST /webhooks/asaas — estado, idempotência e isolamento',
   });
 
   it.each([
+    ['PAYMENT_RECEIVED tardio (liquidação de cartão depois do cancelamento)', 'PAYMENT_RECEIVED'],
+    ['PAYMENT_CONFIRMED', 'PAYMENT_CONFIRMED'],
+    ['PAYMENT_OVERDUE', 'PAYMENT_OVERDUE'],
+  ])(
+    'evento que não cabe no estado atual — %s para assinatura cancelada: 200, assinatura continua cancelada, evento registrado',
+    async (_label, event) => {
+      const cancelled = await createDedicatedFixture(fixturePrisma, 'ASAASWHC', { withActiveSubscription: true });
+      const asaasSubscriptionId = `sub_teste_c_${randomUUID()}`;
+      try {
+        await fixturePrisma.clinicSubscription.update({
+          where: { tenantId: cancelled.tenantId },
+          data: { status: 'cancelled', asaasSubscriptionId },
+        });
+        const before = await subscriptionOf(cancelled);
+        const eventId = newEventId();
+        const payload = { id: eventId, event, payment: { subscription: asaasSubscriptionId } };
+
+        // Um 500 aqui faria a Asaas reenviar o mesmo evento; depois de 15
+        // falhas seguidas ela interrompe a fila de webhooks da conta inteira.
+        expect((await post(payload)).status).toBe(200);
+
+        const after = await subscriptionOf(cancelled);
+        expect(after.status).toBe('cancelled');
+        expect(after.updatedAt.getTime()).toBe(before.updatedAt.getTime());
+        expect(await fixturePrisma.asaasWebhookEvent.count({ where: { asaasEventId: eventId } })).toBe(1);
+
+        // Reentrega do mesmo evento continua sem efeito.
+        expect((await post(payload)).status).toBe(200);
+        expect(await fixturePrisma.asaasWebhookEvent.count({ where: { asaasEventId: eventId } })).toBe(1);
+      } finally {
+        await cleanupDedicatedFixture(fixturePrisma, cancelled);
+      }
+    },
+  );
+
+  it.each([
     ['sem id', { event: 'PAYMENT_CONFIRMED', subscription: { id: asaasSubscriptionA } }],
     ['sem tipo de evento', { id: `evt_teste_sem_tipo_${randomUUID()}`, subscription: { id: asaasSubscriptionA } }],
     ['corpo vazio', {}],

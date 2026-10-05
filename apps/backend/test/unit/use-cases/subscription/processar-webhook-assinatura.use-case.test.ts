@@ -5,7 +5,7 @@ import { TenantContext } from '@shared/tenant-context';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
-function activeSub(status: 'Trialing' | 'Active' | 'PastDue' = 'Trialing') {
+function activeSub(status: 'Trialing' | 'Active' | 'PastDue' | 'Cancelled' = 'Trialing') {
   return ClinicSubscription.reconstitute({
     id: 's1', tenantId: TENANT_ID, plan: 'professional', billingCycle: 'monthly', status, asaasSubscriptionId: 'sub_456',
   });
@@ -125,5 +125,34 @@ describe('ProcessarWebhookAssinaturaUseCase — payload inválido (Fase 3)', () 
     expect(subscriptionRepo.findByAsaasSubscriptionId).not.toHaveBeenCalled();
     expect(subscriptionRepo.save).not.toHaveBeenCalled();
     expect(auditService.recordAll).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProcessarWebhookAssinaturaUseCase — evento que não cabe no estado atual (Fase 3)', () => {
+  it.each(['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED', 'PAYMENT_OVERDUE'])(
+    '%s para assinatura Cancelled: não lança, não salva, não audita, e registra o evento como processado',
+    async (event) => {
+      const sub = activeSub('Cancelled');
+      const { useCase, subscriptionRepo, webhookRepo, auditService } = makeUseCase(sub);
+
+      await expect(useCase.execute({ id: 'evt_tardio', event, payment: { subscription: 'sub_456' } })).resolves.toBeUndefined();
+
+      expect(sub.status).toBe('Cancelled');
+      expect(subscriptionRepo.save).not.toHaveBeenCalled();
+      expect(auditService.recordAll).not.toHaveBeenCalled();
+      expect(webhookRepo.markProcessed).toHaveBeenCalledTimes(1);
+      expect(webhookRepo.markProcessed).toHaveBeenCalledWith('evt_tardio', event);
+    },
+  );
+
+  it('erro que não é de transição de estado continua subindo (a Asaas precisa reenviar)', async () => {
+    const sub = activeSub('Trialing');
+    const { useCase, subscriptionRepo, webhookRepo } = makeUseCase(sub);
+    subscriptionRepo.save.mockRejectedValue(new Error('banco indisponível'));
+
+    await expect(useCase.execute({ id: 'evt_banco', event: 'PAYMENT_CONFIRMED', subscription: { id: 'sub_456' } })).rejects.toThrow(
+      'banco indisponível',
+    );
+    expect(webhookRepo.markProcessed).not.toHaveBeenCalled();
   });
 });

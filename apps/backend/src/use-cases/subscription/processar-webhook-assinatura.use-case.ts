@@ -8,6 +8,7 @@ import {
   WEBHOOK_EVENT_REPOSITORY,
 } from '@domain-services/subscription/webhook-event.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
+import { InvalidStateTransitionError } from '@domain/shared/state-machine';
 import { TenantContext } from '@shared/tenant-context';
 
 export interface AsaasWebhookPayload {
@@ -92,12 +93,31 @@ export class ProcessarWebhookAssinaturaUseCase {
     // cobre ativação e renovação com o mesmo método, avança
     // `currentPeriodEnd` (CEO-DEC-003.6) e aplica um downgrade agendado
     // se o ciclo virou (CEO-DEC-002.5).
-    if (newStatus === 'Active') {
-      subscription.confirmPayment();
-    } else if (subscription.status !== newStatus) {
-      subscription.transitionTo(newStatus);
-    } else {
+    try {
+      if (newStatus === 'Active') {
+        subscription.confirmPayment();
+      } else if (subscription.status !== newStatus) {
+        subscription.transitionTo(newStatus);
+      } else {
+        await this.webhookRepo.markProcessed(payload.id, payload.event);
+        return;
+      }
+    } catch (err) {
+      if (!(err instanceof InvalidStateTransitionError)) {
+        throw err;
+      }
+      // Fase 3 da auditoria — ACHADO REAL: o evento é legítimo, mas não
+      // cabe no estado atual (ex.: PAYMENT_RECEIVED da liquidação de um
+      // cartão chegando depois de a assinatura já estar Cancelled, que não
+      // admite nenhuma transição). Antes, a exceção virava 500: a Asaas
+      // reenviaria o mesmo evento e, após 15 falhas seguidas, interromperia
+      // a fila de webhooks da conta inteira — de todas as clínicas. A
+      // entidade valida a transição antes de mudar qualquer coisa, então
+      // nada foi alterado: confirma o recebimento e registra o evento.
       await this.webhookRepo.markProcessed(payload.id, payload.event);
+      this.logger.warn(
+        `Evento ${payload.event} não se aplica à assinatura ${subscription.id} no estado ${subscription.status} — confirmado sem alterar nada.`,
+      );
       return;
     }
 
