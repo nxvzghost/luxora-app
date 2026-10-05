@@ -156,3 +156,37 @@ describe('ProcessarWebhookAssinaturaUseCase — evento que não cabe no estado a
     expect(webhookRepo.markProcessed).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * CARACTERIZAÇÃO — Fase 3B da auditoria. Não é o comportamento desejado; é o
+ * comportamento atual, fixado para sustentar uma decisão pendente (D8 em
+ * docs/04-API/02-Contratos-de-Integracoes-Externas.md).
+ *
+ * Pela documentação da Asaas, uma mesma cobrança por cartão gera
+ * PAYMENT_CONFIRMED e, 32 dias depois, PAYMENT_RECEIVED. Os dois eventos têm
+ * hoje o mesmo efeito. Consequência: a liquidação da mensalidade ANTERIOR
+ * chega quando a assinatura já pode estar em atraso pela mensalidade atual —
+ * e a reativa. Quando a regra for decidida, estes testes devem ser invertidos.
+ */
+describe('ProcessarWebhookAssinaturaUseCase — CARACTERIZAÇÃO: PAYMENT_RECEIVED conta como nova confirmação (decisão pendente)', () => {
+  it('PAYMENT_RECEIVED em assinatura PastDue a reativa', async () => {
+    const sub = activeSub('PastDue');
+    const { useCase, subscriptionRepo } = makeUseCase(sub);
+
+    await useCase.execute({ id: 'evt_liquidacao', event: 'PAYMENT_RECEIVED', payment: { subscription: 'sub_456' } });
+
+    expect(sub.status).toBe('Active');
+    expect(subscriptionRepo.save).toHaveBeenCalledOnce();
+  });
+
+  it('PAYMENT_CONFIRMED e PAYMENT_RECEIVED da mesma cobrança avançam o ciclo duas vezes (dois save)', async () => {
+    const sub = activeSub('Trialing');
+    const { useCase, subscriptionRepo } = makeUseCase(sub);
+
+    await useCase.execute({ id: 'evt_confirmada', event: 'PAYMENT_CONFIRMED', payment: { subscription: 'sub_456' } });
+    await useCase.execute({ id: 'evt_recebida', event: 'PAYMENT_RECEIVED', payment: { subscription: 'sub_456' } });
+
+    expect(sub.status).toBe('Active');
+    expect(subscriptionRepo.save).toHaveBeenCalledTimes(2);
+  });
+});

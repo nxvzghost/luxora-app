@@ -98,6 +98,33 @@ describe.skipIf(!enabled)('[MANUAL / EXTERNAL] Asaas sandbox — createCustomer,
     expect(response.status).toBe(200);
   }, 30000);
 
+  it('webhooks cadastrados na conta: o modo de envio precisa ser o sequencial (só leitura)', async () => {
+    // Requisito do contrato (docs/04-API/02-Contratos-de-Integracoes-Externas.md):
+    // o backend pressupõe entrega sequencial. Sem webhook cadastrado, nada é exigido.
+    const response = await fetch(`${process.env.ASAAS_BASE_URL}/webhooks`, {
+      headers: { access_token: process.env.ASAAS_API_KEY as string, 'User-Agent': 'Luxora-Backend (Node.js; sandbox)' },
+    });
+    const body = (await response.json()) as {
+      data?: Array<{ enabled?: boolean; interrupted?: boolean; sendType?: string }>;
+    };
+    const webhooks = body.data ?? [];
+
+    logSmoke('asaas-sandbox', {
+      chamada: 'GET /webhooks',
+      http: response.status,
+      cadastrados: webhooks.length,
+      modos: webhooks.map((webhook) => webhook.sendType ?? 'nao-informado').join(',') || 'nenhum',
+      interrompidos: webhooks.filter((webhook) => webhook.interrupted).length,
+    });
+
+    expect(response.status).toBe(200);
+    for (const webhook of webhooks) {
+      if (webhook.sendType !== undefined) {
+        expect(webhook.sendType).toBe('SEQUENTIALLY');
+      }
+    }
+  }, 30000);
+
   it('credencial inválida é recusada com erro que não expõe a chave', async () => {
     const realKey = process.env.ASAAS_API_KEY as string;
     process.env.ASAAS_API_KEY = 'chave-invalida-de-proposito';
