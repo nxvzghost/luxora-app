@@ -20,6 +20,22 @@ import {
  * Luxora (Diretriz Oficial: "a Luxora nunca armazenará dados sensíveis de
  * cartões").
  */
+const MAX_ERROR_BODY_LENGTH = 500;
+
+/**
+ * Fase 2 da auditoria (R5) — remove dado de cartão de um texto antes de ele
+ * virar mensagem de erro. O corpo de erro devolvido pela Asaas entra na
+ * mensagem da exceção, e LuxoraExceptionFilter grava essa mensagem no log:
+ * se a Asaas ecoar o que recebeu, o número e o CCV iriam parar no log.
+ * Mascara o valor de campos de código de segurança e qualquer sequência de
+ * 13 a 19 dígitos (número de cartão, com ou sem espaços/traços).
+ */
+export function redactCardData(text: string): string {
+  return text
+    .replace(/("?(?:ccv|cvv|cvc|securityCode)"?\s*[:=]\s*"?)[^",}\s]+/gi, '$1[omitido]')
+    .replace(/\b\d(?:[ -]?\d){12,18}\b/g, '[número omitido]');
+}
+
 @Injectable()
 export class AsaasPaymentProvider implements PaymentProvider {
   private get baseUrl(): string {
@@ -43,7 +59,9 @@ export class AsaasPaymentProvider implements PaymentProvider {
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
+      // O corpo da REQUISIÇÃO nunca entra na mensagem; o da RESPOSTA entra
+      // só depois de mascarado e truncado (ver redactCardData).
+      const errorBody = redactCardData(await response.text()).slice(0, MAX_ERROR_BODY_LENGTH);
       throw new Error(`Falha na chamada Asaas ${method} ${path} (${response.status}): ${errorBody}`);
     }
 
