@@ -103,6 +103,26 @@ export class ConsultarPagamentoUseCase {
   }
 }
 
+/**
+ * Tarefa 05 da auditoria — só leitura. O estorno é feito pelo id do
+ * pagamento (POST /payments/:id/refund), e nenhuma rota permitia chegar a
+ * esse id a partir da cobrança: o painel não tinha como oferecer o estorno.
+ */
+@Injectable()
+export class ListarPagamentosDaCobrancaUseCase {
+  constructor(
+    @Inject(PAYMENT_REPOSITORY) private readonly paymentRepo: PaymentRepository,
+    @Inject(BILLING_REPOSITORY) private readonly billingRepo: BillingRepository,
+  ) {}
+
+  async execute(billingId: string): Promise<Payment[]> {
+    const billing = await this.billingRepo.findById(billingId);
+    if (!billing) throw new NotFoundException('Cobrança não encontrada.');
+    const payment = await this.paymentRepo.findByBillingId(billingId);
+    return payment ? [payment] : [];
+  }
+}
+
 @Injectable()
 export class EstornarPagamentoUseCase {
   constructor(

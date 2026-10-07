@@ -15,6 +15,7 @@ import {
   RegistrarPagamentoUseCase,
   ConsultarPagamentoUseCase,
   EstornarPagamentoUseCase,
+  ListarPagamentosDaCobrancaUseCase,
 } from '@use-cases/payment/payment.use-cases';
 import { Billing } from '@domain/billing/billing.entity';
 import { Payment } from '@domain/payment/payment.entity';
@@ -32,6 +33,7 @@ export class BillingController {
     private readonly consultarCobranca: ConsultarCobrancaUseCase,
     private readonly listarCobrancas: ListarCobrancasUseCase,
     private readonly enviarCobranca: EnviarCobrancaUseCase,
+    private readonly listarPagamentos: ListarPagamentosDaCobrancaUseCase,
   ) {}
 
   @Get()
@@ -56,6 +58,16 @@ export class BillingController {
   @Roles('admin')
   async send(@Param('id') id: string) {
     return this.toResponse(await this.enviarCobranca.execute(id));
+  }
+
+  // Tarefa 05 da auditoria — só leitura: é por aqui que o painel chega ao id
+  // do pagamento para acompanhar o estado e oferecer o estorno.
+  @Get(':id/payments')
+  async payments(@Param('id') id: string) {
+    const payments = await this.listarPagamentos.execute(id);
+    return {
+      data: payments.map((payment) => ({ id: payment.id, billingId: payment.billingId, amount: payment.amount, state: payment.state })),
+    };
   }
 
   private toResponse(billing: Billing) {

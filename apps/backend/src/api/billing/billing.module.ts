@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { BillingController, PaymentController } from './billing.controller';
+import { SessionsController } from './sessions.controller';
+import { ListarSessoesUseCase } from '@use-cases/session/listar-sessoes.use-case';
 import {
   GerarCobrancaUseCase,
   ConsultarCobrancaUseCase,
@@ -11,6 +13,7 @@ import {
   RegistrarPagamentoUseCase,
   ConsultarPagamentoUseCase,
   EstornarPagamentoUseCase,
+  ListarPagamentosDaCobrancaUseCase,
 } from '@use-cases/payment/payment.use-cases';
 import { BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
 import { PAYMENT_REPOSITORY } from '@domain-services/financial/payment.repository';
@@ -41,7 +44,7 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
 
 @Module({
   imports: [JwtModule.register({ secret: process.env.JWT_SECRET }), CommunicationModule],
-  controllers: [BillingController, PaymentController],
+  controllers: [BillingController, PaymentController, SessionsController],
   providers: [
     SubscriptionAccessGuard,
     { provide: CLINIC_SUBSCRIPTION_REPOSITORY, useClass: PrismaClinicSubscriptionRepository },
@@ -54,6 +57,8 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     RegistrarPagamentoUseCase,
     ConsultarPagamentoUseCase,
     EstornarPagamentoUseCase,
+    ListarPagamentosDaCobrancaUseCase,
+    ListarSessoesUseCase,
     { provide: BILLING_REPOSITORY, useClass: PrismaBillingRepository },
     { provide: PAYMENT_REPOSITORY, useClass: PrismaPaymentRepository },
     PrismaService,

@@ -31,6 +31,11 @@ export class PrismaPaymentRepository implements PaymentRepository {
     return record ? this.toDomain(record) : null;
   }
 
+  async findByBillingId(billingId: string): Promise<Payment | null> {
+    const record = await this.prisma.forTenant((tx) => tx.payment.findUnique({ where: { billingId } }));
+    return record ? this.toDomain(record) : null;
+  }
+
   async save(payment: Payment): Promise<void> {
     try {
       await this.prisma.forTenant((tx) =>

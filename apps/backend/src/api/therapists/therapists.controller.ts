@@ -12,6 +12,7 @@ import {
   AtualizarTerapeutaUseCase,
 } from '@use-cases/therapist/therapist.use-cases';
 import {
+  ConsultarCalendarioUseCase,
   DefinirDisponibilidadeUseCase,
   DefinirExcecoesDisponibilidadeUseCase,
 } from '@use-cases/availability/gerenciar-disponibilidade.use-case';
@@ -33,6 +34,7 @@ export class TherapistsController {
     private readonly atualizarTerapeuta: AtualizarTerapeutaUseCase,
     private readonly definirDisponibilidade: DefinirDisponibilidadeUseCase,
     private readonly definirExcecoesDisponibilidade: DefinirExcecoesDisponibilidadeUseCase,
+    private readonly consultarCalendario: ConsultarCalendarioUseCase,
   ) {}
 
   @Get()
@@ -58,6 +60,15 @@ export class TherapistsController {
   async update(@Param('id') id: string, @Body() dto: UpdateTherapistDto) {
     const therapist = await this.atualizarTerapeuta.execute({ id, ...dto });
     return this.toResponse(therapist);
+  }
+
+  // Tarefa 05 da auditoria — só leitura. As duas rotas abaixo SUBSTITUEM a
+  // lista inteira (janelas ou exceções); sem poder ler o que já está
+  // gravado, o painel apagaria às cegas o que não mostrasse. 404 quando o
+  // terapeuta ainda não tem calendário.
+  @Get(':id/availability/calendar')
+  async calendar(@Param('id') id: string) {
+    return this.toCalendarResponse(await this.consultarCalendario.execute(id));
   }
 
   @Put(':id/availability')

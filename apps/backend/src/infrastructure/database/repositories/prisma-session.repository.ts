@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Session as PrismaSession } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { Session, SessionState } from '@domain/session/session.entity';
-import { SessionRepository } from '@domain-services/patient-ops/session.repository';
+import { SessionFilter, SessionRepository, SessionSummary } from '@domain-services/patient-ops/session.repository';
 
 @Injectable()
 export class PrismaSessionRepository implements SessionRepository {
@@ -30,6 +30,28 @@ export class PrismaSessionRepository implements SessionRepository {
         },
       }),
     );
+  }
+
+  async findSummaries(filter: SessionFilter = {}): Promise<SessionSummary[]> {
+    const records = await this.prisma.forTenant((tx) =>
+      tx.session.findMany({
+        where: {
+          ...(filter.state ? { state: filter.state as PrismaSession['state'] } : {}),
+          ...(filter.patientId ? { patientId: filter.patientId } : {}),
+        },
+        include: { appointment: { select: { scheduledAt: true } } },
+        orderBy: { appointment: { scheduledAt: 'desc' } },
+        take: filter.limit ?? 200,
+      }),
+    );
+    return records.map((record) => ({
+      id: record.id,
+      appointmentId: record.appointmentId,
+      patientId: record.patientId,
+      therapistId: record.therapistId,
+      state: record.state as SessionState,
+      scheduledAt: record.appointment.scheduledAt,
+    }));
   }
 
   private toDomain(record: PrismaSession): Session {
