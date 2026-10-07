@@ -129,3 +129,21 @@ jobs:
           JWT_SECRET: jwt-secret-de-teste-nao-usar-em-producao-2026
           WHATSAPP_APP_SECRET: test-app-secret
           WHATSAPP_WEBHOOK_VERIFY_TOKEN: verify-token-de-teste-nao-usar-em-producao-2026
+
+  # Tarefa 04 da auditoria — o caminho de deploy é testado a cada mudança.
+  # Constrói as imagens a partir do checkout limpo (o mesmo script do CD) e
+  # ensaia, numa pilha descartável do próprio runner: deploy, rollback
+  # automático de uma versão quebrada, rollback manual, readiness com
+  # Postgres/Redis fora do ar, encerramento gracioso, restauração de backup
+  # e exportação de traces. Não usa credencial nem serviço externo.
+  deploy-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versão (commit curto)
+        run: echo "VERSION=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+      - name: Build das imagens
+        run: bash infra/scripts/build-images.sh --version "$VERSION" --api-url http://localhost:13000/api/v1
+      - name: Ensaio de deploy, rollback e restauração
+        run: bash infra/tests/rehearsal.sh --backend-version "$VERSION" --frontend-version "$VERSION"

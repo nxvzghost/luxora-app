@@ -1,0 +1,118 @@
+name: CD
+
+# Tarefa 04 da auditoria — entrega para homologação (staging).
+# Passo a passo e decisões: docs/07-Infra/DEPLOY_RUNBOOK.md.
+#
+# Só roda quando alguém aciona (Actions → CD → Run workflow). Não há gatilho
+# em push: publicar imagem e implantar são sempre um ato deliberado.
+#
+# O QUE JÁ RODA SOZINHO, sem nada além do próprio GitHub:
+#   publish         build das imagens, ensaio de deploy/rollback e publicação
+#                   no GHCR (registro do GitHub, com o GITHUB_TOKEN do job).
+#
+# O QUE DEPENDE DE INFRAESTRUTURA QUE AINDA NÃO EXISTE:
+#   deploy-staging  precisa de um host de homologação. Fica PULADO até a
+#                   variável STAGING_DEPLOY_ENABLED=true ser criada no
+#                   repositório, junto com o ambiente "staging" e seus
+#                   segredos (lista no runbook). Nunca foi executado.
+#
+# Produção não tem job aqui de propósito: só entra depois de a homologação
+# estar em uso, com aprovação obrigatória (docs/02-Arquitetura/13-Deploy.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'URL pública da API de homologação, embutida no painel (ex.: https://api-staging.exemplo.com.br/api/v1)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-staging
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      registry: ${{ steps.version.outputs.registry }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versão e registro
+        id: version
+        run: |
+          echo "version=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+      - name: Build das imagens
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          API_URL: ${{ inputs.api_url }}
+        run: bash infra/scripts/build-images.sh --version "$VERSION" --api-url "$API_URL"
+      # Portão: nenhuma imagem é publicada sem passar pelo ensaio completo.
+      - name: Ensaio de deploy, rollback e restauração
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bash infra/tests/rehearsal.sh --backend-version "$VERSION" --frontend-version "$VERSION"
+      - name: Publicação no GHCR
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REGISTRY: ${{ steps.version.outputs.registry }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for image in luxora-backend luxora-backend-migrate luxora-frontend; do
+            docker tag "$image:$VERSION" "$REGISTRY/$image:$VERSION"
+            # A tag de versão é imutável: se já existe no registro, não é sobrescrita.
+            if docker manifest inspect "$REGISTRY/$image:$VERSION" >/dev/null 2>&1; then
+              echo "$REGISTRY/$image:$VERSION já publicada — mantida como está"
+            else
+              docker push "$REGISTRY/$image:$VERSION"
+            fi
+          done
+
+  deploy-staging:
+    needs: publish
+    # Sem host de homologação, este job não roda. Ver o cabeçalho.
+    if: vars.STAGING_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    steps:
+      - name: Chave e identidade do host
+        env:
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          # A identidade do host vem de um segredo: nunca aceitar a chave às cegas.
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+      - name: Deploy (com rollback automático)
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+          REGISTRY: ${{ needs.publish.outputs.registry }}
+          SSH_TARGET: ${{ secrets.STAGING_SSH_USER }}@${{ secrets.STAGING_SSH_HOST }}
+          # Caminhos no host: o checkout do repositório e o arquivo de ambiente.
+          REMOTE_REPO: ${{ vars.STAGING_REPO_DIR }}
+          REMOTE_ENV_FILE: ${{ vars.STAGING_ENV_FILE }}
+          DEPLOY_ACTOR: ${{ github.actor }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/id_deploy "$SSH_TARGET" bash -s -- "$VERSION" "$REGISTRY" "$REMOTE_REPO" "$REMOTE_ENV_FILE" "$DEPLOY_ACTOR" "$COMMIT" <<'REMOTE'
+          set -euo pipefail
+          VERSION="$1"; REGISTRY="$2"; REPO="$3"; ENV_FILE="$4"; ACTOR="$5"; COMMIT="$6"
+          cd "$REPO"
+          # Os scripts e o compose vêm do mesmo commit das imagens.
+          git fetch --quiet origin "$COMMIT"
+          git checkout --quiet --detach "$COMMIT"
+          export BACKEND_IMAGE_REPO="$REGISTRY/luxora-backend" FRONTEND_IMAGE_REPO="$REGISTRY/luxora-frontend" DEPLOY_ACTOR="$ACTOR"
+          bash infra/scripts/deploy.sh --env-file "$ENV_FILE" --version "$VERSION" --frontend-version "$VERSION" --notes "CD: commit $COMMIT"
+          REMOTE
