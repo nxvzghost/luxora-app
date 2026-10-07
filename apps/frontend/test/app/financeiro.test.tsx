@@ -1,54 +1,48 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQueryClient, mockFailingFetch } from '../support/render-with-query';
+import { apiError, fakeToken, mockApi, type MockReply, type MockRequest } from '../support/mock-api';
 import { useAuthStore } from '@/lib/stores/auth.store';
 import FinanceiroPage from '@/app/financeiro/page';
 
-const BILLING = {
-  id: 'billing-1',
-  patientId: 'patient-1',
-  amount: 200,
-  dueDate: '2026-08-10T00:00:00.000Z',
-  state: 'Criada',
-};
+/**
+ * FinanceiroPage — Fase 9.2/9.4 (AD-014, AD-020) e Tarefa 05 da auditoria:
+ * criar cobrança a partir das sessões realizadas, enviar, registrar o
+ * pagamento, acompanhar o estado e estornar.
+ */
 
-function mockFinanceiroFetch(overrides: { sendFails?: boolean; paymentFails?: boolean; billingState?: string } = {}) {
-  const billing = { ...BILLING, state: overrides.billingState ?? BILLING.state };
-  return vi.fn(async (url: string, options: { method?: string; headers?: Record<string, string> } = {}) => {
-    const method = options.method ?? 'GET';
-    if (method === 'GET' && url.includes('/billings')) {
-      return { ok: true, status: 200, json: async () => ({ data: [billing] }) };
-    }
-    if (method === 'GET' && url.includes('/patients')) {
-      return { ok: true, status: 200, json: async () => ({ data: [{ id: 'patient-1', name: 'Paciente Teste', phone: '+5541900000000', state: 'Ativo', billingPolicyOverride: null }] }) };
-    }
-    if (method === 'POST' && url.endsWith('/send')) {
-      if (overrides.sendFails) {
-        return { ok: false, status: 400, json: async () => ({ error: { message: 'Não é possível enviar.' } }) };
-      }
-      return { ok: true, status: 200, json: async () => ({ ...billing, state: 'Enviada' }) };
-    }
-    if (method === 'POST' && url.endsWith('/payments')) {
-      if (overrides.paymentFails) {
-        return { ok: false, status: 400, json: async () => ({ error: { message: 'Não é possível registrar o pagamento.' } }) };
-      }
-      return { ok: true, status: 201, json: async () => ({ id: 'payment-1', billingId: billing.id, amount: billing.amount, state: 'Confirmado' }) };
-    }
-    throw new Error(`unexpected fetch: ${method} ${url}`);
+const BILLING = { id: 'billing-1', patientId: 'patient-1', amount: 200, dueDate: '2026-08-10T00:00:00.000Z', state: 'Criada' };
+const SESSION_1 = { id: 'session-1', appointmentId: 'a1', patientId: 'patient-1', therapistId: 't1', state: 'Realizada', scheduledAt: '2026-10-01T17:00:00.000Z' };
+const SESSION_2 = { ...SESSION_1, id: 'session-2', appointmentId: 'a2', scheduledAt: '2026-10-08T17:00:00.000Z' };
+const PAYMENT = { id: 'payment-1', billingId: 'billing-1', amount: 200, state: 'Confirmado' };
+
+type Routes = Record<string, MockReply | ((request: MockRequest) => MockReply)>;
+
+function mockFinance(overrides: Routes = {}, billings: Array<typeof BILLING> = [BILLING]) {
+  return mockApi({
+    'GET /billings': { body: { data: billings } },
+    'GET /patients': { body: { data: [{ id: 'patient-1', name: 'Paciente Teste', phone: '+5541900000000', state: 'Ativo', billingPolicyOverride: null }] } },
+    'GET /therapists': { body: { data: [{ id: 't1', name: 'Dra. Marta', specialty: null }] } },
+    'GET /sessions': { body: { data: [SESSION_1, SESSION_2] } },
+    'GET /billings/:id/payments': { body: { data: [] } },
+    'GET /notifications/unread-count': { body: { count: 0 } },
+    ...overrides,
   });
 }
 
-describe('FinanceiroPage — Fase 9.2 (AD-014) — isError', () => {
-  beforeEach(() => {
-    useAuthStore.setState({ accessToken: 'fake-token', refreshToken: 'fake-refresh' });
-  });
+function signIn(role: 'admin' | 'therapist' = 'admin') {
+  useAuthStore.setState({ accessToken: fakeToken(role), refreshToken: 'fake-refresh' });
+}
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    useAuthStore.setState({ accessToken: null, refreshToken: null });
-  });
+beforeEach(() => signIn());
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+  useAuthStore.setState({ accessToken: null, refreshToken: null });
+});
+
+describe('FinanceiroPage — carregamento', () => {
   it('exibe mensagem de erro visível quando a busca de cobranças falha', async () => {
     vi.stubGlobal('fetch', mockFailingFetch());
     renderWithQueryClient(<FinanceiroPage />);
@@ -67,93 +61,263 @@ describe('FinanceiroPage — Fase 9.2 (AD-014) — isError', () => {
     });
     expect(screen.queryByText(/nenhuma cobrança gerada/i)).not.toBeInTheDocument();
   });
-});
 
-describe('FinanceiroPage — Fase 9.4 (AD-020) — mutações de enviar/registrar pagamento', () => {
-  beforeEach(() => {
-    useAuthStore.setState({ accessToken: 'fake-token', refreshToken: 'fake-refresh' });
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    useAuthStore.setState({ accessToken: null, refreshToken: null });
-  });
-
-  it('cobrança em estado Criada mostra os botões Enviar e Registrar pagamento', async () => {
-    vi.stubGlobal('fetch', mockFinanceiroFetch({ billingState: 'Criada' }));
+  it('sem cobranças: explica de onde elas nascem', async () => {
+    mockFinance({}, []);
     renderWithQueryClient(<FinanceiroPage />);
 
-    expect(await screen.findByRole('button', { name: /^enviar$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /registrar pagamento/i })).toBeInTheDocument();
+    expect(await screen.findByText(/nenhuma cobrança gerada ainda/i)).toHaveTextContent(/confirme a consulta na Agenda/i);
   });
 
-  it('cobrança em estado Quitada não mostra nenhum botão de ação', async () => {
-    vi.stubGlobal('fetch', mockFinanceiroFetch({ billingState: 'Quitada' }));
+  it('perfil terapeuta vê as cobranças, sem as ações que a API reserva ao admin', async () => {
+    signIn('therapist');
+    mockFinance();
+    renderWithQueryClient(<FinanceiroPage />);
+    await screen.findByText('Paciente Teste');
+
+    expect(screen.queryByRole('button', { name: 'Nova cobrança' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enviar' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pagamento' })).toBeInTheDocument();
+  });
+});
+
+describe('FinanceiroPage — criar cobrança', () => {
+  async function openForm(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole('button', { name: 'Nova cobrança' }));
+    const form = screen.getByRole('form', { name: 'Nova cobrança' });
+    await waitFor(() => expect(within(form).getByRole('option', { name: 'Paciente Teste' })).toBeInTheDocument());
+    return form;
+  }
+
+  it('lista as sessões realizadas e ainda não cobradas do paciente e cria a cobrança com as escolhidas', async () => {
+    const user = userEvent.setup();
+    const api = mockFinance({ 'POST /billings': { status: 201, body: { ...BILLING, id: 'billing-nova', amount: 450.5 } } });
+    renderWithQueryClient(<FinanceiroPage />);
+    const form = await openForm(user);
+
+    await user.selectOptions(within(form).getByLabelText('Paciente'), 'patient-1');
+    const checkboxes = await within(form).findAllByRole('checkbox');
+    expect(checkboxes).toHaveLength(2);
+    const sessionsRequest = api.sent('GET', '/sessions')[0];
+    expect(sessionsRequest.query.get('state')).toBe('Realizada');
+    expect(sessionsRequest.query.get('patientId')).toBe('patient-1');
+
+    await user.click(checkboxes[0]);
+    await user.click(checkboxes[1]);
+    await user.type(within(form).getByLabelText('Valor total (R$)'), '450,50');
+    fireEvent.change(within(form).getByLabelText('Vencimento'), { target: { value: '2026-11-10' } });
+    await user.click(within(form).getByRole('button', { name: 'Criar cobrança' }));
+
+    await waitFor(() => expect(api.sent('POST', '/billings')).toHaveLength(1));
+    expect(api.sent('POST', '/billings')[0].body).toEqual({
+      patientId: 'patient-1',
+      amount: 450.5,
+      dueDate: '2026-11-10',
+      sessionIds: ['session-1', 'session-2'],
+    });
+    expect(await screen.findByRole('status')).toHaveTextContent(/cobrança de R\$\s?450,50 criada para Paciente Teste/i);
+  });
+
+  it('paciente sem sessão a cobrar: explica de onde vêm as sessões', async () => {
+    const user = userEvent.setup();
+    mockFinance({ 'GET /sessions': { body: { data: [] } } });
+    renderWithQueryClient(<FinanceiroPage />);
+    const form = await openForm(user);
+
+    await user.selectOptions(within(form).getByLabelText('Paciente'), 'patient-1');
+
+    expect(await within(form).findByText(/não tem sessão a cobrar/i)).toHaveTextContent(/depois que a consulta é confirmada/i);
+  });
+
+  it('sem sessão marcada ou com valor inválido, não chama a API', async () => {
+    const user = userEvent.setup();
+    const api = mockFinance();
+    renderWithQueryClient(<FinanceiroPage />);
+    const form = await openForm(user);
+    await user.selectOptions(within(form).getByLabelText('Paciente'), 'patient-1');
+    const checkboxes = await within(form).findAllByRole('checkbox');
+    await user.type(within(form).getByLabelText('Valor total (R$)'), '0');
+    fireEvent.change(within(form).getByLabelText('Vencimento'), { target: { value: '2026-11-10' } });
+
+    await user.click(within(form).getByRole('button', { name: 'Criar cobrança' }));
+    expect(within(form).getByRole('alert')).toHaveTextContent(/marque ao menos uma sessão/i);
+
+    await user.click(checkboxes[0]);
+    await user.click(within(form).getByRole('button', { name: 'Criar cobrança' }));
+    expect(within(form).getByRole('alert')).toHaveTextContent(/valor maior que zero/i);
+    expect(api.sent('POST', '/billings')).toHaveLength(0);
+  });
+
+  it('sessão já cobrada por outra pessoa (409): mostra a regra e recarrega as sessões', async () => {
+    const user = userEvent.setup();
+    const api = mockFinance({ 'POST /billings': apiError(409, 'SESSION_ALREADY_BILLED', 'Uma das sessões já está vinculada a outra cobrança.') });
+    renderWithQueryClient(<FinanceiroPage />);
+    const form = await openForm(user);
+    await user.selectOptions(within(form).getByLabelText('Paciente'), 'patient-1');
+    await user.click((await within(form).findAllByRole('checkbox'))[0]);
+    await user.type(within(form).getByLabelText('Valor total (R$)'), '200');
+    fireEvent.change(within(form).getByLabelText('Vencimento'), { target: { value: '2026-11-10' } });
+    const before = api.sent('GET', '/sessions').length;
+
+    await user.click(within(form).getByRole('button', { name: 'Criar cobrança' }));
+
+    expect(await within(form).findByRole('alert')).toHaveTextContent(/já está vinculada a outra cobrança/i);
+    await waitFor(() => expect(api.sent('GET', '/sessions').length).toBeGreaterThan(before));
+  });
+});
+
+describe('FinanceiroPage — enviar cobrança', () => {
+  it('pede confirmação antes de mandar mensagem ao paciente e só então chama POST /billings/:id/send', async () => {
+    const user = userEvent.setup();
+    const api = mockFinance({ 'POST /billings/:id/send': { status: 201, body: { ...BILLING, state: 'Enviada' } } });
+    renderWithQueryClient(<FinanceiroPage />);
+
+    await user.click(await screen.findByRole('button', { name: /^enviar$/i }));
+    const dialog = screen.getByRole('dialog', { name: /enviar esta cobrança/i });
+    expect(dialog).toHaveTextContent(/Paciente Teste recebe pelo WhatsApp/i);
+    expect(api.sent('POST', '/billings/:id/send')).toHaveLength(0);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Enviar cobrança' }));
+
+    await waitFor(() => expect(api.sent('POST', '/billings/:id/send')).toHaveLength(1));
+    expect(api.sent('POST', '/billings/:id/send')[0].path).toBe('/billings/billing-1/send');
+    expect(await screen.findByRole('status')).toHaveTextContent(/enviada para a fila do WhatsApp/i);
+  });
+
+  it('cobrança já enviada não oferece "Enviar" de novo', async () => {
+    mockFinance({}, [{ ...BILLING, state: 'Enviada' }]);
     renderWithQueryClient(<FinanceiroPage />);
 
     await screen.findByText('Paciente Teste');
     expect(screen.queryByRole('button', { name: /^enviar$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /registrar pagamento/i })).not.toBeInTheDocument();
   });
 
-  it('enviar cobrança chama POST /billings/:id/send', async () => {
+  it('erro ao enviar aparece dentro da confirmação', async () => {
     const user = userEvent.setup();
-    const fetchMock = mockFinanceiroFetch({ billingState: 'Criada' });
-    vi.stubGlobal('fetch', fetchMock);
+    mockFinance({ 'POST /billings/:id/send': apiError(409, 'CONFLICT', 'Não é possível enviar.') });
     renderWithQueryClient(<FinanceiroPage />);
 
-    const sendButton = await screen.findByRole('button', { name: /^enviar$/i });
-    await user.click(sendButton);
+    await user.click(await screen.findByRole('button', { name: /^enviar$/i }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar cobrança' }));
 
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/billings/billing-1/send'), expect.objectContaining({ method: 'POST' }));
-    });
+    expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent(/não é possível enviar/i);
+  });
+});
+
+describe('FinanceiroPage — pagamento e estorno', () => {
+  async function openPayment(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole('button', { name: 'Pagamento' }));
+    return screen.getByRole('dialog', { name: /pagamento — Paciente Teste/i });
+  }
+
+  it('registrar pagamento: valor da cobrança já preenchido, POST /payments com Idempotency-Key', async () => {
+    const user = userEvent.setup();
+    const api = mockFinance({ 'POST /payments': { status: 201, body: PAYMENT } }, [{ ...BILLING, state: 'Enviada' }]);
+    renderWithQueryClient(<FinanceiroPage />);
+    const dialog = await openPayment(user);
+
+    expect(await within(dialog).findByLabelText('Valor recebido (R$)')).toHaveValue('200');
+    await user.click(within(dialog).getByRole('button', { name: 'Registrar pagamento' }));
+
+    await waitFor(() => expect(api.sent('POST', '/payments')).toHaveLength(1));
+    const request = api.sent('POST', '/payments')[0];
+    expect(request.body).toEqual({ billingId: 'billing-1', amount: 200 });
+    expect(request.headers['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/);
+    expect(await screen.findByRole('status')).toHaveTextContent(/a cobrança foi quitada/i);
   });
 
-  it('registrar pagamento chama POST /payments com header Idempotency-Key e o valor total da cobrança', async () => {
+  it('tentar de novo depois de uma falha reutiliza a mesma Idempotency-Key — nunca dois pagamentos', async () => {
     const user = userEvent.setup();
-    const fetchMock = mockFinanceiroFetch({ billingState: 'Pendente' });
-    vi.stubGlobal('fetch', fetchMock);
-    renderWithQueryClient(<FinanceiroPage />);
-
-    const payButton = await screen.findByRole('button', { name: /registrar pagamento/i });
-    await user.click(payButton);
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/payments'),
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ billingId: 'billing-1', amount: 200 }),
-          headers: expect.objectContaining({ 'Idempotency-Key': expect.any(String) }),
-        }),
-      );
+    let attempts = 0;
+    const api = mockFinance({
+      'POST /payments': () => (++attempts === 1 ? apiError(503, 'SERVICE_UNAVAILABLE', 'indisponível') : { status: 201, body: PAYMENT }),
     });
+    renderWithQueryClient(<FinanceiroPage />);
+    const dialog = await openPayment(user);
+    await within(dialog).findByLabelText('Valor recebido (R$)');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Registrar pagamento' }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(/não foi possível registrar o pagamento/i);
+    await user.click(within(dialog).getByRole('button', { name: 'Registrar pagamento' }));
+
+    await waitFor(() => expect(api.sent('POST', '/payments')).toHaveLength(2));
+    const [first, second] = api.sent('POST', '/payments');
+    expect(second.headers['Idempotency-Key']).toBe(first.headers['Idempotency-Key']);
   });
 
-  it('erro ao enviar exibe mensagem visível', async () => {
+  it('valor diferente do cobrado: avisa que ficou divergente e que a cobrança segue em aberto', async () => {
     const user = userEvent.setup();
-    vi.stubGlobal('fetch', mockFinanceiroFetch({ billingState: 'Criada', sendFails: true }));
+    const api = mockFinance({ 'POST /payments': { status: 201, body: { ...PAYMENT, amount: 150, state: 'Divergente' } } });
     renderWithQueryClient(<FinanceiroPage />);
+    const dialog = await openPayment(user);
+    const input = await within(dialog).findByLabelText('Valor recebido (R$)');
 
-    const sendButton = await screen.findByRole('button', { name: /^enviar$/i });
-    await user.click(sendButton);
+    await user.clear(input);
+    await user.type(input, '150');
+    await user.click(within(dialog).getByRole('button', { name: 'Registrar pagamento' }));
 
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(/não é possível enviar/i);
-    });
+    await waitFor(() => expect(api.sent('POST', '/payments')[0].body).toEqual({ billingId: 'billing-1', amount: 150 }));
+    expect(await screen.findByRole('status')).toHaveTextContent(/registrado como divergente/i);
   });
 
-  it('erro ao registrar pagamento exibe mensagem visível', async () => {
+  it('cobrança paga: mostra o pagamento e o estorno exige um segundo passo de confirmação', async () => {
     const user = userEvent.setup();
-    vi.stubGlobal('fetch', mockFinanceiroFetch({ billingState: 'Pendente', paymentFails: true }));
+    const api = mockFinance(
+      { 'GET /billings/:id/payments': { body: { data: [PAYMENT] } }, 'POST /payments/:id/refund': { status: 201, body: { ...PAYMENT, state: 'Estornado' } } },
+      [{ ...BILLING, state: 'Quitada' }],
+    );
     renderWithQueryClient(<FinanceiroPage />);
+    const dialog = await openPayment(user);
 
-    const payButton = await screen.findByRole('button', { name: /registrar pagamento/i });
-    await user.click(payButton);
+    expect(await within(dialog).findByText(/Confirmado/)).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('Valor recebido (R$)')).not.toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent(/não é possível registrar o pagamento/i);
-    });
+    await user.click(within(dialog).getByRole('button', { name: 'Estornar pagamento' }));
+    expect(api.sent('POST', '/payments/:id/refund')).toHaveLength(0);
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/não pode ser desfeito/i);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Confirmar estorno' }));
+
+    await waitFor(() => expect(api.sent('POST', '/payments/:id/refund')).toHaveLength(1));
+    expect(api.sent('POST', '/payments/:id/refund')[0].path).toBe('/payments/payment-1/refund');
+    expect(await screen.findByRole('status')).toHaveTextContent(/estornado/i);
+  });
+
+  it('pagamento já estornado: só informa o estado, sem ação', async () => {
+    const user = userEvent.setup();
+    mockFinance({ 'GET /billings/:id/payments': { body: { data: [{ ...PAYMENT, state: 'Estornado' }] } } }, [{ ...BILLING, state: 'Quitada' }]);
+    renderWithQueryClient(<FinanceiroPage />);
+    const dialog = await openPayment(user);
+
+    expect(await within(dialog).findByText(/Estornado/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /estornar/i })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Fechar' })).toBeInTheDocument();
+  });
+
+  it('erro no estorno aparece na janela, que continua aberta', async () => {
+    const user = userEvent.setup();
+    mockFinance(
+      { 'GET /billings/:id/payments': { body: { data: [PAYMENT] } }, 'POST /payments/:id/refund': apiError(500, 'INTERNAL_SERVER_ERROR', 'erro') },
+      [{ ...BILLING, state: 'Quitada' }],
+    );
+    renderWithQueryClient(<FinanceiroPage />);
+    const dialog = await openPayment(user);
+    await within(dialog).findByText(/Confirmado/);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Estornar pagamento' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Confirmar estorno' }));
+
+    await waitFor(() => expect(within(dialog).getAllByRole('alert').some((alert) => /não foi possível estornar/i.test(alert.textContent ?? ''))).toBe(true));
+  });
+
+  it('perfil terapeuta consulta o pagamento, sem poder registrar nem estornar', async () => {
+    signIn('therapist');
+    const user = userEvent.setup();
+    mockFinance({ 'GET /billings/:id/payments': { body: { data: [PAYMENT] } } }, [{ ...BILLING, state: 'Quitada' }]);
+    renderWithQueryClient(<FinanceiroPage />);
+    const dialog = await openPayment(user);
+
+    expect(await within(dialog).findByText(/só um administrador/i)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /estornar/i })).not.toBeInTheDocument();
   });
 });
