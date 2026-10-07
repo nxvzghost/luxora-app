@@ -4,6 +4,30 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Tarefa 04 da auditoria — Deploy e operação (2026-10-07)
+
+Execução da Tarefa 04 definida pela auditoria de 04/10/2026 (Epic 14, AD-017). **Estado: caminho de deploy construído e ensaiado localmente; nenhum ambiente real foi provisionado.** Nada aqui gerou custo, nenhuma chamada foi feita a Meta, Anthropic ou Asaas, e a Fase 3 (integrações externas) continua parcial. Decisões em `docs/02-Arquitetura/ADRs/ADR-0060-deploy-e-operacao.md`; procedimento em `docs/07-Infra/DEPLOY_RUNBOOK.md`.
+
+**Dockerfile do backend.** O anterior não construía: em checkout limpo falhava em 31 s, porque o `pnpm-workspace.yaml` não era copiado (risco R8 da auditoria, confirmado). O novo monta a árvore de produção com `pnpm deploy --prod`, gera o client do Prisma nela e roda como usuário sem privilégio; o alvo `migrate` é o job de migrations, que usa a credencial admin. Um `.dockerignore` novo tira `.env`, `node_modules` e `dist` do contexto.
+
+**Dockerfile do painel** (AD-017). Saída `standalone` do Next, ligada só no build da imagem.
+
+**Readiness.** `GET /health/ready` consulta Postgres e Redis e responde 503 quando a instância não pode receber tráfego, inclusive desde o SIGTERM. `GET /health` continua liveness e passa a informar a versão em execução (`APP_VERSION`).
+
+**Logs estruturados.** Em produção, uma linha JSON por registro, com nível, contexto, versão, ambiente, Correlation ID e trace id. `LOG_FORMAT` e `LOG_LEVEL` sobrepõem o padrão e são validadas no boot.
+
+**Traces por OTLP.** O exportador passa a ser escolhido pelas variáveis padrão do OpenTelemetry: OTLP com endpoint configurado, nada em produção sem endpoint, console fora dela. As sondas de saúde e a coleta de métricas deixam de gerar trace. Nenhuma dependência nova.
+
+**Homologação, deploy e rollback.** `infra/staging/docker-compose.yml` sobe a pilha a partir das imagens. `infra/scripts/deploy.sh` executa backup, migrations, troca, readiness e smoke, e devolve a versão anterior sozinho se a nova não ficar pronta; `rollback.sh` faz o mesmo à mão; `restore-drill.sh` restaura o backup num banco descartável e confere a RLS. `infra/tests/rehearsal.sh` exercita tudo isso numa pilha descartável: 68 verificações, todas passando localmente.
+
+**CI/CD.** O CI ganha o job `deploy-rehearsal` (build das imagens e ensaio completo). O workflow `cd.yml`, acionado à mão, publica as imagens no GHCR depois do ensaio; o job de deploy em homologação fica pulado até existir um host. Nenhum dos dois rodou no GitHub ainda (sem push).
+
+**Automações agendadas — revisão, sem mudança de código.** Com a chave certa, as quatro rotas de `/automations` respondem 500: nenhuma camada inicializa a clínica da requisição. Nenhum agendador consegue executá-las hoje. Registrado em `docs/07-Infra/AUTOMACOES_AGENDADOR.md`, com as decisões necessárias; o teste `automations-scheduler-contract.test.ts` cobre a autenticação e deixa a execução como pendência.
+
+**Achados registrados, não corrigidos:** 16 conexões com o banco logo após o boot (`PrismaClientProvider` declarado em 15 módulos, um pool cada); 54 erros de tipo em arquivos de teste antigos, que nenhum script verifica; a comparação da chave de automação e do token de métricas não é em tempo constante.
+
+Suítes ao fim da Tarefa 04: 902 unitários, 23 de integração e 289 críticos (1 skip pré-existente e 1 pendência registrada como `todo`) no backend; 56 no frontend; 0 falhas. Build e lint limpos. Ensaio de deploy: 68 de 68 verificações.
+
 ### Fase 3 da auditoria — Integrações reais (2026-10-05)
 
 Execução da Fase 3 definida pela auditoria de 04/10/2026. **Estado: parcial.** O que dependia só do código foi corrigido e testado; nenhuma chamada real a Meta, Anthropic ou Asaas foi feita, porque o ambiente não tem credencial de teste de nenhuma das três (`ANTHROPIC_API_KEY` e `ASAAS_API_KEY` vazias, nenhuma clínica com WhatsApp conectado). Contratos e situação de cada integração em [`docs/04-API/02-Contratos-de-Integracoes-Externas.md`](./docs/04-API/02-Contratos-de-Integracoes-Externas.md).

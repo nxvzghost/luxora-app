@@ -112,6 +112,22 @@ Toda resposta sai com os headers de segurança do Helmet. A documentação inter
 
 ---
 
+## Deploy, homologação e operação (Tarefa 04, ADR-0060)
+
+O ambiente de desenvolvimento continua no `.env` da raiz e de `apps/backend`. Homologação e produção usam **outro** arquivo, um por ambiente, fora do repositório, gerado por `infra/scripts/generate-env.sh` (modelo em `infra/staging/.env.staging.example`). Passo a passo em `docs/07-Infra/DEPLOY_RUNBOOK.md`.
+
+Variáveis novas da aplicação, todas opcionais:
+
+| Variável | Padrão | Para quê |
+|---|---|---|
+| `APP_VERSION` | `dev` | Versão em execução. Gravada na imagem no build; não se define à mão |
+| `APP_ENV` | valor de `NODE_ENV` | Rótulo do ambiente (`staging`, `production`) em logs e traces. `NODE_ENV` é `production` nos dois |
+| `LOG_FORMAT` | `json` em produção, `text` fora | Formato dos logs |
+| `LOG_LEVEL` | `log` em JSON, `verbose` em texto | Nível mínimo: `fatal`, `error`, `warn`, `log`, `debug`, `verbose` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | vazio | Endereço do coletor OTLP. Vazio em produção = nenhum trace exportado. Precisa estar no ambiente do processo: definida só no `.env` não tem efeito, porque a telemetria inicia antes de ele ser lido |
+
+Duas senhas de banco, nunca a mesma: `POSTGRES_ADMIN_PASSWORD` (migrations e backup; não entra no container da aplicação) e `POSTGRES_APP_PASSWORD` (a role restrita `luxora_app`, usada em runtime).
+
 ## `.gitignore` obrigatório
 
 Todo repositório da Luxora deve conter, no mínimo, estas entradas no `.gitignore`:

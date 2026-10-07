@@ -329,6 +329,8 @@
 
 **Resultado esperado:** deploy deixa de ser manual/inexistente.
 
+**Estado em 07/10/2026 (Tarefa 04 da auditoria): parcial.** Feito e ensaiado localmente: Dockerfile do backend corrigido, Dockerfile do painel, pilha de homologação em compose, deploy com rollback automático, rollback manual, restauração de backup, readiness, logs em JSON, traces por OTLP e os workflows de CI/CD (ADR-0060, `docs/07-Infra/DEPLOY_RUNBOOK.md`). Em relação aos critérios acima: o Dockerfile do painel existe e builda; o rollback está documentado e foi testado, numa pilha local; **o pipeline de CD ainda não implantou em um ambiente de homologação real**, porque nenhum foi provisionado (decisão de provedor e custo pendentes) e nada foi enviado ao GitHub. "Configuração Railway" não foi feita.
+
 ---
 
 ### Epic 15 — Dívidas Técnicas Menores e Polimento
