@@ -1,9 +1,9 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
-import { ConsoleSpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { ExpressInstrumentation } from '@opentelemetry/instrumentation-express';
 import { IORedisInstrumentation } from '@opentelemetry/instrumentation-ioredis';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
+import { isProbeRequest, resolveTelemetryEnv } from './shared/observability/telemetry-env';
 
 /**
  * tracing.ts — AD-016.
@@ -30,22 +30,32 @@ import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
  * rejeitado explicitamente para não acoplar a arquitetura a uma dependência
  * experimental do Prisma.
  *
- * Exportação de traces: ConsoleSpanExporter por enquanto — não existe hoje
- * nenhum backend de tracing provisionado (docker-compose.yml só tem
- * Postgres/Redis; ver auditoria, seção 4). Trocar por um exportador OTLP
- * real é uma troca de uma linha aqui quando um backend for escolhido, sem
- * tocar nenhum outro arquivo desta AD.
+ * Exportação de traces (Tarefa 04 da auditoria): decidida pelo ambiente, com
+ * as variáveis padrão do OpenTelemetry — ver shared/observability/telemetry-env.ts.
+ * Com um endpoint OTLP configurado (OTEL_EXPORTER_OTLP_ENDPOINT), os spans
+ * vão para ele; em produção sem endpoint, nada é exportado; fora de produção
+ * sem endpoint, continuam saindo no console, como antes. O SDK monta o
+ * exportador sozinho a partir dessas variáveis — por isso nenhum
+ * `spanProcessors` é passado abaixo. As sondas de saúde e a coleta de
+ * métricas não geram trace.
  *
  * Exportação de métricas: Prometheus, real — ver api/metrics/metrics.controller.ts,
  * que expõe `prometheusExporter.getMetricsRequestHandler` atrás de um guard.
  */
 export const prometheusExporter = new PrometheusExporter({ preventServerStart: true });
 
+// Só preenche o que o operador não definiu; precisa rodar antes do NodeSDK,
+// que lê estas variáveis ao ser construído.
+Object.assign(process.env, resolveTelemetryEnv(process.env));
+
 const sdk = new NodeSDK({
   serviceName: 'luxora-backend',
-  spanProcessors: [new SimpleSpanProcessor(new ConsoleSpanExporter())],
   metricReaders: [prometheusExporter],
-  instrumentations: [new HttpInstrumentation(), new ExpressInstrumentation(), new IORedisInstrumentation()],
+  instrumentations: [
+    new HttpInstrumentation({ ignoreIncomingRequestHook: (request) => isProbeRequest(request.url) }),
+    new ExpressInstrumentation(),
+    new IORedisInstrumentation(),
+  ],
 });
 
 sdk.start();
