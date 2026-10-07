@@ -32,7 +32,14 @@ const billingTransitions: Record<BillingState, readonly BillingState[]> = {
   // Crítico #8 (idempotência de pagamento) contra o banco real pela
   // primeira vez.
   Criada: ['Enviada', 'Quitada', 'Cancelada'],
-  Enviada: ['Visualizada', 'Pendente', 'Cancelada'],
+  // Tarefa 05 da auditoria — "Quitada" a partir de Enviada. É o caminho que
+  // a clínica percorre pela tela: gera a cobrança, envia ao paciente e
+  // registra o pagamento quando ele chega. Sem esta transição, a regra do
+  // comentário acima não valia justamente para o caso mais comum: POST
+  // /payments respondia 500 e, como o pagamento já tinha sido gravado, a
+  // cobrança nunca mais podia ser quitada (ver
+  // test/critical/billing-sent-then-paid.test.ts).
+  Enviada: ['Visualizada', 'Pendente', 'Quitada', 'Cancelada'],
   Visualizada: ['Pendente', 'Quitada', 'Cancelada'],
   Pendente: ['Quitada', 'Atrasada', 'Cancelada'],
   Atrasada: ['Negociada', 'Escalada', 'Quitada'], // nunca "Cancelada" direto de Atrasada — decisão humana obrigatória (ver Gestão de Inadimplência)
