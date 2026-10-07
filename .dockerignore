@@ -1,0 +1,30 @@
+# Contexto de build das imagens (infra/docker/Dockerfile.*), a partir da raiz.
+#
+# Regra: nenhum segredo e nenhum artefato da máquina de quem builda entra no
+# contexto. O .env local tem credenciais de verdade; node_modules e dist
+# locais tornariam o build irreproduzível.
+
+# segredos e configuração local
+**/.env
+**/.env.*
+!**/.env.example
+
+# artefatos e dependências locais
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+**/*.tsbuildinfo
+**/*.log
+
+# não entram em nenhuma imagem
+.git
+.github
+.claude
+docs
+docs-config
+infra
+apps/*/test
+*.md
+docker-compose.yml

@@ -1,25 +1,82 @@
-# Luxora Backend — Dockerfile
-# Referência: docs/10-Sprint-0/04-Stack-Tecnologica.md
+# Luxora Backend — imagem de produção (Tarefa 04 da auditoria).
+#
+# Contexto de build: a RAIZ do repositório.
+#   docker build -f infra/docker/Dockerfile.backend --build-arg APP_VERSION=$(git rev-parse --short HEAD) -t luxora-backend:<tag> .
+#
+# Dois alvos, com papéis e credenciais diferentes (docs/07-Infra/MIGRATION_RUNBOOK.md):
+#   runtime (padrão)   a aplicação. Só dependências de produção, usuário sem
+#                      privilégio. Conecta com a role restrita (luxora_app).
+#   --target migrate   job de uma execução: `prisma migrate deploy`. Conecta
+#                      com a credencial ADMIN do banco, nunca a de runtime.
+#
+# O .dockerignore da raiz deixa .env, node_modules e dist fora do contexto:
+# nenhum segredo e nenhum artefato da máquina de quem builda entra na imagem.
 
-FROM node:20-slim AS base
-WORKDIR /app
+# ---- base de build: pnpm (versão do campo packageManager) e OpenSSL para o Prisma
+FROM node:20-bookworm-slim AS build-base
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
+WORKDIR /app
 
-FROM base AS deps
-COPY package.json pnpm-lock.yaml* ./
-COPY apps/backend/package.json ./apps/backend/
+# ---- dependências e build
+FROM build-base AS build
+# O pnpm só reconhece o monorepo com o pnpm-workspace.yaml presente; sem ele
+# o `--filter` não encontra o pacote e a instalação falha.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages ./packages
+COPY apps/backend/package.json ./apps/backend/package.json
 RUN pnpm install --frozen-lockfile --filter @luxora/backend...
 
-FROM deps AS build
 COPY apps/backend ./apps/backend
-RUN pnpm --filter @luxora/backend prisma:generate
-RUN pnpm --filter @luxora/backend build
+RUN pnpm --filter @luxora/backend prisma:generate \
+ && pnpm --filter @luxora/backend build
 
-FROM base AS runtime
+# Árvore de produção autocontida. Num workspace pnpm as dependências do
+# backend ficam em apps/backend/node_modules, como links para o .pnpm da
+# raiz — copiar só /app/node_modules (como a versão anterior fazia) leva uma
+# árvore sem @nestjs/core. `pnpm deploy --prod` monta, fora do workspace, o
+# pacote com as dependências de produção resolvidas de verdade.
+RUN pnpm --filter @luxora/backend deploy --prod /prod/backend
+# O client do Prisma é código gerado dentro de node_modules: precisa ser
+# gerado de novo na árvore final (o CLI é devDependency e não vai junto).
+RUN cd /prod/backend && /app/apps/backend/node_modules/.bin/prisma generate --schema prisma/schema.prisma
+
+# ---- migrations (job de uma execução; credencial admin)
+FROM build AS migrate
 ENV NODE_ENV=production
-COPY --from=build /app/apps/backend/dist ./dist
-COPY --from=build /app/apps/backend/prisma ./prisma
-COPY --from=build /app/node_modules ./node_modules
+WORKDIR /app/apps/backend
+CMD ["pnpm", "exec", "prisma", "migrate", "deploy"]
+
+# ---- runtime
+FROM node:20-bookworm-slim AS runtime
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+ENV NODE_ENV=production \
+    PORT=3000
+WORKDIR /app
+COPY --from=build --chown=node:node /prod/backend/node_modules ./node_modules
+COPY --from=build --chown=node:node /prod/backend/package.json ./package.json
+COPY --from=build --chown=node:node /app/apps/backend/dist ./dist
+
+# Identidade da versão: nunca muda depois de publicada (docs/02-Arquitetura/13-Deploy.md).
+# Fica por último para não invalidar o cache das camadas pesadas.
+ARG APP_VERSION=dev
+ARG BUILD_DATE=unknown
+ENV APP_VERSION=${APP_VERSION}
+LABEL org.opencontainers.image.title="luxora-backend" \
+      org.opencontainers.image.revision="${APP_VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
+
+USER node
 EXPOSE 3000
+# Liveness: o processo responde? (A readiness — /api/v1/health/ready — é
+# consultada pela plataforma de deploy, não por este HEALTHCHECK: uma
+# dependência fora do ar não deve reiniciar o container.)
+HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+# O Node é o PID 1 e trata o SIGTERM: encerramento gracioso (main.ts).
+STOPSIGNAL SIGTERM
 CMD ["node", "dist/main.js"]
