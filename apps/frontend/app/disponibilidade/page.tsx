@@ -35,6 +35,20 @@ function windowProblem(window: AvailabilityWindow): string | null {
   return null;
 }
 
+/** Campo a campo: a leitura devolve as chaves em outra ordem que a gravação (jsonb), então comparar o JSON acusava alteração que não existe. */
+function sameWindows(a: AvailabilityWindow[], b: AvailabilityWindow[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (window, i) =>
+        window.dayOfWeek === b[i].dayOfWeek &&
+        window.startTime === b[i].startTime &&
+        window.endTime === b[i].endTime &&
+        window.sessionDurationMinutes === b[i].sessionDurationMinutes,
+    )
+  );
+}
+
 /**
  * DisponibilidadePage — Tarefa 05 da auditoria. Antes só era possível
  * definir a disponibilidade chamando a API direto.
@@ -118,7 +132,7 @@ function WindowsSection(props: { therapistId: string; saved: AvailabilityWindow[
   const [windows, setWindows] = useState<AvailabilityWindow[]>(props.saved);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const dirty = JSON.stringify(windows) !== JSON.stringify(props.saved);
+  const dirty = !sameWindows(windows, props.saved);
 
   function update(index: number, patch: Partial<AvailabilityWindow>) {
     setSuccess(null);

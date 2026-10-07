@@ -82,6 +82,31 @@ describe('DisponibilidadePage — horários de atendimento', () => {
     expect(await within(form).findByRole('status')).toHaveTextContent(/horários de atendimento salvos/i);
   });
 
+  it('depois de salvar, não acusa alteração pendente quando a leitura devolve as chaves em outra ordem', async () => {
+    signIn();
+    const user = userEvent.setup();
+    // O banco (jsonb) reordena as chaves na leitura; a resposta da gravação vem na ordem enviada.
+    let stored: unknown[] = [];
+    const api = mockAvailability({ windows: [], exceptions: [] }, {
+      'GET /therapists/:id/availability/calendar': () => ({ body: { therapistId: 't1', windows: stored, exceptions: [] } }),
+      'PUT /therapists/:id/availability': (request) => {
+        const windows = (request.body as { windows: (typeof MONDAY)[] }).windows;
+        stored = windows.map((w) => ({ endTime: w.endTime, dayOfWeek: w.dayOfWeek, startTime: w.startTime, sessionDurationMinutes: w.sessionDurationMinutes }));
+        return { body: { therapistId: 't1', windows, exceptions: [] } };
+      },
+    });
+    renderWithQueryClient(<DisponibilidadePage />);
+    const form = await screen.findByRole('form', { name: 'Horários de atendimento' });
+
+    await user.click(within(form).getByRole('button', { name: 'Adicionar horário' }));
+    await user.click(within(form).getByRole('button', { name: 'Salvar horários' }));
+
+    expect(await within(form).findByRole('status')).toHaveTextContent(/horários de atendimento salvos/i);
+    await waitFor(() => expect(api.sent('GET', '/therapists/:id/availability/calendar').length).toBeGreaterThan(1));
+    await waitFor(() => expect(within(form).queryByText(/alterações não salvas/i)).not.toBeInTheDocument());
+    expect(within(form).getByRole('button', { name: 'Salvar horários' })).toBeDisabled();
+  });
+
   it('fim antes do início é barrado na tela, sem chamar a API', async () => {
     signIn();
     const user = userEvent.setup();

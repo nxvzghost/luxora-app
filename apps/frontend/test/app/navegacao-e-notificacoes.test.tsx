@@ -64,6 +64,14 @@ describe('SideNav', () => {
     expect(await screen.findByLabelText('3 não lidas')).toBeInTheDocument();
   });
 
+  it('uma única notificação não lida aparece no singular', async () => {
+    signIn('admin');
+    mockApi({ 'GET /notifications/unread-count': { body: { count: 1 } } });
+    renderWithQueryClient(<SideNav />);
+
+    expect(await screen.findByLabelText('1 não lida')).toBeInTheDocument();
+  });
+
   it('"Sair" encerra a sessão local e revoga a sessão no servidor', async () => {
     signIn('admin');
     const api = mockApi({ 'GET /notifications/unread-count': { body: { count: 0 } }, 'POST /auth/logout': { status: 204 } });

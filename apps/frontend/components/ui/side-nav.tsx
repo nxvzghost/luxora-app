@@ -73,7 +73,7 @@ export function SideNav() {
               {link.label}
               {showBadge && (
                 <span
-                  aria-label={`${unreadCount} não lidas`}
+                  aria-label={unreadCount === 1 ? '1 não lida' : `${unreadCount} não lidas`}
                   style={{
                     fontSize: '0.75rem',
                     fontWeight: 700,
