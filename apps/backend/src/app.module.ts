@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { HealthController } from './api/health.controller';
 import { MetricsController } from './api/metrics/metrics.controller';
 import { MetricsAccessGuard } from './api/metrics/metrics-access.guard';
+import { ReadinessService } from '@infrastructure/health/readiness.service';
 import { TenantContextModule } from '@shared/tenant-context.module';
 import { CorrelationContextModule } from '@shared/correlation-context.module';
 import { MetricsModule } from '@shared/metrics.module';
@@ -56,6 +57,6 @@ import { NotificationModule } from './api/notification/notification.module';
     NotificationModule,
   ],
   controllers: [HealthController, MetricsController],
-  providers: [MetricsAccessGuard],
+  providers: [MetricsAccessGuard, ReadinessService],
 })
 export class AppModule {}
