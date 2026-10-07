@@ -13,21 +13,33 @@ export type Role = 'admin' | 'therapist';
  * perfil não pode usar não precisa aparecer. Quem autoriza de verdade é o
  * backend, em toda rota; adulterar este valor no navegador não dá acesso a nada.
  */
-export function roleFromToken(token: string | null): Role | null {
+function tokenPayload(token: string | null): { role?: unknown; sub?: unknown } | null {
   if (!token) return null;
   try {
     const payload = token.split('.')[1];
-    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
-    const role = (JSON.parse(json) as { role?: unknown }).role;
-    return role === 'admin' || role === 'therapist' ? role : null;
+    return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as { role?: unknown; sub?: unknown };
   } catch {
     return null;
   }
 }
 
+export function roleFromToken(token: string | null): Role | null {
+  const role = tokenPayload(token)?.role;
+  return role === 'admin' || role === 'therapist' ? role : null;
+}
+
 export function useRole(): Role | null {
   const token = useAuthStore((s) => s.accessToken);
   return useMemo(() => roleFromToken(token), [token]);
+}
+
+/** Id do usuário da sessão (o `sub` do token) — para a tela de usuários não oferecer "desativar" a si mesmo. */
+export function useCurrentUserId(): string | null {
+  const token = useAuthStore((s) => s.accessToken);
+  return useMemo(() => {
+    const sub = tokenPayload(token)?.sub;
+    return typeof sub === 'string' ? sub : null;
+  }, [token]);
 }
 
 /**

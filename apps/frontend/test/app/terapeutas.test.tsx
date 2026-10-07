@@ -16,7 +16,7 @@ function mockTherapistsFetch(overrides: { createFails?: boolean } = {}) {
     }
     if (method === 'POST' && url.endsWith('/therapists')) {
       if (overrides.createFails) {
-        return { ok: false, status: 400, json: async () => ({ error: { message: 'Não é possível cadastrar.' } }) };
+        return { ok: false, status: 409, json: async () => ({ error: { code: 'CONFLICT', message: 'Não é possível cadastrar.', category: 'business_rule' } }) };
       }
       const input = JSON.parse(options.body ?? '{}');
       const created = { id: 'therapist-2', name: input.name, specialty: input.specialty ?? null };

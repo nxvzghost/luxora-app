@@ -4,6 +4,8 @@ import { usePatients } from '@/lib/api-client/dashboard.hooks';
 import { useDashboardSummary } from '@/lib/api-client/dashboard-summary.hooks';
 import { StatCard } from '@/components/ui/stat-card';
 import { SideNav } from '@/components/ui/side-nav';
+import { OnboardingChecklist } from '@/components/onboarding-checklist';
+import { useRole } from '@/lib/session';
 import { formatCurrencyBRL } from '@/lib/format-currency';
 
 /**
@@ -18,6 +20,7 @@ export default function DashboardPage() {
   const { data: summary, isLoading: loadingSummary, isError: errorSummary } = useDashboardSummary();
   const { data: patientsData, isLoading: loadingPatients, isError: errorPatients } = usePatients();
   const hasError = errorSummary || errorPatients;
+  const isAdmin = useRole() !== 'therapist';
 
   return (
     <div style={{ display: 'flex' }}>
@@ -44,6 +47,8 @@ export default function DashboardPage() {
             value={loadingSummary ? '—' : formatCurrencyBRL(summary?.totalPending ?? 0)}
           />
         </div>
+
+        {isAdmin && <OnboardingChecklist />}
 
         <section style={{ marginTop: '2.5rem' }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.375rem', fontWeight: 500 }}>

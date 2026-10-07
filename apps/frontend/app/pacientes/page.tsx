@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { SideNav } from '@/components/ui/side-nav';
 import { Button } from '@/components/ui/button';
 import { usePatients, useCreatePatient } from '@/lib/api-client/dashboard.hooks';
-import { ApiError } from '@/lib/api-client/client';
+import { describeApiError } from '@/lib/api-client/errors';
 
 const STATE_LABELS: Record<string, string> = {
   Ativo: 'Ativo',
@@ -33,7 +33,7 @@ export default function PacientesPage() {
       setPhone('');
       setShowForm(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Não foi possível cadastrar o paciente.');
+      setError(describeApiError(err, 'Não foi possível cadastrar o paciente.'));
     }
   }
 

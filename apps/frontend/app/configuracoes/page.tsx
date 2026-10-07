@@ -3,8 +3,10 @@
 import { useState, useEffect } from 'react';
 import { SideNav } from '@/components/ui/side-nav';
 import { Button } from '@/components/ui/button';
+import { WhatsAppConnection } from '@/components/whatsapp-connection';
+import { useRole } from '@/lib/session';
 import { useClinic, useUpdateClinicPolicies, useUpdatePaymentInfo } from '@/lib/api-client/clinic.hooks';
-import { ApiError } from '@/lib/api-client/client';
+import { describeApiError } from '@/lib/api-client/errors';
 
 /**
  * ConfiguracoesPage — Módulo 15 (revisão geral, tela que faltava).
@@ -13,6 +15,8 @@ export default function ConfiguracoesPage() {
   const { data: clinic, isLoading, isError } = useClinic();
   const updatePolicies = useUpdateClinicPolicies();
   const updatePaymentInfo = useUpdatePaymentInfo();
+  // As rotas de escrita desta tela, e a conexão do WhatsApp, são só de admin.
+  const isAdmin = useRole() !== 'therapist';
 
   const [billingPolicy, setBillingPolicy] = useState('per_session');
   const [cancellationHours, setCancellationHours] = useState('');
@@ -42,7 +46,7 @@ export default function ConfiguracoesPage() {
       });
       setMessage({ type: 'success', text: 'Políticas salvas.' });
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof ApiError ? err.message : 'Erro ao salvar.' });
+      setMessage({ type: 'error', text: describeApiError(err, 'Não foi possível salvar.') });
     }
   }
 
@@ -53,7 +57,7 @@ export default function ConfiguracoesPage() {
       await updatePaymentInfo.mutateAsync({ pixKey, payeeName });
       setMessage({ type: 'success', text: 'Dados de pagamento salvos.' });
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof ApiError ? err.message : 'Erro ao salvar.' });
+      setMessage({ type: 'error', text: describeApiError(err, 'Não foi possível salvar.') });
     }
   }
 
@@ -71,7 +75,7 @@ export default function ConfiguracoesPage() {
         )}
 
         {message && (
-          <p style={{ color: message.type === 'error' ? 'var(--danger)' : 'var(--success)', fontSize: '0.875rem' }}>
+          <p role={message.type === 'error' ? 'alert' : 'status'} style={{ color: message.type === 'error' ? 'var(--danger)' : 'var(--success)', fontSize: '0.875rem' }}>
             {message.text}
           </p>
         )}
@@ -129,6 +133,8 @@ export default function ConfiguracoesPage() {
                 </Button>
               </form>
             </section>
+
+            {isAdmin && <WhatsAppConnection />}
           </>
         )}
       </main>

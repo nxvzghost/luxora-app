@@ -1,14 +1,15 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { SideNav } from '@/components/ui/side-nav';
 import { Button } from '@/components/ui/button';
 import { useTherapists, useCreateTherapist } from '@/lib/api-client/therapists.hooks';
-import { ApiError } from '@/lib/api-client/client';
+import { describeApiError } from '@/lib/api-client/errors';
 
 /**
- * TerapeutasPage — Fase 9.5 (AD-029). Listagem + criação apenas —
- * edição, disponibilidade e exceções ficam fora de escopo.
+ * TerapeutasPage — Fase 9.5 (AD-029). Listagem + criação. A disponibilidade
+ * de cada terapeuta tem tela própria (/disponibilidade, Tarefa 05).
  */
 export default function TerapeutasPage() {
   const { data, isLoading, isError } = useTherapists();
@@ -27,7 +28,7 @@ export default function TerapeutasPage() {
       setSpecialty('');
       setShowForm(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Não foi possível cadastrar o terapeuta.');
+      setError(describeApiError(err, 'Não foi possível cadastrar o terapeuta.'));
     }
   }
 
@@ -80,6 +81,9 @@ export default function TerapeutasPage() {
             >
               <p style={{ margin: 0, fontWeight: 600 }}>{therapist.name}</p>
               {therapist.specialty && <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--sage)' }}>{therapist.specialty}</p>}
+              <Link href="/disponibilidade" style={{ fontSize: '0.8125rem', textDecoration: 'underline' }}>
+                Horários de atendimento
+              </Link>
             </li>
           ))}
         </ul>

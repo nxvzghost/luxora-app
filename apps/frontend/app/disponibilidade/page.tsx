@@ -47,7 +47,7 @@ function windowProblem(window: AvailabilityWindow): string | null {
  */
 export default function DisponibilidadePage() {
   const { data: therapistsData, isLoading: loadingTherapists, isError: therapistsFailed, error: therapistsError } = useTherapists();
-  const therapists = therapistsData?.data ?? [];
+  const therapists = useMemo(() => therapistsData?.data ?? [], [therapistsData]);
   const [therapistId, setTherapistId] = useState('');
 
   useEffect(() => {
