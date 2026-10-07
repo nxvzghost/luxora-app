@@ -1,0 +1,132 @@
+## Luxora — homologação (staging). Tarefa 04 da auditoria.
+##
+## Sobe a pilha inteira a partir das IMAGENS (infra/docker/Dockerfile.*), nunca
+## do código-fonte: é o que diferencia este arquivo do docker-compose.yml da
+## raiz, que só serve Postgres e Redis para `pnpm dev`.
+##
+## Não é chamado direto: quem opera é infra/scripts/deploy.sh e rollback.sh,
+## que passam o arquivo de ambiente (--env-file) e as imagens da versão.
+## Passo a passo em docs/07-Infra/DEPLOY_RUNBOOK.md.
+##
+## Serve em qualquer host com Docker. Num provedor gerenciado (Railway é a
+## escolha registrada em docs/07-Infra/00-Provedor-e-Custos.md), Postgres e
+## Redis são do provedor e só as imagens e as variáveis daqui são reaproveitadas.
+name: luxora-staging
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?defina POSTGRES_ADMIN_PASSWORD no arquivo de ambiente}
+      POSTGRES_DB: ${POSTGRES_DB:-luxora_staging}
+      # Lida só pelo script de criação da role de runtime (postgres-init).
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?defina POSTGRES_APP_PASSWORD no arquivo de ambiente}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    # As filas (BullMQ) vivem no Redis: sem persistência, um reinício perderia
+    # os jobs que ainda não foram processados.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Job de uma execução, com a credencial ADMIN do banco — nunca a de runtime
+  # (docs/07-Infra/MIGRATION_RUNBOOK.md). Só roda quando o deploy o chama:
+  #   docker compose run --rm migrate
+  migrate:
+    image: ${BACKEND_MIGRATE_IMAGE:-luxora-backend-migrate:dev}
+    profiles: ["tools"]
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_ADMIN_PASSWORD}@postgres:5432/${POSTGRES_DB:-luxora_staging}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    image: ${BACKEND_IMAGE:-luxora-backend:dev}
+    restart: unless-stopped
+    # Variáveis listadas uma a uma, de propósito: a aplicação recebe só o que
+    # usa — a senha de admin do banco nunca entra neste container.
+    environment:
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV:-staging}
+      PORT: "3000"
+      # Role restrita: superusuário ignoraria a Row-Level Security.
+      DATABASE_URL: postgresql://luxora_app:${POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-luxora_staging}
+      REDIS_URL: redis://redis:6379
+      FRONTEND_URL: ${FRONTEND_URL:?defina FRONTEND_URL no arquivo de ambiente}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no arquivo de ambiente}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      WHATSAPP_TOKEN_ENCRYPTION_KEY: ${WHATSAPP_TOKEN_ENCRYPTION_KEY:?defina WHATSAPP_TOKEN_ENCRYPTION_KEY no arquivo de ambiente}
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:?defina WHATSAPP_APP_SECRET no arquivo de ambiente}
+      WHATSAPP_WEBHOOK_VERIFY_TOKEN: ${WHATSAPP_WEBHOOK_VERIFY_TOKEN:?defina WHATSAPP_WEBHOOK_VERIFY_TOKEN no arquivo de ambiente}
+      ASAAS_WEBHOOK_TOKEN: ${ASAAS_WEBHOOK_TOKEN:?defina ASAAS_WEBHOOK_TOKEN no arquivo de ambiente}
+      AUTOMATION_API_KEY: ${AUTOMATION_API_KEY:?defina AUTOMATION_API_KEY no arquivo de ambiente}
+      METRICS_ACCESS_TOKEN: ${METRICS_ACCESS_TOKEN:?defina METRICS_ACCESS_TOKEN no arquivo de ambiente}
+      # Integrações externas: vazias por padrão. Homologação usa SEMPRE o
+      # sandbox da Asaas; a chave de produção nunca entra aqui.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-claude-haiku-4-5-20251001}
+      ASAAS_API_KEY: ${ASAAS_API_KEY:-}
+      ASAAS_ENV: ${ASAAS_ENV:-sandbox}
+      ASAAS_BASE_URL: ${ASAAS_BASE_URL:-https://api-sandbox.asaas.com/v3}
+      # Observabilidade: vazio = nenhum trace exportado.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      LOG_LEVEL: ${LOG_LEVEL:-log}
+    ports:
+      # Só no loopback do host: quem expõe para fora é o proxy com TLS.
+      - "127.0.0.1:${BACKEND_PORT:-13000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Tempo entre o SIGTERM e o SIGKILL: precisa cobrir o job mais longo das
+    # filas (o de entrada, com até 3 chamadas de IA) — ver main.ts.
+    stop_grace_period: 90s
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-luxora-frontend:dev}
+    profiles: ["frontend"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-13001}:3001"
+    depends_on:
+      - backend
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  # Coletor OpenTelemetry (software livre, sem serviço pago). Opcional:
+  #   --profile observability, com OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+  # Hoje só imprime os spans recebidos; o destino real entra em otel-collector.yaml.
+  otel-collector:
+    image: otel/opentelemetry-collector:0.119.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+
+volumes:
+  postgres_data:
+  redis_data:

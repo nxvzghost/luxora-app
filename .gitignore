@@ -7,6 +7,11 @@ dist/
 .env.local
 .env.production
 .env.development
+# Tarefa 04 — arquivos de ambiente reais (homologação/produção) e o estado
+# dos deploys nunca entram no Git. O modelo é infra/staging/.env.staging.example.
+.env.staging
+*.env
+luxora-deploy-state/
 .DS_Store
 coverage/
 apps/backend/prisma/*.db

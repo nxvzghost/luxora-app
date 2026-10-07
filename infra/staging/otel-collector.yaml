@@ -1,0 +1,28 @@
+# Coletor OpenTelemetry da homologação — Tarefa 04 da auditoria.
+#
+# Recebe os traces do backend por OTLP/HTTP (porta 4318, só na rede interna
+# do compose) e, por enquanto, apenas os imprime no próprio log
+# (`docker compose logs otel-collector`). Nenhum serviço pago é usado.
+#
+# Quando um destino for escolhido (Grafana Tempo, Jaeger ou um serviço
+# gerenciado), ele entra como mais um exportador aqui — a aplicação não muda.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
