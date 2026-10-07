@@ -1,8 +1,9 @@
 import './tracing';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ShutdownSignal, ValidationPipe } from '@nestjs/common';
+import { Logger, ShutdownSignal, ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { createAppLogger } from '@shared/logging/app-logger';
 import { LuxoraExceptionFilter } from '@shared/luxora-exception.filter';
 import { correlationIdMiddleware } from '@shared/correlation-id.middleware';
 import { applySecurityHeaders, setupSwagger } from '@shared/http-hardening';
@@ -22,7 +23,11 @@ async function bootstrap() {
   // enviou — um JSON re-serializado a partir do corpo já parseado não tem
   // garantia de ser byte-idêntico. Mecanismo nativo do Nest, não custom
   // middleware — nenhuma outra rota é afetada.
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  //
+  // Tarefa 04 da auditoria — `logger`: em produção, uma linha JSON por
+  // registro (shared/logging/json-logger.ts); fora dela, o texto do Nest.
+  // Passado já na criação para valer também para os logs do próprio boot.
+  const app = await NestFactory.create(AppModule, { rawBody: true, logger: createAppLogger() });
 
   // AD-016 — precisa ser o primeiro app.use(): roda antes de qualquer Guard
   // (inclusive JwtAuthGuard/ThrottlerGuard), garantindo que até respostas de
@@ -97,8 +102,7 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  // eslint-disable-next-line no-console
-  console.log(`Luxora backend rodando na porta ${port}`);
+  new Logger('Bootstrap').log(`Luxora backend rodando na porta ${port} (versão ${process.env.APP_VERSION ?? 'dev'})`);
 }
 
 bootstrap();

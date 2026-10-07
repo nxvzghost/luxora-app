@@ -106,6 +106,18 @@ describe('validateEnv', () => {
       ).not.toThrow();
     });
 
+    it.each([
+      ['LOG_FORMAT', 'xml'],
+      ['LOG_LEVEL', 'barulhento'],
+    ])('recusa %s com valor fora da lista ("%s")', (name, value) => {
+      expect(errorOf({ ...validDevEnv(), [name]: value })).toContain(`${name}: quando definida, precisa ser um destes:`);
+    });
+
+    it('aceita LOG_FORMAT e LOG_LEVEL válidos, em qualquer caixa, e a ausência deles', () => {
+      expect(() => validateEnv({ ...validDevEnv(), LOG_FORMAT: 'JSON', LOG_LEVEL: 'debug' })).not.toThrow();
+      expect(() => validateEnv({ ...validDevEnv(), LOG_FORMAT: '', LOG_LEVEL: '' })).not.toThrow();
+    });
+
     it('fora de produção, aceita o valor de exemplo do .env.example e os segredos de teste do CI', () => {
       expect(() =>
         validateEnv({

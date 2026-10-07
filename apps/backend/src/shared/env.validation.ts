@@ -74,6 +74,12 @@ const POSITIVE_INTEGERS = [
 
 const NODE_ENVS = ['development', 'test', 'production'];
 
+/** Grupo 3 — opcionais com valor padrão no código; se definidas, precisam ser um dos valores aceitos. */
+const ENUMERATED: Record<string, readonly string[]> = {
+  LOG_FORMAT: ['json', 'text'],
+  LOG_LEVEL: ['fatal', 'error', 'warn', 'log', 'debug', 'verbose'],
+};
+
 function read(config: RawEnv, name: string): string {
   const value = config[name];
   return value === undefined || value === null ? '' : String(value).trim();
@@ -110,6 +116,13 @@ export function validateEnv(config: RawEnv): RawEnv {
   const databaseUrl = read(config, 'DATABASE_URL');
   if (databaseUrl && !/^postgres(ql)?:\/\//.test(databaseUrl)) {
     problems.push('DATABASE_URL: precisa ser uma URL postgresql://');
+  }
+
+  for (const [name, accepted] of Object.entries(ENUMERATED)) {
+    const value = read(config, name).toLowerCase();
+    if (value && !accepted.includes(value)) {
+      problems.push(`${name}: quando definida, precisa ser um destes: ${accepted.join(', ')}`);
+    }
   }
 
   for (const name of POSITIVE_INTEGERS) {
