@@ -1,0 +1,53 @@
+# Luxora Frontend (painel Next.js) — imagem de produção (Tarefa 04 da auditoria, AD-017).
+#
+# Contexto de build: a RAIZ do repositório.
+#   docker build -f infra/docker/Dockerfile.frontend \
+#     --build-arg NEXT_PUBLIC_API_URL=https://api.exemplo.com.br/api/v1 \
+#     --build-arg APP_VERSION=$(git rev-parse --short HEAD) -t luxora-frontend:<tag> .
+#
+# ATENÇÃO: NEXT_PUBLIC_API_URL é embutida no JavaScript do navegador durante
+# o build — não pode ser trocada depois. Cada ambiente (staging, produção)
+# precisa da sua própria imagem do painel. Não é segredo: é o endereço
+# público da API.
+
+FROM node:20-bookworm-slim AS build
+RUN corepack enable
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY apps/frontend/package.json ./apps/frontend/package.json
+RUN pnpm install --frozen-lockfile --filter @luxora/frontend...
+
+COPY apps/frontend ./apps/frontend
+ARG NEXT_PUBLIC_API_URL
+RUN test -n "$NEXT_PUBLIC_API_URL" || (echo "NEXT_PUBLIC_API_URL é obrigatória no build do painel (--build-arg)" >&2; exit 1)
+# NEXT_OUTPUT=standalone: o Next gera um servidor mínimo com só os arquivos
+# que usa de node_modules (ver apps/frontend/next.config.js).
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_OUTPUT=standalone \
+    NEXT_TELEMETRY_DISABLED=1
+RUN pnpm --filter @luxora/frontend build
+
+FROM node:20-bookworm-slim AS runtime
+ENV NODE_ENV=production \
+    PORT=3001 \
+    HOSTNAME=0.0.0.0 \
+    NEXT_TELEMETRY_DISABLED=1
+WORKDIR /app
+# A saída standalone espelha o monorepo: o servidor fica em apps/frontend/server.js.
+COPY --from=build --chown=node:node /app/apps/frontend/.next/standalone ./
+COPY --from=build --chown=node:node /app/apps/frontend/.next/static ./apps/frontend/.next/static
+
+ARG APP_VERSION=dev
+ARG BUILD_DATE=unknown
+ENV APP_VERSION=${APP_VERSION}
+LABEL org.opencontainers.image.title="luxora-frontend" \
+      org.opencontainers.image.revision="${APP_VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
+
+USER node
+EXPOSE 3001
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/login').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+STOPSIGNAL SIGTERM
+CMD ["node", "apps/frontend/server.js"]
