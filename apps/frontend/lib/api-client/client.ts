@@ -64,9 +64,11 @@ let refreshInFlight: Promise<string | null> | null = null;
  * mantidos e quem chamou recebe o erro original.
  */
 async function renewSession(): Promise<string | null> {
-  const { refreshToken, setTokens, logout } = useAuthStore.getState();
+  // expireSession, não logout: a tela de login precisa saber que a sessão
+  // foi encerrada pelo servidor, para explicar o motivo (Tarefa 05).
+  const { refreshToken, setTokens, expireSession } = useAuthStore.getState();
   if (!refreshToken) {
-    logout();
+    expireSession();
     return null;
   }
 
@@ -78,7 +80,7 @@ async function renewSession(): Promise<string | null> {
     });
 
     if (!response.ok) {
-      if (response.status === 401) logout();
+      if (response.status === 401) expireSession();
       return null;
     }
 
