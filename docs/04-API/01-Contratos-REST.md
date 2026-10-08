@@ -85,6 +85,8 @@ Recurso singular por Tenant — cada Clínica só acessa os próprios dados via 
 | POST | `/api/v1/patients/{id}/reactivate` | ReativarPaciente | JP-013 — Retorno |
 | POST | `/api/v1/patients/{id}/discharge` | DarAltaPaciente | JP-014 — Alta |
 
+**Tarefa 06 da auditoria (08/10/2026):** `GET /patients` pagina por cursor (`cursor`, `limit`, padrão 20); `limit` que não seja inteiro maior que zero responde 400 (antes, 500 ou comportamento indefinido). `PATCH /patients/{id}` passa a gravar o telefone — a rota aceitava o campo, devolvia o valor novo e não gravava nada.
+
 ---
 
 # Agenda e Agendamento (`/api/v1/appointments`)
@@ -101,6 +103,10 @@ Ver `01-Domain/05-Linguagem-Ubiqua.md` para a distinção entre `appointment` (r
 | POST | `/api/v1/appointments/recurring` | CriarAgendamentoRecorrente | RF-059, JP-010 |
 
 **Erro de negócio esperado:** `SESSION_CONFLICT` (409) quando o horário solicitado colide com bloqueio, férias ou outro agendamento — nunca deixado para validação apenas no Frontend (RF-044, Princípio 09).
+
+**Tarefa 06 da auditoria (08/10/2026):**
+- `POST /appointments`, `POST /appointments/recurring` e a criação de horário fixo respondem **404** (`Paciente não encontrado.` / `Terapeuta não encontrado.`) quando o id informado não existe **ou é de outra clínica**. Antes, o id de um paciente de outra clínica era aceito (201) e um id inexistente respondia 500.
+- `GET /appointments` e `GET /therapists/{id}/availability` exigem `from` e `to` como datas válidas; ausentes ou inválidos respondem **400** (antes, 500).
 
 ---
 
@@ -135,6 +141,11 @@ Acrescentado na Tarefa 05 da auditoria (ADR-0061), sem mudar o que já existia:
 - **`POST /billings/{id}/send` — erro novo:** `WHATSAPP_NOT_CONNECTED` (409) quando a clínica não tem WhatsApp conectado e ativo. Nada é enfileirado e a cobrança continua em `Criada`. Com canal conectado, a resposta 201 significa que a mensagem entrou na fila de envio, não que foi entregue.
 - **Cobrança `Enviada` pode ir direto a `Quitada`:** registrar o pagamento de uma cobrança já enviada respondia 500.
 - **Campo `overdue` em toda cobrança devolvida** (`GET /billings`, `GET /billings/{id}`, `POST /billings`, `POST /billings/{id}/send`): `true` quando a cobrança está em atraso. Regra: estado `Atrasada`; ou estado `Criada`, `Enviada`, `Visualizada` ou `Pendente` com o vencimento passado há um dia inteiro ou mais (o dia do vencimento ainda está em dia; o corte é em UTC). `Quitada` e `Cancelada` nunca; `Negociada` e `Escalada` não entram. É a mesma regra de `overdueBillings` em `GET /dashboard/summary`. O estado gravado não muda.
+
+Tarefa 06 da auditoria (08/10/2026, ADR-0062):
+
+- **`POST /billings` responde 404** quando o paciente ou alguma sessão informada não existe ou é de outra clínica, e **nada é gravado**. Antes, o paciente não era conferido e, com a sessão de outra clínica, a resposta era 404 mas o vínculo com essa sessão ficava gravado — a outra clínica não conseguia mais cobrá-la.
+- **`limit` inválido responde 400** em `GET /billings` e em `GET /notifications` (inteiro maior que zero; antes, 500).
 
 ---
 
@@ -207,6 +218,8 @@ Ver detalhamento completo em `06-UX/05-Fluxo-Fechamento-Mensal.md`.
 | Método | Rota | RF/RNF relacionado |
 |---|---|---|
 | GET | `/api/v1/audit-log` | RNF-006, `03-Database/08-Auditoria.md` |
+
+**Contrato verificado por teste na Tarefa 06 da auditoria (08/10/2026, `test/critical/audit-log-read.test.ts`):** só `admin`, com assinatura ativa (terapeuta recebe 403). Devolve só as entradas da própria clínica, das mais recentes para as mais antigas. Paginação por cursor: `limit` (padrão 50) e `cursor` (o `id` da última entrada recebida); `limit` que não seja inteiro maior que zero responde 400; cursor inexistente devolve lista vazia, e o `id` de uma entrada de outra clínica usado como cursor nunca devolve entradas dela. Cada entrada traz `id`, `tenantId`, `userId`, `actorType`, `action`, `entityType`, `entityId`, `payload` e `result`. Ler a trilha não acrescenta entrada a ela, e nenhuma senha, hash de senha ou token do WhatsApp aparece no conteúdo.
 
 ---
 
