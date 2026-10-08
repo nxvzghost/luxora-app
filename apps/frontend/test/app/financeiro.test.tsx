@@ -19,7 +19,7 @@ const PAYMENT = { id: 'payment-1', billingId: 'billing-1', amount: 200, state: '
 
 type Routes = Record<string, MockReply | ((request: MockRequest) => MockReply)>;
 
-function mockFinance(overrides: Routes = {}, billings: Array<typeof BILLING> = [BILLING]) {
+function mockFinance(overrides: Routes = {}, billings: Array<typeof BILLING & { paymentState?: string | null }> = [BILLING]) {
   return mockApi({
     'GET /billings': { body: { data: billings } },
     'GET /patients': { body: { data: [{ id: 'patient-1', name: 'Paciente Teste', phone: '+5541900000000', state: 'Ativo', billingPolicyOverride: null }] } },
@@ -78,6 +78,42 @@ describe('FinanceiroPage — carregamento', () => {
     expect(screen.queryByRole('button', { name: 'Nova cobrança' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Enviar' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pagamento' })).toBeInTheDocument();
+  });
+
+  it('cobrança com pagamento estornado aparece como tal e não entra no total recebido', async () => {
+    mockFinance({}, [
+      { ...BILLING, id: 'billing-paga', state: 'Quitada', paymentState: 'Confirmado' },
+      { ...BILLING, id: 'billing-estornada', amount: 300, state: 'Quitada', paymentState: 'Estornado' },
+    ]);
+    renderWithQueryClient(<FinanceiroPage />);
+
+    expect(await screen.findByText('Pagamento estornado')).toBeInTheDocument();
+    expect(screen.getAllByText('Quitada')).toHaveLength(1);
+    // Faturado soma as duas (R$ 500,00); recebido, só a que não foi estornada.
+    expect(screen.getByText('Recebido').parentElement).toHaveTextContent('R$ 200,00');
+    expect(screen.getByText('Total faturado').parentElement).toHaveTextContent('R$ 500,00');
+  });
+
+  it('cobrança em aberto com pagamento divergente é sinalizada na lista', async () => {
+    mockFinance({}, [{ ...BILLING, state: 'Enviada', paymentState: 'Divergente' }]);
+    renderWithQueryClient(<FinanceiroPage />);
+
+    expect(await screen.findByText('Pagamento divergente')).toBeInTheDocument();
+    expect(screen.getByText('Enviada')).toBeInTheDocument();
+  });
+
+  it('soma todas as páginas de cobranças, não só a primeira', async () => {
+    const page = (count: number, prefix: string) => Array.from({ length: count }, (_, i) => ({ ...BILLING, id: `${prefix}-${i}`, amount: 10 }));
+    const api = mockFinance({
+      'GET /billings': (request) => ({ body: { data: request.query.get('cursor') ? page(5, 'segunda') : page(100, 'primeira') } }),
+    });
+    renderWithQueryClient(<FinanceiroPage />);
+
+    await waitFor(() => expect(screen.getByText('Total faturado').parentElement).toHaveTextContent('R$ 1.050,00'));
+    const requests = api.sent('GET', '/billings');
+    expect(requests).toHaveLength(2);
+    expect(requests[0].query.get('limit')).toBe('100');
+    expect(requests[1].query.get('cursor')).toBe('primeira-99');
   });
 });
 
@@ -202,6 +238,20 @@ describe('FinanceiroPage — enviar cobrança', () => {
 
     expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent(/não é possível enviar/i);
   });
+
+  it('clínica sem WhatsApp conectado: diz que nada foi enviado e onde conectar', async () => {
+    const user = userEvent.setup();
+    mockFinance({ 'POST /billings/:id/send': apiError(409, 'WHATSAPP_NOT_CONNECTED', 'A clínica ainda não conectou o WhatsApp.') });
+    renderWithQueryClient(<FinanceiroPage />);
+
+    await user.click(await screen.findByRole('button', { name: /^enviar$/i }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Enviar cobrança' }));
+
+    const alert = await within(screen.getByRole('dialog')).findByRole('alert');
+    expect(alert).toHaveTextContent(/nada foi enviado/i);
+    expect(alert).toHaveTextContent(/Configurações/);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
 });
 
 describe('FinanceiroPage — pagamento e estorno', () => {
@@ -245,7 +295,7 @@ describe('FinanceiroPage — pagamento e estorno', () => {
     expect(second.headers['Idempotency-Key']).toBe(first.headers['Idempotency-Key']);
   });
 
-  it('valor diferente do cobrado: avisa que ficou divergente e que a cobrança segue em aberto', async () => {
+  it('valor diferente do cobrado: pede um segundo passo antes de registrar como divergente', async () => {
     const user = userEvent.setup();
     const api = mockFinance({ 'POST /payments': { status: 201, body: { ...PAYMENT, amount: 150, state: 'Divergente' } } });
     renderWithQueryClient(<FinanceiroPage />);
@@ -256,8 +306,33 @@ describe('FinanceiroPage — pagamento e estorno', () => {
     await user.type(input, '150');
     await user.click(within(dialog).getByRole('button', { name: 'Registrar pagamento' }));
 
+    expect(api.sent('POST', '/payments')).toHaveLength(0);
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/diferente do da cobrança \(R\$\s200,00\)/i);
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/não pode ser corrigido pelo painel/i);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Registrar como divergente' }));
+
     await waitFor(() => expect(api.sent('POST', '/payments')[0].body).toEqual({ billingId: 'billing-1', amount: 150 }));
     expect(await screen.findByRole('status')).toHaveTextContent(/registrado como divergente/i);
+  });
+
+  it('corrigir o valor depois do aviso de divergência volta ao registro normal', async () => {
+    const user = userEvent.setup();
+    const api = mockFinance({ 'POST /payments': { status: 201, body: PAYMENT } });
+    renderWithQueryClient(<FinanceiroPage />);
+    const dialog = await openPayment(user);
+    const input = await within(dialog).findByLabelText('Valor recebido (R$)');
+
+    await user.clear(input);
+    await user.type(input, '20');
+    await user.click(within(dialog).getByRole('button', { name: 'Registrar pagamento' }));
+    expect(within(dialog).getByRole('button', { name: 'Registrar como divergente' })).toBeInTheDocument();
+
+    await user.type(input, '0');
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Registrar pagamento' }));
+
+    await waitFor(() => expect(api.sent('POST', '/payments')[0].body).toEqual({ billingId: 'billing-1', amount: 200 }));
   });
 
   it('cobrança paga: mostra o pagamento e o estorno exige um segundo passo de confirmação', async () => {

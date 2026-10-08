@@ -141,8 +141,9 @@ export default function UsuariosPage() {
           title="Desativar este usuário?"
           description={
             <>
-              {toDeactivate.email} perde o acesso ao painel: não consegue mais entrar nem renovar a sessão que já tem aberta. Os registros feitos por
-              essa pessoa continuam no sistema, e o acesso pode ser devolvido depois.
+              {toDeactivate.email} perde o acesso ao painel: não consegue mais entrar nem renovar a sessão que já tem aberta. Se o painel estiver
+              aberto agora com essa pessoa, ele ainda responde por até 15 minutos. Os registros feitos por essa pessoa continuam no sistema, e o
+              acesso pode ser devolvido depois.
             </>
           }
           confirmLabel="Desativar usuário"

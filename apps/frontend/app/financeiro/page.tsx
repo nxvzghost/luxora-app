@@ -50,6 +50,14 @@ const PAYMENT_STATE_LABELS: Record<string, string> = {
 const CAN_SEND = ['Criada'];
 
 /**
+ * Depois de um estorno a cobrança continua "Quitada" na API (ADR-0052: a
+ * reversão da cobrança é uma decisão de produto ainda não tomada). Para a
+ * clínica o que vale é o dinheiro: a tela mostra o estorno e não soma o
+ * valor como recebido.
+ */
+const isRefunded = (billing: Billing) => billing.paymentState === 'Estornado';
+
+/**
  * FinanceiroPage — Módulo 15; criar cobrança, acompanhar o pagamento e
  * estornar entraram na Tarefa 05 da auditoria (AD-020).
  *
@@ -85,7 +93,7 @@ export default function FinanceiroPage() {
   }
 
   const total = billings.reduce((sum, billing) => sum + billing.amount, 0);
-  const received = billings.filter((billing) => billing.state === 'Quitada').reduce((sum, billing) => sum + billing.amount, 0);
+  const received = billings.filter((billing) => billing.state === 'Quitada' && !isRefunded(billing)).reduce((sum, billing) => sum + billing.amount, 0);
   const overdue = billings.filter((billing) => billing.state === 'Atrasada').length;
 
   return (
@@ -144,12 +152,15 @@ export default function FinanceiroPage() {
                   fontWeight: 600,
                   padding: '0.2rem 0.5rem',
                   borderRadius: '999px',
-                  background: STATE_COLORS[billing.state] ?? 'var(--border)',
+                  background: isRefunded(billing) ? 'var(--danger)' : (STATE_COLORS[billing.state] ?? 'var(--border)'),
                   color: billing.state === 'Quitada' || billing.state === 'Atrasada' ? '#fff' : 'var(--forest-ink)',
                 }}
               >
-                {STATE_LABELS[billing.state] ?? billing.state}
+                {isRefunded(billing) ? 'Pagamento estornado' : (STATE_LABELS[billing.state] ?? billing.state)}
               </span>
+              {billing.paymentState === 'Divergente' && (
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--danger)' }}>Pagamento divergente</p>
+              )}
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               {isAdmin && CAN_SEND.includes(billing.state) && (
@@ -325,6 +336,7 @@ function PaymentDialog(props: { billing: Billing; patientName: string; canAct: b
   const [amount, setAmount] = useState(String(props.billing.amount).replace('.', ','));
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [confirmingRefund, setConfirmingRefund] = useState(false);
+  const [confirmingDivergent, setConfirmingDivergent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const payment = data?.data[0] ?? null;
@@ -337,6 +349,8 @@ function PaymentDialog(props: { billing: Billing; patientName: string; canAct: b
     if (canRegister) {
       const value = Number(amount.replace(',', '.'));
       if (!Number.isFinite(value) || value <= 0) return setError('Informe o valor recebido, maior que zero.');
+      // Um pagamento divergente não tem correção pela API nem pelo painel: pede um segundo passo, como o estorno.
+      if (Math.abs(value - props.billing.amount) > 0.01 && !confirmingDivergent) return setConfirmingDivergent(true);
       try {
         const registered = await registerPayment.mutateAsync({ billingId: props.billing.id, amount: value, idempotencyKey });
         props.onDone(
@@ -362,7 +376,8 @@ function PaymentDialog(props: { billing: Billing; patientName: string; canAct: b
     props.onClose();
   }
 
-  const confirmLabel = canRegister ? 'Registrar pagamento' : canRefund ? (confirmingRefund ? 'Confirmar estorno' : 'Estornar pagamento') : 'Fechar';
+  const registerLabel = confirmingDivergent ? 'Registrar como divergente' : 'Registrar pagamento';
+  const confirmLabel = canRegister ? registerLabel : canRefund ? (confirmingRefund ? 'Confirmar estorno' : 'Estornar pagamento') : 'Fechar';
 
   return (
     <ConfirmDialog
@@ -390,15 +405,31 @@ function PaymentDialog(props: { billing: Billing; patientName: string; canAct: b
           <label style={labelStyle} htmlFor="payment-amount">
             Valor recebido (R$)
           </label>
-          <input id="payment-amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} style={inputStyle} />
+          <input
+            id="payment-amount"
+            inputMode="decimal"
+            value={amount}
+            onChange={(event) => {
+              setAmount(event.target.value);
+              setConfirmingDivergent(false);
+            }}
+            style={inputStyle}
+          />
           <p style={hintStyle}>Se o valor for diferente do da cobrança, o pagamento fica como divergente e a cobrança não é quitada.</p>
         </>
       )}
 
+      {canRegister && confirmingDivergent && (
+        <p role="alert" style={{ margin: '0.75rem 0 0', fontSize: '0.875rem', color: 'var(--danger)' }}>
+          O valor informado é diferente do da cobrança ({formatCurrencyBRL(props.billing.amount)}). O pagamento será registrado como divergente, a
+          cobrança continua em aberto e não aceita outro pagamento — isso não pode ser corrigido pelo painel. Confira o valor antes de confirmar.
+        </p>
+      )}
+
       {canRefund && confirmingRefund && (
         <p role="alert" style={{ margin: '0.75rem 0 0', fontSize: '0.875rem', color: 'var(--danger)' }}>
-          O pagamento passa a constar como estornado e isso não pode ser desfeito. A cobrança continua marcada como quitada: a API ainda não reabre a
-          cobrança depois de um estorno.
+          O pagamento passa a constar como estornado e isso não pode ser desfeito. O valor sai do total recebido e a cobrança aparece como
+          &quot;Pagamento estornado&quot;: ela não volta a ficar em aberto nem aceita outro pagamento.
         </p>
       )}
       {payment && !props.canAct && <p style={{ ...hintStyle, marginTop: '0.75rem' }}>Só um administrador registra ou estorna pagamentos.</p>}

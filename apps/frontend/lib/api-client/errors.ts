@@ -25,6 +25,8 @@ export function describeApiError(error: unknown, fallback: string): string {
       return 'Outra pessoa acabou de ocupar esse horário. Atualize a lista e escolha outro.';
     case 'DUPLICATE_PAYMENT':
       return 'Esse pagamento já tinha sido registrado.';
+    case 'WHATSAPP_NOT_CONNECTED':
+      return 'A clínica ainda não conectou o WhatsApp, então nada foi enviado. Conecte o canal em Configurações e envie de novo.';
   }
 
   if (error.status === 401) return 'Sua sessão expirou. Entre novamente.';
