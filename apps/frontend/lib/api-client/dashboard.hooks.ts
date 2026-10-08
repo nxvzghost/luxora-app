@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/api-client/client';
+import { fetchAllPages } from '@/lib/api-client/pagination';
 import { useAuthStore } from '@/lib/stores/auth.store';
 
 export interface Patient {
@@ -18,13 +19,16 @@ export interface Billing {
   amount: number;
   dueDate: string;
   state: string;
+  /** Estado do pagamento da cobrança, ou null quando não há pagamento. Só vem na lista (GET /billings). */
+  paymentState?: string | null;
 }
 
+/** Todos os pacientes da clínica — a API pagina; ver fetchAllPages. */
 export function usePatients() {
   const token = useAuthStore((s) => s.accessToken);
   return useQuery({
     queryKey: ['patients'],
-    queryFn: () => apiRequest<{ data: Patient[] }>('/patients', { token }),
+    queryFn: () => fetchAllPages<Patient>('/patients', token),
     enabled: !!token,
   });
 }
@@ -39,11 +43,12 @@ export function useCreatePatient() {
   });
 }
 
+/** Todas as cobranças da clínica — os totais do Financeiro são somados a partir desta lista. */
 export function useBillings() {
   const token = useAuthStore((s) => s.accessToken);
   return useQuery({
     queryKey: ['billings'],
-    queryFn: () => apiRequest<{ data: Billing[] }>('/billings', { token }),
+    queryFn: () => fetchAllPages<Billing>('/billings', token),
     enabled: !!token,
   });
 }
