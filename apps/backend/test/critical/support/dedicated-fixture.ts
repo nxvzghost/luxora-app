@@ -272,6 +272,14 @@ export async function cleanupDedicatedFixture(fixturePrisma: PrismaClient, fixtu
   if (fixture.appointmentIds.length > 0) {
     await fixturePrisma.appointment.deleteMany({ where: { id: { in: fixture.appointmentIds } } });
   }
+  // AD-035 — consultas, horários fixos e feriados criados por Repository ou
+  // Use Case (materialização de horário fixo, por exemplo) não têm id que o
+  // teste consiga rastrear. Mesma justificativa do audit_log, abaixo: o
+  // filtro é o id de um Tenant que só esta fixture possui. As consultas vêm
+  // antes dos horários fixos, que elas referenciam.
+  await fixturePrisma.appointment.deleteMany({ where: { tenantId: fixture.tenantId } });
+  await fixturePrisma.recurringBlock.deleteMany({ where: { tenantId: fixture.tenantId } });
+  await fixturePrisma.clinicHoliday.deleteMany({ where: { tenantId: fixture.tenantId } });
   if (fixture.calendarId) {
     await fixturePrisma.availabilityCalendar.delete({ where: { id: fixture.calendarId } });
   }

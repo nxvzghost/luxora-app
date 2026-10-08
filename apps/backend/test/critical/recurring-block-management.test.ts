@@ -8,6 +8,7 @@ import { PrismaAuditLogRepository } from '@infrastructure/database/repositories/
 import { AuditService } from '@domain-services/platform/audit.service';
 import { CriarRecurringBlockUseCase, ListarRecurringBlocksUseCase } from '@use-cases/availability/gerenciar-recurring-block.use-case';
 import { TenantContext } from '@shared/tenant-context';
+import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
  * PD-001 Fase 2, C4.1 — CriarRecurringBlockUseCase de ponta a ponta
@@ -24,6 +25,8 @@ let patientId: string;
 let therapistId: string;
 let secondTherapistId: string; // mesmo Tenant, para provar filtro por terapeuta na listagem
 let otherTenantId: string; // Tenant dedicado separado, para provar isolamento entre tenants na listagem
+let fixture: DedicatedFixture;
+let otherFixture: DedicatedFixture;
 
 function toSuperuserUrl(databaseUrl: string): string {
   const url = new URL(databaseUrl);
@@ -40,41 +43,26 @@ beforeAll(async () => {
   await client.$connect();
   await fixturePrisma.$connect();
 
-  const dedicatedTenant = await fixturePrisma.tenant.create({
-    data: { name: `Tenant Dedicado — C4.1 RecurringBlock ${randomUUID()}` },
-  });
-  tenantId = dedicatedTenant.id;
-
-  const dedicatedTherapist = await fixturePrisma.therapist.create({
-    data: { tenantId, name: `Terapeuta Dedicado — C4.1 ${randomUUID()}`, specialty: 'Psicologia' },
-  });
-  therapistId = dedicatedTherapist.id;
-
-  const dedicatedPatient = await fixturePrisma.patient.create({
-    data: { tenantId, name: `Paciente Dedicado — C4.1 ${randomUUID()}`, phone: '11999999999' },
-  });
-  patientId = dedicatedPatient.id;
+  // Fixture dedicada oficial (AD-035 — antes este arquivo criava e apagava
+  // clínica, terapeuta e paciente à mão, duplicando o helper).
+  fixture = await createDedicatedFixture(fixturePrisma, 'C4MGMT');
+  tenantId = fixture.tenantId;
+  therapistId = fixture.therapistId;
+  patientId = fixture.patientId;
 
   const secondTherapist = await fixturePrisma.therapist.create({
     data: { tenantId, name: `Terapeuta Dedicado 2 — C4.2 ${randomUUID()}`, specialty: 'Psicologia' },
   });
   secondTherapistId = secondTherapist.id;
+  fixture.therapistIds.push(secondTherapistId); // a fixture apaga os terapeutas que conhece
 
-  const otherTenant = await fixturePrisma.tenant.create({
-    data: { name: `Tenant Dedicado B — C4.2 RecurringBlock ${randomUUID()}` },
-  });
-  otherTenantId = otherTenant.id;
+  otherFixture = await createDedicatedFixture(fixturePrisma, 'C4MGMT-OUTRA');
+  otherTenantId = otherFixture.tenantId;
 });
 
 afterAll(async () => {
-  await fixturePrisma.auditLog.deleteMany({ where: { tenantId } });
-  await fixturePrisma.recurringBlock.deleteMany({ where: { therapistId } });
-  await fixturePrisma.recurringBlock.deleteMany({ where: { therapistId: secondTherapistId } });
-  await fixturePrisma.therapist.delete({ where: { id: therapistId } });
-  await fixturePrisma.therapist.delete({ where: { id: secondTherapistId } });
-  await fixturePrisma.patient.delete({ where: { id: patientId } });
-  await fixturePrisma.tenant.delete({ where: { id: tenantId } });
-  await fixturePrisma.tenant.delete({ where: { id: otherTenantId } });
+  await cleanupDedicatedFixture(fixturePrisma, fixture);
+  await cleanupDedicatedFixture(fixturePrisma, otherFixture);
 
   await client.$disconnect();
   await fixturePrisma.$disconnect();

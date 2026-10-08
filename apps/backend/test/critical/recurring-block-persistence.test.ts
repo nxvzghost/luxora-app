@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { PrismaRecurringBlockRepository } from '@infrastructure/database/repositories/prisma-recurring-block.repository';
 import { RecurringBlock } from '@domain/availability/recurring-block.entity';
+import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
  * PD-001 Fase 2, C2 — persistência de RecurringBlock (Aggregate Root
@@ -12,6 +13,11 @@ import { RecurringBlock } from '@domain/availability/recurring-block.entity';
  * HTTP, sem Controller ainda), mesmo formato de
  * clinic-holiday-persistence.test.ts (B3). tenantId explícito em cada
  * chamada — o próprio contrato exige isso, ver RecurringBlockRepository.
+ *
+ * AD-035 (Tarefa 06 da auditoria): usava as clínicas do seed ("Clínica
+ * Teste A/B") e nunca apagava os horários fixos que gravava — a cada
+ * execução ficavam mais registros na clínica de desenvolvimento. Agora
+ * cada execução cria e remove as suas duas clínicas, pela fixture dedicada.
  */
 
 let client: PrismaClientProvider;
@@ -19,8 +25,10 @@ let tenantAId: string;
 let tenantBId: string;
 let patientId: string;
 let therapistId: string;
+let fixtureA: DedicatedFixture;
+let fixtureB: DedicatedFixture;
 
-// Lookup de seed roda como superusuário (RLS bloquearia um findFirst sem
+// A preparação roda como superusuário (a RLS bloquearia a criação das clínicas sem
 // app.tenant_id já setado) — a prova de persistência em si roda pela role
 // real (luxora_app), via PrismaRecurringBlockRepository, sujeita a RLS.
 function toSuperuserUrl(databaseUrl: string): string {
@@ -51,24 +59,17 @@ beforeAll(async () => {
   await client.$connect();
   await fixturePrisma.$connect();
 
-  const tenantA = await fixturePrisma.tenant.findFirst({ where: { name: 'Clínica Teste A' } });
-  const tenantB = await fixturePrisma.tenant.findFirst({ where: { name: 'Clínica Teste B' } });
-  if (!tenantA || !tenantB) {
-    throw new Error('Seed de desenvolvimento (Tenant A/B) não encontrado — rode pnpm --filter @luxora/backend seed antes deste teste.');
-  }
-  tenantAId = tenantA.id;
-  tenantBId = tenantB.id;
-
-  const patient = await fixturePrisma.patient.findFirst({ where: { tenantId: tenantAId } });
-  const therapist = await fixturePrisma.therapist.findFirst({ where: { tenantId: tenantAId } });
-  if (!patient || !therapist) {
-    throw new Error('Seed de desenvolvimento (Patient/Therapist do Tenant A) não encontrado.');
-  }
-  patientId = patient.id;
-  therapistId = therapist.id;
+  fixtureA = await createDedicatedFixture(fixturePrisma, 'C2PERSIST-A');
+  fixtureB = await createDedicatedFixture(fixturePrisma, 'C2PERSIST-B');
+  tenantAId = fixtureA.tenantId;
+  tenantBId = fixtureB.tenantId;
+  patientId = fixtureA.patientId;
+  therapistId = fixtureA.therapistId;
 });
 
 afterAll(async () => {
+  await cleanupDedicatedFixture(fixturePrisma, fixtureA);
+  await cleanupDedicatedFixture(fixturePrisma, fixtureB);
   await client.$disconnect();
   await fixturePrisma.$disconnect();
 });

@@ -1,9 +1,10 @@
-import { randomUUID, randomInt } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { PrismaClinicHolidayRepository } from '@infrastructure/database/repositories/prisma-clinic-holiday.repository';
 import { ClinicHoliday } from '@domain/availability/clinic-holiday.entity';
+import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
  * PD-001 Fase 2, itens B3 (persistência) e B5 (findById/delete, gerenciamento)
@@ -13,13 +14,21 @@ import { ClinicHoliday } from '@domain/availability/clinic-holiday.entity';
  * o Repository diretamente (sem HTTP, sem Controller ainda). tenantId
  * explícito em cada chamada — o próprio contrato exige isso, ver
  * ClinicHolidayRepository.
+ *
+ * AD-035 (Tarefa 06 da auditoria): gravava feriados nas clínicas do seed
+ * sem nunca apagar — e feriado vale para a clínica inteira, então cada
+ * execução tirava horários livres da clínica de desenvolvimento. Agora
+ * cada execução cria e remove as suas duas clínicas, pela fixture
+ * dedicada, e as datas deixaram de ser sorteadas.
  */
 
 let client: PrismaClientProvider;
 let tenantAId: string;
 let tenantBId: string;
+let fixtureA: DedicatedFixture;
+let fixtureB: DedicatedFixture;
 
-// Lookup de seed roda como superusuário (RLS bloquearia um findFirst sem
+// A preparação roda como superusuário (a RLS bloquearia a criação das clínicas sem
 // app.tenant_id já setado) — a prova de persistência em si roda pela role
 // real (luxora_app), via PrismaClinicHolidayRepository, sujeita a RLS.
 function toSuperuserUrl(databaseUrl: string): string {
@@ -32,12 +41,9 @@ const fixturePrisma = new PrismaClient({
   datasources: { db: { url: toSuperuserUrl(process.env.DATABASE_URL ?? '') } },
 });
 
-// Mesmo raciocínio de test/critical/support/unique-slot.ts: âncora
-// aleatória bem afastada, sorteada uma vez por execução do processo — evita
-// colisão com dado deixado por rodadas anteriores deste mesmo arquivo (sem
-// limpeza entre execuções, banco de desenvolvimento persistente) e com
-// outros arquivos de teste crítico rodando em paralelo.
-const ANCHOR_DAYS_AHEAD = randomInt(30, 9970);
+// Âncora fixa: as clínicas são só deste arquivo, então não há dado de
+// outra execução nem de outro teste com que colidir.
+const ANCHOR_DAYS_AHEAD = 60;
 
 function dateAt(daysFromAnchor: number): Date {
   const date = new Date();
@@ -55,16 +61,15 @@ beforeAll(async () => {
   await client.$connect();
   await fixturePrisma.$connect();
 
-  const tenantA = await fixturePrisma.tenant.findFirst({ where: { name: 'Clínica Teste A' } });
-  const tenantB = await fixturePrisma.tenant.findFirst({ where: { name: 'Clínica Teste B' } });
-  if (!tenantA || !tenantB) {
-    throw new Error('Seed de desenvolvimento (Tenant A/B) não encontrado — rode pnpm --filter @luxora/backend seed antes deste teste.');
-  }
-  tenantAId = tenantA.id;
-  tenantBId = tenantB.id;
+  fixtureA = await createDedicatedFixture(fixturePrisma, 'B3HOLIDAY-A');
+  fixtureB = await createDedicatedFixture(fixturePrisma, 'B3HOLIDAY-B');
+  tenantAId = fixtureA.tenantId;
+  tenantBId = fixtureB.tenantId;
 });
 
 afterAll(async () => {
+  await cleanupDedicatedFixture(fixturePrisma, fixtureA);
+  await cleanupDedicatedFixture(fixturePrisma, fixtureB);
   await client.$disconnect();
   await fixturePrisma.$disconnect();
 });

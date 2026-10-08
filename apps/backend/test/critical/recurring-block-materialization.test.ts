@@ -1,4 +1,4 @@
-import { randomUUID, randomInt } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
@@ -16,6 +16,7 @@ import { RecurringBlock } from '@domain/availability/recurring-block.entity';
 import { ClinicHoliday } from '@domain/availability/clinic-holiday.entity';
 import { Appointment } from '@domain/appointment/appointment.entity';
 import { TenantContext } from '@shared/tenant-context';
+import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
  * PD-001 Fase 2, C3 — materialização de ocorrências de RecurringBlock, de
@@ -31,6 +32,8 @@ let tenantAId: string;
 let tenantBId: string;
 let patientId: string;
 let therapistId: string;
+let fixtureA: DedicatedFixture;
+let fixtureB: DedicatedFixture;
 
 function toSuperuserUrl(databaseUrl: string): string {
   const url = new URL(databaseUrl);
@@ -42,15 +45,11 @@ const fixturePrisma = new PrismaClient({
   datasources: { db: { url: toSuperuserUrl(process.env.DATABASE_URL ?? '') } },
 });
 
-// Mesmo raciocínio de test/critical/support/unique-slot.ts e de
-// clinic-holiday-persistence.test.ts: âncora aleatória bem afastada,
-// sorteada uma vez por execução do processo — evita colisão com dado
-// deixado por rodadas anteriores e com outros arquivos de teste crítico
-// rodando em paralelo contra o mesmo terapeuta seedado. Hora também
-// aleatória (não fixa em 14h) — reduz ainda mais a chance de colidir com
-// o horário aleatório que unique-slot.ts sorteia para outros arquivos.
-const ANCHOR_DAYS_AHEAD = randomInt(30, 9970);
-const ANCHOR_HOUR = randomInt(0, 24);
+// Âncora fixa (AD-035): as clínicas são só deste arquivo, então não há
+// dado de outra execução nem de outro teste com que colidir — o sorteio
+// de dia e hora que existia aqui deixou de ter função.
+const ANCHOR_DAYS_AHEAD = 60;
+const ANCHOR_HOUR = 14;
 function dateAt(daysFromAnchor: number, hour = ANCHOR_HOUR): Date {
   const date = new Date();
   date.setDate(date.getDate() + ANCHOR_DAYS_AHEAD + daysFromAnchor);
@@ -63,80 +62,27 @@ beforeAll(async () => {
   await client.$connect();
   await fixturePrisma.$connect();
 
-  // Tenants próprios e dedicados deste arquivo — não reusa "Clínica Teste
-  // A/B" seedadas. Causa raiz (2ª camada, descoberta ao investigar a
-  // primeira): ClinicHoliday é validado por Tenant inteiro, não por
-  // Terapeuta (VerificarDisponibilidadeUseCase consulta
+  // Clínicas próprias deste arquivo, pela fixture dedicada oficial (AD-035
+  // — antes eram criadas e apagadas à mão aqui, duplicando o helper).
+  // Clínica inteira dedicada, e não só o terapeuta: feriado é validado por
+  // clínica (VerificarDisponibilidadeUseCase consulta
   // clinicHolidayRepo.findByTenantAndRange(calendar.tenantId, ...), sem
-  // filtro de therapistId) — então mesmo um Terapeuta dedicado (ver abaixo)
-  // continuava exposto a qualquer ClinicHoliday deixado por OUTRO arquivo
-  // de teste crítico no mesmo Tenant (ex: clinic-holiday-persistence.test.ts,
-  // que cria feriados sem limpeza entre execuções). Um Tenant dedicado
-  // fecha essa segunda camada de vez: ClinicHoliday, Appointment e
-  // RecurringBlock são todos filtrados por tenantId explícito + RLS — nenhum
-  // outro arquivo, presente ou futuro, pode gravar dado neste Tenant.
-  const dedicatedTenantA = await fixturePrisma.tenant.create({
-    data: { name: `Tenant Dedicado A — C3 Materialização ${randomUUID()}` },
-  });
-  const dedicatedTenantB = await fixturePrisma.tenant.create({
-    data: { name: `Tenant Dedicado B — C3 Materialização ${randomUUID()}` },
-  });
-  tenantAId = dedicatedTenantA.id;
-  tenantBId = dedicatedTenantB.id;
-
-  // Terapeuta/Paciente próprios e dedicados (1ª camada, já corrigida antes):
-  // não usa findFirst() sobre dado seedado nem sobre nenhum critério
-  // incidental (nome, ordem de inserção) — id gerado nesta própria
-  // execução, posse direta, nenhuma seleção sujeita a poluição de outro
-  // arquivo.
-  const dedicatedTherapist = await fixturePrisma.therapist.create({
-    data: {
-      tenantId: tenantAId,
-      name: `Terapeuta Dedicado — C3 Materialização ${randomUUID()}`,
-      specialty: 'Psicologia',
-    },
-  });
-  therapistId = dedicatedTherapist.id;
-
-  // Disponibilidade ampla nos 7 dias, 24h — mesma amplitude usada pelo seed
-  // original, mas pertencente exclusivamente a este terapeuta dedicado.
-  await fixturePrisma.availabilityCalendar.create({
-    data: {
-      tenantId: tenantAId,
-      therapistId,
-      windows: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
-        dayOfWeek,
-        startTime: '00:00',
-        endTime: '23:59',
-        sessionDurationMinutes: 60,
-      })),
-    },
-  });
-
-  const dedicatedPatient = await fixturePrisma.patient.create({
-    data: {
-      tenantId: tenantAId,
-      name: `Paciente Dedicado — C3 Materialização ${randomUUID()}`,
-      phone: '11999999999',
-    },
-  });
-  patientId = dedicatedPatient.id;
+  // filtro de terapeuta), então um feriado deixado por outro arquivo na
+  // mesma clínica mudaria o resultado daqui. A clínica A vem com
+  // disponibilidade nos 7 dias, o dia inteiro.
+  fixtureA = await createDedicatedFixture(fixturePrisma, 'C3MAT-A', { withAvailabilityCalendar: true });
+  fixtureB = await createDedicatedFixture(fixturePrisma, 'C3MAT-B');
+  tenantAId = fixtureA.tenantId;
+  tenantBId = fixtureB.tenantId;
+  therapistId = fixtureA.therapistId;
+  patientId = fixtureA.patientId;
 });
 
 afterAll(async () => {
-  // Limpeza — evita que este arquivo se torne, ele mesmo, uma nova fonte da
-  // mesma classe de poluição que esta correção eliminou (2 camadas:
-  // Therapist/Patient e, agora, Tenant inteiro). Ordem respeita as FKs
-  // RESTRICT do schema: filhos antes dos pais, Tenant por último.
-  await fixturePrisma.auditLog.deleteMany({ where: { tenantId: { in: [tenantAId, tenantBId] } } }); // MaterializarRecurringBlockUseCase grava audit_log por Appointment criado
-  await fixturePrisma.appointment.deleteMany({ where: { therapistId } });
-  await fixturePrisma.recurringBlock.deleteMany({ where: { therapistId } });
-  await fixturePrisma.clinicHoliday.deleteMany({ where: { tenantId: tenantAId } });
-  await fixturePrisma.availabilityCalendar.deleteMany({ where: { therapistId } });
-  await fixturePrisma.therapist.delete({ where: { id: therapistId } });
-  await fixturePrisma.patient.delete({ where: { id: patientId } });
-  await fixturePrisma.tenant.delete({ where: { id: tenantAId } });
-  await fixturePrisma.tenant.delete({ where: { id: tenantBId } });
+  // A fixture apaga também as consultas materializadas, os horários fixos
+  // e os feriados destas clínicas, na ordem das FKs.
+  await cleanupDedicatedFixture(fixturePrisma, fixtureA);
+  await cleanupDedicatedFixture(fixturePrisma, fixtureB);
 
   await client.$disconnect();
   await fixturePrisma.$disconnect();
