@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { parsePageLimit } from '@shared/pagination';
 import { CreateBillingDto, CreatePaymentDto } from './dto/billing.dto';
 import {
   GerarCobrancaUseCase,
@@ -43,7 +44,7 @@ export class BillingController {
   // cobrança quitada cujo pagamento foi estornado.
   @Get()
   async list(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
-    const billings = await this.listarCobrancas.execute({ cursor, limit: limit ? Number(limit) : undefined });
+    const billings = await this.listarCobrancas.execute({ cursor, limit: parsePageLimit(limit) });
     const paymentStates = await this.consultarEstadosDePagamento.execute(billings.map((billing) => billing.id));
     return {
       data: billings.map((billing) => ({ ...this.toResponse(billing), paymentState: paymentStates.get(billing.id) ?? null })),

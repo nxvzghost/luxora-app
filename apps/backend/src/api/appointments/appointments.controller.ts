@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Patch, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Patch, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
@@ -23,6 +23,19 @@ import { Appointment } from '@domain/appointment/appointment.entity';
  *
  * Política de papel por rota: docs/02-Arquitetura/16-Politica-RBAC.md (AD-003).
  */
+/**
+ * Tarefa 06 da auditoria (AD-032) — ACHADO REAL: `from` e `to` iam direto
+ * para `new Date()`. Ausentes ou inválidos viravam "Invalid Date" e a
+ * consulta ao banco respondia erro interno (500). Agora são 400.
+ */
+function parseDateParam(name: string, value: string | undefined): Date {
+  const date = value ? new Date(value) : new Date(Number.NaN);
+  if (Number.isNaN(date.getTime())) {
+    throw new BadRequestException(`${name} é obrigatório e precisa ser uma data válida (ISO 8601).`);
+  }
+  return date;
+}
+
 @ApiTags('appointments')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard, SubscriptionAccessGuard)
@@ -40,13 +53,13 @@ export class AppointmentsController {
 
   @Get('appointments')
   async list(@Query('from') from: string, @Query('to') to: string) {
-    const appointments = await this.listarAgendamentos.execute(new Date(from), new Date(to));
+    const appointments = await this.listarAgendamentos.execute(parseDateParam('from', from), parseDateParam('to', to));
     return { data: appointments.map(this.toResponse) };
   }
 
   @Get('therapists/:id/availability')
   async availability(@Param('id') therapistId: string, @Query('from') from: string, @Query('to') to: string) {
-    const slots = await this.consultarDisponibilidade.execute(therapistId, new Date(from), new Date(to));
+    const slots = await this.consultarDisponibilidade.execute(therapistId, parseDateParam('from', from), parseDateParam('to', to));
     return { data: slots };
   }
 

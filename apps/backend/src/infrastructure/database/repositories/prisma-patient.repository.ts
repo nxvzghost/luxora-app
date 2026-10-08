@@ -46,8 +46,12 @@ export class PrismaPatientRepository implements PatientRepository {
           state: patient.state as PrismaPatient['state'],
           billingPolicyOverride: patient.billingPolicyOverride,
         },
+        // Tarefa 06 (AD-032) — ACHADO REAL: `phone` faltava aqui. PATCH
+        // /patients/:id aceitava o telefone novo, devolvia-o na resposta e
+        // não gravava nada.
         update: {
           name: patient.name,
+          phone: patient.phone,
           state: patient.state as PrismaPatient['state'],
           billingPolicyOverride: patient.billingPolicyOverride,
         },

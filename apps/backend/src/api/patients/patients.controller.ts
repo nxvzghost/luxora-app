@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { parsePageLimit } from '@shared/pagination';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
 import { CadastrarPacienteUseCase } from '@use-cases/patient/cadastrar-paciente.use-case';
 import { ConsultarPacienteUseCase } from '@use-cases/patient/consultar-paciente.use-case';
@@ -41,7 +42,7 @@ export class PatientsController {
 
   @Get()
   async list(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
-    const effectiveLimit = limit ? Number(limit) : 20;
+    const effectiveLimit = parsePageLimit(limit) ?? 20;
     const patients = await this.listarPacientes.execute({ cursor, limit: effectiveLimit });
     // Módulo 08: next_cursor estava fixo em `null` desde o Módulo 05 —
     // nunca de fato paginava além da primeira página. Corrigido: se

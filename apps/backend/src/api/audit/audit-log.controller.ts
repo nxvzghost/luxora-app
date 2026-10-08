@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { parsePageLimit } from '@shared/pagination';
 import { ConsultarAuditLogUseCase } from '@use-cases/audit/consultar-audit-log.use-case';
 
 /**
@@ -20,7 +21,7 @@ export class AuditLogController {
   @Get()
   @Roles('admin')
   async list(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
-    const entries = await this.consultarAuditLog.execute({ cursor, limit: limit ? Number(limit) : undefined });
+    const entries = await this.consultarAuditLog.execute({ cursor, limit: parsePageLimit(limit) });
     return { data: entries };
   }
 }

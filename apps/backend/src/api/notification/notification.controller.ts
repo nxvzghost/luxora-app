@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { parsePageLimit } from '@shared/pagination';
 import {
   ListarNotificacoesUseCase,
   ContarNotificacoesNaoLidasUseCase,
@@ -31,7 +32,7 @@ export class NotificationController {
   @Get()
   @Roles('admin', 'therapist')
   async list(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
-    const effectiveLimit = limit ? Number(limit) : 20;
+    const effectiveLimit = parsePageLimit(limit) ?? 20;
     const notifications = await this.listarNotificacoes.execute({ cursor, limit: effectiveLimit });
     const nextCursor = notifications.length === effectiveLimit ? notifications[notifications.length - 1].id : null;
     return { data: notifications.map(this.toResponse), next_cursor: nextCursor };
