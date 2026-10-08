@@ -12,6 +12,8 @@ import {
   BillingCycle,
 } from '@/lib/api-client/subscription.hooks';
 import { ApiError } from '@/lib/api-client/client';
+import { isNotFound } from '@/lib/api-client/errors';
+import { ErrorMessage, Loading } from '@/components/ui/feedback';
 
 /**
  * SubscriptionPage — Módulo 17. Checkout "modelo Netflix" (ADR-0037):
@@ -26,7 +28,7 @@ import { ApiError } from '@/lib/api-client/client';
  * como próximo passo de segurança antes de operar com cartão em escala.
  */
 export default function SubscriptionPage() {
-  const { data: subscription, isLoading, isError } = useSubscription();
+  const { data: subscription, isLoading, isError, error: loadError } = useSubscription();
   const createSubscription = useCreateSubscription();
   const attachCard = useAttachCreditCard();
 
@@ -41,6 +43,11 @@ export default function SubscriptionPage() {
   const [success, setSuccess] = useState(false);
 
   const hasSubscription = !isLoading && !isError && subscription;
+  // Tarefa 06 da auditoria — ACHADO REAL: só o 404 quer dizer "a clínica
+  // ainda não assinou". Qualquer outra falha, e o tempo de carregamento, não
+  // dizem se há assinatura; a tela mostrava o checkout nos dois casos, com os
+  // campos do cartão, também para quem já é assinante.
+  const subscriptionUnknown = isLoading || (isError && !isNotFound(loadError));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -67,6 +74,22 @@ export default function SubscriptionPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Não foi possível processar a assinatura.');
     }
+  }
+
+  if (subscriptionUnknown) {
+    return (
+      <div style={{ display: 'flex' }}>
+        <SideNav />
+        <main style={{ flex: 1, padding: '2.5rem', maxWidth: '480px' }}>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem' }}>Assinatura</h1>
+          {isLoading ? (
+            <Loading />
+          ) : (
+            <ErrorMessage>Não foi possível carregar a assinatura. Atualize a página para tentar de novo.</ErrorMessage>
+          )}
+        </main>
+      </div>
+    );
   }
 
   if (hasSubscription) {
