@@ -130,6 +130,43 @@ jobs:
           WHATSAPP_APP_SECRET: test-app-secret
           WHATSAPP_WEBHOOK_VERIFY_TOKEN: verify-token-de-teste-nao-usar-em-producao-2026
 
+  # Tarefa 06 da auditoria (AD-012) — o fluxo principal da clínica pelo
+  # painel, num navegador de verdade: sessão, disponibilidade, consulta,
+  # cobrança, pagamento, atraso, pagamento divergente com notificação e
+  # estorno. infra/tests/e2e.sh sobe Postgres e Redis descartáveis (não os
+  # `services` dos outros jobs), aplica as migrations, constrói backend e
+  # painel e destrói tudo no fim. Cada teste cria e remove a própria
+  # clínica. Não usa credencial nem serviço externo.
+  test-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Chromium do Playwright e bibliotecas do sistema
+        run: pnpm --filter @luxora/e2e exec playwright install --with-deps chromium
+      - name: Testes de ponta a ponta (pilha descartável)
+        run: bash infra/tests/e2e.sh
+        env:
+          CI: 'true'
+      # Só em falha: relatório navegável, trace e captura de tela de cada
+      # teste que falhou. Os dados são fictícios, criados pelo próprio teste.
+      - name: Diagnóstico da falha
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diagnostico
+          path: |
+            apps/e2e/playwright-report
+            apps/e2e/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
   # Tarefa 04 da auditoria — o caminho de deploy é testado a cada mudança.
   # Constrói as imagens a partir do checkout limpo (o mesmo script do CD) e
   # ensaia, numa pilha descartável do próprio runner: deploy, rollback
