@@ -71,6 +71,14 @@ export interface CreateDedicatedFixtureOptions {
   withAvailabilityCalendar?: boolean;
   /** Necessária para ClinicController (GET/PATCH/policies/payment-info) — ConsultarClinicaUseCase lança ClinicNotFoundError sem esta linha. */
   withClinicSettings?: boolean;
+  /**
+   * Tarefa 05 — necessária para POST /billings/:id/send, que recusa o envio
+   * quando a clínica não tem WhatsApp conectado. O token gravado NÃO é um
+   * texto cifrado válido, de propósito: mesmo que um worker real pegasse um
+   * job desta clínica, o envio pararia ao decifrar, antes de qualquer
+   * chamada externa.
+   */
+  withWhatsAppChannel?: boolean;
 }
 
 /**
@@ -141,6 +149,12 @@ export async function createDedicatedFixture(
       data: { tenantId: tenant.id },
     });
     fixture.clinicSettingsId = settings.id;
+  }
+
+  if (options.withWhatsAppChannel) {
+    await fixturePrisma.whatsAppIntegration.create({
+      data: { tenantId: tenant.id, phoneNumberId: `fixture-${randomUUID()}`, accessToken: 'fixture-token-nao-decifravel' },
+    });
   }
 
   return fixture;
@@ -268,6 +282,10 @@ export async function cleanupDedicatedFixture(fixturePrisma: PrismaClient, fixtu
   // notification_tenant_id_fkey é ON DELETE RESTRICT, então tenant.delete()
   // falha se sobrar qualquer Notification apontando para fixture.tenantId.
   await fixturePrisma.notification.deleteMany({ where: { tenantId: fixture.tenantId } });
+  // whatsapp_integration — Tarefa 05, mesma justificativa: criada por
+  // options.withWhatsAppChannel ou por POST /whatsapp/connect durante o
+  // teste, e presa ao Tenant por FK. Escopado pelo id exclusivo da fixture.
+  await fixturePrisma.whatsAppIntegration.deleteMany({ where: { tenantId: fixture.tenantId } });
   // userIds — coleção (AD-003, mesmo padrão de therapistIds): cobre todos os
   // Users criados por createDedicatedUserAndLogin() na fixture, não só o
   // último (fixture.userId/token continuam apontando pra ele, só por

@@ -14,6 +14,7 @@ import {
   ConsultarPagamentoUseCase,
   EstornarPagamentoUseCase,
   ListarPagamentosDaCobrancaUseCase,
+  ConsultarEstadosDePagamentoUseCase,
 } from '@use-cases/payment/payment.use-cases';
 import { BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
 import { PAYMENT_REPOSITORY } from '@domain-services/financial/payment.repository';
@@ -35,6 +36,8 @@ import { CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { PrismaClinicRepository } from '@infrastructure/database/repositories/prisma-clinic.repository';
 import { ConsultarSegmentacaoFinanceiraUseCase } from '@use-cases/billing/consultar-segmentacao-financeira.use-case';
 import { ExecutarReguaInadimplenciaUseCase } from '@use-cases/billing/executar-regua-inadimplencia.use-case';
+import { MESSAGE_CHANNEL_STATUS } from '@domain-services/communication/message-channel-status';
+import { WhatsAppChannelStatus } from '@infrastructure/messaging/whatsapp-channel-status';
 import { CommunicationModule } from '../communication/communication.module';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -58,6 +61,7 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     ConsultarPagamentoUseCase,
     EstornarPagamentoUseCase,
     ListarPagamentosDaCobrancaUseCase,
+    ConsultarEstadosDePagamentoUseCase,
     ListarSessoesUseCase,
     { provide: BILLING_REPOSITORY, useClass: PrismaBillingRepository },
     { provide: PAYMENT_REPOSITORY, useClass: PrismaPaymentRepository },
@@ -70,6 +74,7 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     { provide: PATIENT_REPOSITORY, useClass: PrismaPatientRepository },
     { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
     { provide: SESSION_REPOSITORY, useClass: PrismaSessionRepository },
+    { provide: MESSAGE_CHANNEL_STATUS, useClass: WhatsAppChannelStatus },
     JwtAuthGuard,
   ],
 })

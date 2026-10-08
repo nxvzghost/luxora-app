@@ -1,6 +1,6 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { Payment } from '@domain/payment/payment.entity';
+import { Payment, PaymentState } from '@domain/payment/payment.entity';
 import { PaymentRepository, PAYMENT_REPOSITORY } from '@domain-services/financial/payment.repository';
 import { BillingRepository, BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
@@ -120,6 +120,22 @@ export class ListarPagamentosDaCobrancaUseCase {
     if (!billing) throw new NotFoundException('Cobrança não encontrada.');
     const payment = await this.paymentRepo.findByBillingId(billingId);
     return payment ? [payment] : [];
+  }
+}
+
+/**
+ * Tarefa 05 da auditoria — só leitura. A lista de cobranças não dizia nada
+ * sobre o pagamento, e um estorno deixa a cobrança em Quitada (ADR-0052):
+ * o painel somava como recebido um valor já devolvido. Com o estado do
+ * pagamento ao lado de cada cobrança, a tela mostra o estorno sem que a
+ * máquina de estados da cobrança mude.
+ */
+@Injectable()
+export class ConsultarEstadosDePagamentoUseCase {
+  constructor(@Inject(PAYMENT_REPOSITORY) private readonly repo: PaymentRepository) {}
+
+  async execute(billingIds: string[]): Promise<Map<string, PaymentState>> {
+    return this.repo.findStatesByBillingIds(billingIds);
   }
 }
 

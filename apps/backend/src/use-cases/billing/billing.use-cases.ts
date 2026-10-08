@@ -9,6 +9,11 @@ import { ClinicRepository, CLINIC_REPOSITORY } from '@domain-services/platform/c
 import { SessionRepository, SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
 import { DomainEvent } from '@domain/shared/domain-event';
 import { MessageQueueProducer } from '@infrastructure/messaging/message-queue.producer';
+import {
+  MessageChannelNotConnectedError,
+  MessageChannelStatus,
+  MESSAGE_CHANNEL_STATUS,
+} from '@domain-services/communication/message-channel-status';
 import { buildBillingMessage } from '@use-cases/communication/templates/billing-message.template';
 
 export interface GerarCobrancaInput {
@@ -102,6 +107,14 @@ export class ListarCobrancasUseCase {
  *    PrismaService direto — Clinic (Módulo 06) passou a expor esses campos.
  * 2. sessionCount agora vem de BillingRepository.countLinkedSessions(),
  *    não mais fixo em 1.
+ *
+ * Tarefa 05 da auditoria — ACHADO REAL: sem WhatsApp conectado, a cobrança
+ * era marcada como Enviada e o envio só falhava depois, no worker da fila,
+ * em definitivo e sem aviso. Como Enviada não volta para Criada, a cobrança
+ * nunca mais podia ser enviada. Agora a falta do canal é recusada antes de
+ * enfileirar (WHATSAPP_NOT_CONNECTED) e a cobrança continua em Criada.
+ * Falhas que só o provider conhece (token recusado, por exemplo) continuam
+ * acontecendo depois do enfileiramento.
  */
 @Injectable()
 export class EnviarCobrancaUseCase {
@@ -112,10 +125,14 @@ export class EnviarCobrancaUseCase {
     private readonly consultarCobranca: ConsultarCobrancaUseCase,
     private readonly messageQueue: MessageQueueProducer,
     private readonly auditService: AuditService,
+    @Inject(MESSAGE_CHANNEL_STATUS) private readonly messageChannel: MessageChannelStatus,
   ) {}
 
   async execute(id: string): Promise<Billing> {
     const billing = await this.consultarCobranca.execute(id);
+    if (!(await this.messageChannel.isConnected())) {
+      throw new MessageChannelNotConnectedError();
+    }
     const patient = await this.patientRepo.findById(billing.patientId);
     if (!patient) throw new Error('Paciente da cobrança não encontrado.');
 

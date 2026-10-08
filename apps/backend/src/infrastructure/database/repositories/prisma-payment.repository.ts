@@ -36,6 +36,14 @@ export class PrismaPaymentRepository implements PaymentRepository {
     return record ? this.toDomain(record) : null;
   }
 
+  async findStatesByBillingIds(billingIds: string[]): Promise<Map<string, PaymentState>> {
+    if (billingIds.length === 0) return new Map();
+    const records = await this.prisma.forTenant((tx) =>
+      tx.payment.findMany({ where: { billingId: { in: billingIds } }, select: { billingId: true, status: true } }),
+    );
+    return new Map(records.map((record) => [record.billingId, TO_DOMAIN[record.status]]));
+  }
+
   async save(payment: Payment): Promise<void> {
     try {
       await this.prisma.forTenant((tx) =>

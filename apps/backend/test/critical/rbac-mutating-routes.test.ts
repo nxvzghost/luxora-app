@@ -124,6 +124,7 @@ beforeAll(async () => {
     withActiveSubscription: true,
     withAvailabilityCalendar: true,
     withClinicSettings: true,
+    withWhatsAppChannel: true, // POST /billings/:id/send recusa o envio sem canal conectado (Tarefa 05)
   });
   // Plano padrão da fixture é 'professional' (maxTherapists: 1) — a fixture
   // já nasce com 1 terapeuta, e os testes de RBAC de TherapistsController

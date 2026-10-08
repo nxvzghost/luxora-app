@@ -16,6 +16,7 @@ import {
   ConsultarPagamentoUseCase,
   EstornarPagamentoUseCase,
   ListarPagamentosDaCobrancaUseCase,
+  ConsultarEstadosDePagamentoUseCase,
 } from '@use-cases/payment/payment.use-cases';
 import { Billing } from '@domain/billing/billing.entity';
 import { Payment } from '@domain/payment/payment.entity';
@@ -34,12 +35,19 @@ export class BillingController {
     private readonly listarCobrancas: ListarCobrancasUseCase,
     private readonly enviarCobranca: EnviarCobrancaUseCase,
     private readonly listarPagamentos: ListarPagamentosDaCobrancaUseCase,
+    private readonly consultarEstadosDePagamento: ConsultarEstadosDePagamentoUseCase,
   ) {}
 
+  // Tarefa 05 — `paymentState` (aditivo): estado do pagamento da cobrança,
+  // ou null quando não há pagamento. É o que permite ao painel mostrar uma
+  // cobrança quitada cujo pagamento foi estornado.
   @Get()
   async list(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
     const billings = await this.listarCobrancas.execute({ cursor, limit: limit ? Number(limit) : undefined });
-    return { data: billings.map(this.toResponse) };
+    const paymentStates = await this.consultarEstadosDePagamento.execute(billings.map((billing) => billing.id));
+    return {
+      data: billings.map((billing) => ({ ...this.toResponse(billing), paymentState: paymentStates.get(billing.id) ?? null })),
+    };
   }
 
   @Post()

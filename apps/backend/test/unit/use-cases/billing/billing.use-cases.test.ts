@@ -92,14 +92,26 @@ describe('GerarCobrancaUseCase — cobrança agregada (Testes Críticos #4-7)', 
 });
 
 describe('EnviarCobrancaUseCase — Módulo 11 (envio real via fila)', () => {
-  function makeUseCase(billing: Billing, patient: unknown, clinic: unknown) {
+  function makeUseCase(billing: Billing, patient: unknown, clinic: unknown, channelConnected = true) {
     const billingRepo = { findById: vi.fn().mockResolvedValue(billing), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn().mockResolvedValue(1), findSessionIdsByBillingId: vi.fn() };
     const patientRepo = { findById: vi.fn().mockResolvedValue(patient), findAllByTenant: vi.fn(), save: vi.fn() };
     const clinicRepo = { findByTenantId: vi.fn().mockResolvedValue(clinic), save: vi.fn() };
     const messageQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
-    const useCase = new EnviarCobrancaUseCase(billingRepo, patientRepo, clinicRepo, new ConsultarCobrancaUseCase(billingRepo), messageQueue, auditService());
+    const messageChannel = { isConnected: vi.fn().mockResolvedValue(channelConnected) };
+    const useCase = new EnviarCobrancaUseCase(billingRepo, patientRepo, clinicRepo, new ConsultarCobrancaUseCase(billingRepo), messageQueue, auditService(), messageChannel);
     return { useCase, messageQueue, billingRepo };
   }
+
+  it('Tarefa 05: sem WhatsApp conectado recusa o envio, não enfileira nada e a cobrança continua Criada', async () => {
+    const billing = Billing.reconstitute({ id: 'b1', tenantId: TENANT_ID, patientId: 'p1', amount: 400, dueDate: new Date(), state: 'Criada' });
+    const { useCase, messageQueue, billingRepo } = makeUseCase(billing, { name: 'Maria Silva', phone: '+5541900000000' }, { pixKey: 'x', payeeName: 'y' }, false);
+
+    await expect(useCase.execute('b1')).rejects.toMatchObject({ response: { code: 'WHATSAPP_NOT_CONNECTED' }, status: 409 });
+
+    expect(messageQueue.enqueue).not.toHaveBeenCalled();
+    expect(billingRepo.save).not.toHaveBeenCalled();
+    expect(billing.state).toBe('Criada');
+  });
 
   it('transiciona Criada → Enviada e enfileira a mensagem real', async () => {
     const billing = Billing.reconstitute({ id: 'b1', tenantId: TENANT_ID, patientId: 'p1', amount: 400, dueDate: new Date(), state: 'Criada' });
