@@ -1,7 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Billing as PrismaBilling, BillingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { Billing, BillingState } from '@domain/billing/billing.entity';
+import { AWAITING_PAYMENT_STATES, Billing, BillingState, overdueDueDateCutoff } from '@domain/billing/billing.entity';
 import { BillingRepository } from '@domain-services/financial/billing.repository';
 
 const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
@@ -105,8 +105,23 @@ export class PrismaBillingRepository implements BillingRepository {
     return records.map((r) => this.toDomain(r));
   }
 
-  async countOverdueByTenant(): Promise<number> {
-    return this.prisma.forTenant((tx) => tx.billing.count({ where: { status: 'atrasada' } }));
+  // Mesma regra de Billing.isOverdue(), escrita como filtro: o estado
+  // `atrasada`, ou um estado que ainda aguarda pagamento com o vencimento
+  // até o corte. Estados e corte vêm da entidade, para não divergirem.
+  async countOverdueByTenant(referenceDate: Date = new Date()): Promise<number> {
+    return this.prisma.forTenant((tx) =>
+      tx.billing.count({
+        where: {
+          OR: [
+            { status: TO_DB.Atrasada },
+            {
+              status: { in: AWAITING_PAYMENT_STATES.map((state) => TO_DB[state]) },
+              dueDate: { lte: overdueDueDateCutoff(referenceDate) },
+            },
+          ],
+        },
+      }),
+    );
   }
 
   async sumPendingByTenant(): Promise<number> {

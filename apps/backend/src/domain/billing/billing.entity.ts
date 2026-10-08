@@ -51,6 +51,25 @@ const billingTransitions: Record<BillingState, readonly BillingState[]> = {
 
 const billingStateMachine = new StateMachine<BillingState>('Cobrança', billingTransitions);
 
+/**
+ * Estados em que a cobrança ainda aguarda pagamento e não entrou no
+ * tratamento de atraso (`Atrasada`, `Negociada`, `Escalada`). É neles que o
+ * vencimento, sozinho, decide se a cobrança está em atraso — ver isOverdue().
+ */
+export const AWAITING_PAYMENT_STATES: readonly BillingState[] = ['Criada', 'Enviada', 'Visualizada', 'Pendente'];
+
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Vencimento mais recente que já conta como atraso em `referenceDate`: um
+ * dia inteiro depois do vencimento, a mesma régua de daysOverdue() (D+1 é o
+ * primeiro dia de atraso). Exportado para a contagem no banco usar
+ * exatamente o mesmo corte que isOverdue().
+ */
+export function overdueDueDateCutoff(referenceDate: Date): Date {
+  return new Date(referenceDate.getTime() - DAY_IN_MS);
+}
+
 export class BillingStateChangedEvent extends DomainEvent {
   declare readonly fromState: BillingState;
   declare readonly toState: BillingState;
@@ -120,6 +139,31 @@ export class Billing {
   daysOverdue(referenceDate: Date = new Date()): number {
     const diffMs = referenceDate.getTime() - this.props.dueDate.getTime();
     return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  }
+
+  /**
+   * Em atraso — Tarefa 05 da auditoria (ADR-0061).
+   *
+   * ACHADO REAL: os indicadores "cobranças em atraso" contavam só o estado
+   * `Atrasada`, e nenhum fluxo leva uma cobrança até ele. O contador ficava
+   * em zero para sempre, mesmo com cobranças vencidas.
+   *
+   * A regra passa a ser calculada, sem transição nova:
+   * - `Atrasada` continua em atraso, como já era;
+   * - `Criada`, `Enviada`, `Visualizada` e `Pendente` estão em atraso quando
+   *   o vencimento passou há um dia inteiro ou mais (daysOverdue() >= 1);
+   * - `Quitada` e `Cancelada` nunca estão; `Negociada` e `Escalada` seguem
+   *   fora da contagem, como já estavam.
+   *
+   * O estado gravado não muda: uma cobrança `Enviada` e vencida continua
+   * `Enviada`. Sem vencimento válido, não há atraso por data.
+   */
+  isOverdue(referenceDate: Date = new Date()): boolean {
+    if (this._state === 'Atrasada') return true;
+    if (!AWAITING_PAYMENT_STATES.includes(this._state)) return false;
+    const dueTime = this.props.dueDate instanceof Date ? this.props.dueDate.getTime() : Number.NaN;
+    if (Number.isNaN(dueTime)) return false;
+    return dueTime <= overdueDueDateCutoff(referenceDate).getTime();
   }
 
   transitionTo(newState: BillingState): void {

@@ -78,8 +78,18 @@ export class BillingController {
     };
   }
 
+  // Tarefa 05 — `overdue` (aditivo): a cobrança está em atraso pela regra de
+  // Billing.isOverdue(), a mesma que GET /dashboard/summary conta. O painel
+  // lê este campo em vez de refazer a conta, para as duas telas concordarem.
   private toResponse(billing: Billing) {
-    return { id: billing.id, patientId: billing.patientId, amount: billing.amount, dueDate: billing.dueDate, state: billing.state };
+    return {
+      id: billing.id,
+      patientId: billing.patientId,
+      amount: billing.amount,
+      dueDate: billing.dueDate,
+      state: billing.state,
+      overdue: billing.isOverdue(),
+    };
   }
 }
 

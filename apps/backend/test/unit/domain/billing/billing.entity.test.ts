@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Billing } from '@domain/billing/billing.entity';
+import { AWAITING_PAYMENT_STATES, Billing, BillingState, overdueDueDateCutoff } from '@domain/billing/billing.entity';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -109,5 +109,75 @@ describe('Billing', () => {
       state: 'Atrasada',
     });
     expect(b.state).toBe('Atrasada');
+  });
+});
+
+/**
+ * Tarefa 05 da auditoria — "em atraso" calculado pelo vencimento, sem
+ * transição nova: nenhum fluxo leva uma cobrança até `Atrasada`, e os
+ * indicadores do painel contavam só esse estado.
+ */
+describe('Billing.isOverdue — em atraso pelo vencimento', () => {
+  const DUE = new Date('2026-08-10T00:00:00Z');
+  const ONE_DAY_LATER = new Date('2026-08-11T00:00:00Z');
+  const A_MONTH_LATER = new Date('2026-09-10T12:00:00Z');
+
+  function billingIn(state: BillingState, dueDate: Date = DUE) {
+    return Billing.reconstitute({ id: 'b1', tenantId: TENANT_ID, patientId: 'p1', amount: 400, dueDate, state });
+  }
+
+  it.each(['Criada', 'Enviada', 'Visualizada', 'Pendente'] as const)('%s com o vencimento passado está em atraso', (state) => {
+    expect(billingIn(state).isOverdue(A_MONTH_LATER)).toBe(true);
+  });
+
+  it.each(['Criada', 'Enviada', 'Visualizada', 'Pendente'] as const)('%s antes do vencimento não está em atraso', (state) => {
+    expect(billingIn(state).isOverdue(new Date('2026-08-05T00:00:00Z'))).toBe(false);
+  });
+
+  it('o dia do vencimento ainda está em dia; o atraso começa um dia inteiro depois', () => {
+    const billing = billingIn('Enviada');
+
+    expect(billing.isOverdue(DUE)).toBe(false);
+    expect(billing.isOverdue(new Date('2026-08-10T23:59:59.999Z'))).toBe(false);
+    expect(billing.isOverdue(ONE_DAY_LATER)).toBe(true);
+  });
+
+  it('usa a mesma régua de daysOverdue: em atraso exatamente quando há 1 dia ou mais', () => {
+    const billing = billingIn('Criada');
+    for (const reference of [DUE, new Date('2026-08-10T23:59:59.999Z'), ONE_DAY_LATER, new Date('2026-08-17T00:00:00Z'), A_MONTH_LATER]) {
+      expect(billing.isOverdue(reference)).toBe(billing.daysOverdue(reference) >= 1);
+    }
+  });
+
+  it.each(['Quitada', 'Cancelada'] as const)('%s nunca está em atraso, por mais antigo que seja o vencimento', (state) => {
+    expect(billingIn(state).isOverdue(A_MONTH_LATER)).toBe(false);
+  });
+
+  it.each(['Negociada', 'Escalada'] as const)('%s continua fora da contagem, como já estava', (state) => {
+    expect(billingIn(state).isOverdue(A_MONTH_LATER)).toBe(false);
+  });
+
+  it('Atrasada continua em atraso, como já era — o estado gravado prevalece', () => {
+    expect(billingIn('Atrasada').isOverdue(A_MONTH_LATER)).toBe(true);
+    expect(billingIn('Atrasada').isOverdue(new Date('2026-08-05T00:00:00Z'))).toBe(true);
+  });
+
+  it('sem vencimento válido não há atraso por data', () => {
+    expect(billingIn('Enviada', new Date(Number.NaN)).isOverdue(A_MONTH_LATER)).toBe(false);
+    expect(billingIn('Enviada', null as unknown as Date).isOverdue(A_MONTH_LATER)).toBe(false);
+  });
+
+  it('não muda o estado nem emite evento: é só leitura', () => {
+    const billing = billingIn('Enviada');
+
+    billing.isOverdue(A_MONTH_LATER);
+
+    expect(billing.state).toBe('Enviada');
+    expect(billing.pullDomainEvents()).toHaveLength(0);
+  });
+
+  it('a lista de estados que aguardam pagamento é a usada pela contagem no banco', () => {
+    expect([...AWAITING_PAYMENT_STATES]).toEqual(['Criada', 'Enviada', 'Visualizada', 'Pendente']);
+    expect(overdueDueDateCutoff(ONE_DAY_LATER)).toEqual(DUE);
   });
 });
