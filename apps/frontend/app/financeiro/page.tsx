@@ -94,7 +94,10 @@ export default function FinanceiroPage() {
 
   const total = billings.reduce((sum, billing) => sum + billing.amount, 0);
   const received = billings.filter((billing) => billing.state === 'Quitada' && !isRefunded(billing)).reduce((sum, billing) => sum + billing.amount, 0);
-  const overdue = billings.filter((billing) => billing.state === 'Atrasada').length;
+  // "Em atraso" vem pronto da API (`overdue`), pela mesma regra que o
+  // Dashboard conta em GET /dashboard/summary — a tela não refaz a conta,
+  // para os dois números nunca divergirem.
+  const overdue = billings.filter((billing) => billing.overdue === true).length;
 
   return (
     <PageShell
@@ -158,6 +161,9 @@ export default function FinanceiroPage() {
               >
                 {isRefunded(billing) ? 'Pagamento estornado' : (STATE_LABELS[billing.state] ?? billing.state)}
               </span>
+              {billing.overdue === true && billing.state !== 'Atrasada' && (
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--danger)' }}>Em atraso</p>
+              )}
               {billing.paymentState === 'Divergente' && (
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--danger)' }}>Pagamento divergente</p>
               )}

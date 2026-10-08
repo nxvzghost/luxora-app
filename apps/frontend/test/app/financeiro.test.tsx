@@ -19,7 +19,7 @@ const PAYMENT = { id: 'payment-1', billingId: 'billing-1', amount: 200, state: '
 
 type Routes = Record<string, MockReply | ((request: MockRequest) => MockReply)>;
 
-function mockFinance(overrides: Routes = {}, billings: Array<typeof BILLING & { paymentState?: string | null }> = [BILLING]) {
+function mockFinance(overrides: Routes = {}, billings: Array<typeof BILLING & { paymentState?: string | null; overdue?: boolean }> = [BILLING]) {
   return mockApi({
     'GET /billings': { body: { data: billings } },
     'GET /patients': { body: { data: [{ id: 'patient-1', name: 'Paciente Teste', phone: '+5541900000000', state: 'Ativo', billingPolicyOverride: null }] } },
@@ -100,6 +100,33 @@ describe('FinanceiroPage — carregamento', () => {
 
     expect(await screen.findByText('Pagamento divergente')).toBeInTheDocument();
     expect(screen.getByText('Enviada')).toBeInTheDocument();
+  });
+
+  it('conta e sinaliza as cobranças em atraso pelo que a API informa; quitada com vencimento antigo não entra', async () => {
+    mockFinance({}, [
+      { ...BILLING, id: 'enviada-vencida', state: 'Enviada', overdue: true },
+      { ...BILLING, id: 'criada-vencida', state: 'Criada', overdue: true },
+      { ...BILLING, id: 'atrasada', state: 'Atrasada', overdue: true },
+      { ...BILLING, id: 'criada-a-vencer', state: 'Criada', dueDate: '2099-01-10T00:00:00.000Z', overdue: false },
+      { ...BILLING, id: 'quitada-antiga', state: 'Quitada', dueDate: '2020-01-10T00:00:00.000Z', overdue: false, paymentState: 'Confirmado' },
+    ]);
+    renderWithQueryClient(<FinanceiroPage />);
+
+    await waitFor(() => expect(screen.getByText('Cobranças em atraso').parentElement).toHaveTextContent('3'));
+    // A que já está no estado Atrasada mostra o estado; as outras duas ganham o aviso.
+    expect(screen.getAllByText('Em atraso')).toHaveLength(2);
+    expect(screen.getByText('Atrasada')).toBeInTheDocument();
+    const paid = screen.getByText('Quitada').closest('li') as HTMLElement;
+    expect(within(paid).queryByText('Em atraso')).not.toBeInTheDocument();
+  });
+
+  it('não refaz a conta pela data: quem decide o atraso é a API, a mesma regra do Dashboard', async () => {
+    mockFinance({}, [{ ...BILLING, state: 'Enviada', dueDate: '2020-01-10T00:00:00.000Z', overdue: false }]);
+    renderWithQueryClient(<FinanceiroPage />);
+
+    await screen.findByText('Paciente Teste');
+    expect(screen.getByText('Cobranças em atraso').parentElement).toHaveTextContent('0');
+    expect(screen.queryByText('Em atraso')).not.toBeInTheDocument();
   });
 
   it('soma todas as páginas de cobranças, não só a primeira', async () => {

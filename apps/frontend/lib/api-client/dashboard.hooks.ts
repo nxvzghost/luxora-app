@@ -21,6 +21,8 @@ export interface Billing {
   state: string;
   /** Estado do pagamento da cobrança, ou null quando não há pagamento. Só vem na lista (GET /billings). */
   paymentState?: string | null;
+  /** A cobrança está em atraso, pela regra da API (a mesma de `overdueBillings` em GET /dashboard/summary). */
+  overdue?: boolean;
 }
 
 /** Todos os pacientes da clínica — a API pagina; ver fetchAllPages. */
