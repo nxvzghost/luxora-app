@@ -1,0 +1,15 @@
+{
+  "name": "@luxora/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Testes de ponta a ponta do painel (Playwright). Rodam contra uma pilha descartável — ver infra/tests/e2e.sh.",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:stack": "bash ../../infra/tests/e2e.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}

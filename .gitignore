@@ -17,3 +17,6 @@ coverage/
 apps/backend/prisma/*.db
 *.tsbuildinfo
 .claude/
+# Tarefa 06 — saídas do Playwright (relatório, traces e capturas de falha).
+apps/e2e/test-results/
+apps/e2e/playwright-report/
