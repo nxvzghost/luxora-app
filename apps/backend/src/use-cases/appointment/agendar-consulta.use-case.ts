@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Appointment } from '@domain/appointment/appointment.entity';
 import {
@@ -7,6 +7,7 @@ import {
 } from '@domain-services/patient-ops/appointment.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { TenantContext } from '@shared/tenant-context';
+import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { VerificarDisponibilidadeUseCase } from '@use-cases/availability/verificar-disponibilidade.use-case';
 import { SlotNotAvailableError } from '@domain-services/availability/slot-not-available.error';
 
@@ -40,9 +41,20 @@ export class AgendarConsultaUseCase {
     private readonly verificarDisponibilidade: VerificarDisponibilidadeUseCase,
     private readonly auditService: AuditService,
     private readonly tenantContext: TenantContext,
+    @Inject(PATIENT_REPOSITORY) private readonly patientRepo: PatientRepository,
   ) {}
 
   async execute(input: AgendarConsultaInput): Promise<Appointment> {
+    // Tarefa 06 da auditoria (AD-032) — ACHADO REAL: o paciente não era
+    // conferido. O terapeuta é barrado pelo Motor (o calendário de outra
+    // clínica é invisível pela RLS), mas a chave estrangeira do paciente
+    // não olha a clínica: com o id de um paciente de OUTRA clínica, a
+    // consulta era gravada nesta, apontando para ele. A leitura abaixo
+    // passa pela RLS — paciente de outra clínica é o mesmo que inexistente.
+    if (!(await this.patientRepo.findById(input.patientId))) {
+      throw new NotFoundException('Paciente não encontrado.');
+    }
+
     const disponivel = await this.verificarDisponibilidade.execute({
       therapistId: input.therapistId,
       scheduledAt: input.scheduledAt,

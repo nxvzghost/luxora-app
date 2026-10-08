@@ -17,6 +17,8 @@ import { CriarRecurringBlockUseCase, ListarRecurringBlocksUseCase } from '@use-c
 import { APPOINTMENT_REPOSITORY } from '@domain-services/patient-ops/appointment.repository';
 import { SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
 import { THERAPIST_REPOSITORY } from '@domain-services/platform/therapist.repository';
+import { PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
+import { PrismaPatientRepository } from '@infrastructure/database/repositories/prisma-patient.repository';
 import { AVAILABILITY_REPOSITORY } from '@domain-services/availability/availability.repository';
 import { CLINIC_HOLIDAY_REPOSITORY } from '@domain-services/availability/clinic-holiday.repository';
 import { RECURRING_BLOCK_REPOSITORY } from '@domain-services/availability/recurring-block.repository';
@@ -57,6 +59,7 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     { provide: APPOINTMENT_REPOSITORY, useClass: PrismaAppointmentRepository },
     { provide: SESSION_REPOSITORY, useClass: PrismaSessionRepository },
     { provide: THERAPIST_REPOSITORY, useClass: PrismaTherapistRepository },
+    { provide: PATIENT_REPOSITORY, useClass: PrismaPatientRepository },
     { provide: AVAILABILITY_REPOSITORY, useClass: PrismaAvailabilityRepository },
     { provide: CLINIC_HOLIDAY_REPOSITORY, useClass: PrismaClinicHolidayRepository },
     { provide: RECURRING_BLOCK_REPOSITORY, useClass: PrismaRecurringBlockRepository },

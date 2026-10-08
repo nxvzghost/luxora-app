@@ -39,27 +39,27 @@ function sessionRepoMock(sessionIds: string[]) {
 describe('GerarCobrancaUseCase — cobrança agregada (Testes Críticos #4-7)', () => {
   it('rejeita cobrança sem nenhuma sessão vinculada', async () => {
     const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
-    const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock([]), auditService(), tenantContext());
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock([]), auditService(), tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await expect(useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: [] })).rejects.toThrow(/ao menos uma sessão/);
   });
 
   it('cria cobrança por sessão avulsa (1 sessionId — caso N=1)', async () => {
     const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn() };
-    const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock(['s1']), auditService(), tenantContext());
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock(['s1']), auditService(), tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: ['s1'] });
     expect(repo.linkSessions).toHaveBeenCalledWith(expect.any(String), ['s1']);
   });
 
   it('cria cobrança agregada (N sessionIds — semanal/mensal)', async () => {
     const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn() };
-    const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock(['s1', 's2', 's3', 's4']), auditService(), tenantContext());
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock(['s1', 's2', 's3', 's4']), auditService(), tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await useCase.execute({ patientId: 'p1', amount: 1600, dueDate: new Date(), sessionIds: ['s1', 's2', 's3', 's4'] });
     expect(repo.linkSessions).toHaveBeenCalledWith(expect.any(String), ['s1', 's2', 's3', 's4']);
   });
 
   it('nasce no estado Criada', async () => {
     const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn() };
-    const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock(['s1']), auditService(), tenantContext());
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock(['s1']), auditService(), tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     const billing = await useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: ['s1'] });
     expect(billing.state).toBe('Criada');
   });
@@ -68,7 +68,7 @@ describe('GerarCobrancaUseCase — cobrança agregada (Testes Críticos #4-7)', 
     const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn() };
     const sessionRepo = sessionRepoMock(['s1', 's2']);
     const audit = auditService();
-    const useCase = new GerarCobrancaUseCase(repo, sessionRepo, audit, tenantContext());
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepo, audit, tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
 
     await useCase.execute({ patientId: 'p1', amount: 800, dueDate: new Date(), sessionIds: ['s1', 's2'] });
 
@@ -84,7 +84,7 @@ describe('GerarCobrancaUseCase — cobrança agregada (Testes Críticos #4-7)', 
 
   it('AD-009: lança NotFoundException se uma sessão vinculada não existir', async () => {
     const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn() };
-    const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock([]), auditService(), tenantContext());
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock([]), auditService(), tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await expect(
       useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: ['s-inexistente'] }),
     ).rejects.toThrow(/não encontrada/);
@@ -140,5 +140,37 @@ describe('EnviarCobrancaUseCase — Módulo 11 (envio real via fila)', () => {
     const billing = Billing.reconstitute({ id: 'b1', tenantId: TENANT_ID, patientId: 'p-inexistente', amount: 400, dueDate: new Date(), state: 'Criada' });
     const { useCase } = makeUseCase(billing, null, {});
     await expect(useCase.execute('b1')).rejects.toThrow(/Paciente da cobrança não encontrado/);
+  });
+});
+
+/**
+ * Tarefa 06 da auditoria (AD-032) — cobrança só para paciente da própria
+ * clínica.
+ */
+describe('Tarefa 06 — GerarCobrancaUseCase confere o paciente', () => {
+  it('paciente não encontrado: 404, e nem a cobrança nem o vínculo com a sessão são gravados', async () => {
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const sessionRepo = sessionRepoMock(['s1']);
+    const patientRepo = { findById: vi.fn().mockResolvedValue(null) };
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepo, auditService(), tenantContext(), patientRepo as never);
+
+    await expect(useCase.execute({ patientId: 'p-de-outra-clinica', amount: 400, dueDate: new Date(), sessionIds: ['s1'] })).rejects.toMatchObject({ status: 404 });
+
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(repo.linkSessions).not.toHaveBeenCalled();
+    expect(sessionRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('sessão não encontrada (inexistente ou de outra clínica): 404 antes de gravar a cobrança ou o vínculo', async () => {
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const sessionRepo = sessionRepoMock(['s1']);
+    const patientRepo = { findById: vi.fn().mockResolvedValue({ id: 'p1' }) };
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepo, auditService(), tenantContext(), patientRepo as never);
+
+    await expect(useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: ['s1', 's-de-outra-clinica'] })).rejects.toMatchObject({ status: 404 });
+
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(repo.linkSessions).not.toHaveBeenCalled();
+    expect(sessionRepo.save).not.toHaveBeenCalled();
   });
 });

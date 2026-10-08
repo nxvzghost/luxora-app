@@ -1,9 +1,11 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { RecurringBlock } from '@domain/availability/recurring-block.entity';
 import { RECURRING_BLOCK_REPOSITORY, RecurringBlockRepository } from '@domain-services/availability/recurring-block.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { TenantContext } from '@shared/tenant-context';
+import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
+import { TherapistRepository, THERAPIST_REPOSITORY } from '@domain-services/platform/therapist.repository';
 
 /**
  * CriarRecurringBlockUseCase — PD-001 Fase 2, C4.1. Primeiro Caso de Uso de
@@ -35,9 +37,22 @@ export class CriarRecurringBlockUseCase {
     @Inject(RECURRING_BLOCK_REPOSITORY) private readonly repo: RecurringBlockRepository,
     private readonly tenantContext: TenantContext,
     private readonly auditService: AuditService,
+    @Inject(PATIENT_REPOSITORY) private readonly patientRepo: PatientRepository,
+    @Inject(THERAPIST_REPOSITORY) private readonly therapistRepo: TherapistRepository,
   ) {}
 
   async execute(input: CriarRecurringBlockInput): Promise<RecurringBlock> {
+    // Tarefa 06 (AD-032) — ACHADO REAL: nem paciente nem terapeuta eram
+    // conferidos, e as chaves estrangeiras não olham a clínica: o horário
+    // fixo era gravado nesta clínica apontando para paciente ou terapeuta
+    // de outra. As duas leituras passam pela RLS.
+    if (!(await this.patientRepo.findById(input.patientId))) {
+      throw new NotFoundException('Paciente não encontrado.');
+    }
+    if (!(await this.therapistRepo.findById(input.therapistId))) {
+      throw new NotFoundException('Terapeuta não encontrado.');
+    }
+
     const block = RecurringBlock.create({
       id: randomUUID(),
       tenantId: this.tenantContext.tenantId,

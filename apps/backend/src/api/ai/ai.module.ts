@@ -18,6 +18,8 @@ import { SESSION_REPOSITORY } from '@domain-services/patient-ops/session.reposit
 import { BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
 import { CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { THERAPIST_REPOSITORY } from '@domain-services/platform/therapist.repository';
+import { PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
+import { PrismaPatientRepository } from '@infrastructure/database/repositories/prisma-patient.repository';
 import { AVAILABILITY_REPOSITORY } from '@domain-services/availability/availability.repository';
 import { CLINIC_HOLIDAY_REPOSITORY } from '@domain-services/availability/clinic-holiday.repository';
 import { PrismaAppointmentRepository } from '@infrastructure/database/repositories/prisma-appointment.repository';
@@ -79,6 +81,7 @@ import { ContactModule } from '../patient-ops/contact.module';
     { provide: BILLING_REPOSITORY, useClass: PrismaBillingRepository },
     { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
     { provide: THERAPIST_REPOSITORY, useClass: PrismaTherapistRepository },
+    { provide: PATIENT_REPOSITORY, useClass: PrismaPatientRepository },
     { provide: AVAILABILITY_REPOSITORY, useClass: PrismaAvailabilityRepository },
     { provide: CLINIC_HOLIDAY_REPOSITORY, useClass: PrismaClinicHolidayRepository },
     PrismaService,

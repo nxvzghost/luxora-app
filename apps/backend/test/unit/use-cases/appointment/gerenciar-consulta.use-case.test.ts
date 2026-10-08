@@ -41,7 +41,7 @@ function motorDisponivel(disponivel = true) {
 describe('AgendarConsultaUseCase', () => {
   it('cria o agendamento já no estado Reservada', async () => {
     const repo: AppointmentRepository = { findById: vi.fn(), findActiveByTherapistAndRange: vi.fn(), save: vi.fn().mockResolvedValue(undefined), saveMany: vi.fn() };
-    const useCase = new AgendarConsultaUseCase(repo, motorDisponivel() as never, { recordAll: vi.fn().mockResolvedValue(undefined) } as never, tenantContext());
+    const useCase = new AgendarConsultaUseCase(repo, motorDisponivel() as never, { recordAll: vi.fn().mockResolvedValue(undefined) } as never, tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     const appointment = await useCase.execute({
       patientId: 'p1',
       therapistId: 't1',
@@ -58,7 +58,7 @@ describe('AgendarConsultaUseCase', () => {
       save: vi.fn().mockRejectedValue(new ConflictException({ code: 'SESSION_CONFLICT' })),
       saveMany: vi.fn(),
     };
-    const useCase = new AgendarConsultaUseCase(repo, motorDisponivel() as never, { recordAll: vi.fn().mockResolvedValue(undefined) } as never, tenantContext());
+    const useCase = new AgendarConsultaUseCase(repo, motorDisponivel() as never, { recordAll: vi.fn().mockResolvedValue(undefined) } as never, tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await expect(
       useCase.execute({ patientId: 'p1', therapistId: 't1', scheduledAt: new Date(), modality: 'presencial' }),
     ).rejects.toThrow(ConflictException);
@@ -67,7 +67,7 @@ describe('AgendarConsultaUseCase', () => {
   it('recusa (SLOT_NOT_AVAILABLE) quando o Motor de Disponibilidade nega o horário — ADR-0040, sem sequer tentar salvar', async () => {
     const repo: AppointmentRepository = { findById: vi.fn(), findActiveByTherapistAndRange: vi.fn(), save: vi.fn(), saveMany: vi.fn() };
     const verificarDisponibilidade = motorDisponivel(false);
-    const useCase = new AgendarConsultaUseCase(repo, verificarDisponibilidade as never, { recordAll: vi.fn().mockResolvedValue(undefined) } as never, tenantContext());
+    const useCase = new AgendarConsultaUseCase(repo, verificarDisponibilidade as never, { recordAll: vi.fn().mockResolvedValue(undefined) } as never, tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await expect(
       useCase.execute({ patientId: 'p1', therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00'), modality: 'presencial' }),
     ).rejects.toThrow(SlotNotAvailableError);
@@ -159,7 +159,7 @@ describe('ConfirmarConsultaUseCase', () => {
 describe('CriarAgendamentoRecorrenteUseCase', () => {
   it('cria N ocorrências espaçadas por intervalDays', async () => {
     const repo: AppointmentRepository = { findById: vi.fn(), findActiveByTherapistAndRange: vi.fn(), save: vi.fn().mockResolvedValue(undefined), saveMany: vi.fn() };
-    const useCase = new CriarAgendamentoRecorrenteUseCase(repo, motorDisponivel() as never, tenantContext(), { recordAll: vi.fn().mockResolvedValue(undefined) } as never);
+    const useCase = new CriarAgendamentoRecorrenteUseCase(repo, motorDisponivel() as never, tenantContext(), { recordAll: vi.fn().mockResolvedValue(undefined) } as never, { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     const appointments = await useCase.execute({
       patientId: 'p1',
       therapistId: 't1',
@@ -175,7 +175,7 @@ describe('CriarAgendamentoRecorrenteUseCase', () => {
 
   it('rejeita occurrences menor que 1', async () => {
     const repo: AppointmentRepository = { findById: vi.fn(), findActiveByTherapistAndRange: vi.fn(), save: vi.fn(), saveMany: vi.fn() };
-    const useCase = new CriarAgendamentoRecorrenteUseCase(repo, motorDisponivel() as never, tenantContext(), { recordAll: vi.fn().mockResolvedValue(undefined) } as never);
+    const useCase = new CriarAgendamentoRecorrenteUseCase(repo, motorDisponivel() as never, tenantContext(), { recordAll: vi.fn().mockResolvedValue(undefined) } as never, { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await expect(
       useCase.execute({
         patientId: 'p1',
@@ -198,7 +198,7 @@ describe('CriarAgendamentoRecorrenteUseCase', () => {
         .mockRejectedValueOnce(new ConflictException({ code: 'SESSION_CONFLICT' })), // 2ª: colide
       saveMany: vi.fn(),
     };
-    const useCase = new CriarAgendamentoRecorrenteUseCase(repo, motorDisponivel() as never, tenantContext(), { recordAll: vi.fn().mockResolvedValue(undefined) } as never);
+    const useCase = new CriarAgendamentoRecorrenteUseCase(repo, motorDisponivel() as never, tenantContext(), { recordAll: vi.fn().mockResolvedValue(undefined) } as never, { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await expect(
       useCase.execute({
         patientId: 'p1',
@@ -217,7 +217,7 @@ describe('CriarAgendamentoRecorrenteUseCase', () => {
     // Todas as N ocorrências são validadas ANTES de qualquer criação — a 2ª
     // falha, então nem a 1ª (que passaria) chega a ser salva.
     const verificarDisponibilidade = { execute: vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false) };
-    const useCase = new CriarAgendamentoRecorrenteUseCase(repo, verificarDisponibilidade as never, tenantContext(), { recordAll: vi.fn().mockResolvedValue(undefined) } as never);
+    const useCase = new CriarAgendamentoRecorrenteUseCase(repo, verificarDisponibilidade as never, tenantContext(), { recordAll: vi.fn().mockResolvedValue(undefined) } as never, { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await expect(
       useCase.execute({
         patientId: 'p1',
@@ -231,5 +231,60 @@ describe('CriarAgendamentoRecorrenteUseCase', () => {
     expect(repo.save).not.toHaveBeenCalled(); // lote inteiro recusado, zero ocorrências criadas
     expect(verificarDisponibilidade.execute).toHaveBeenCalledTimes(2); // parou de validar assim que a 2ª recusou
     expect(verificarDisponibilidade.execute).not.toHaveBeenCalledTimes(3); // nunca chegou a validar a 3ª
+  });
+});
+
+/**
+ * Tarefa 06 da auditoria (AD-032) — o paciente tem de ser da própria
+ * clínica. `findById` do repositório passa pela RLS: paciente de outra
+ * clínica volta como inexistente.
+ */
+describe('Tarefa 06 — consulta só para paciente da própria clínica', () => {
+  const TENANT = '11111111-1111-1111-1111-111111111111';
+  const scheduledAt = new Date('2031-03-10T14:00:00.000Z');
+
+  function setup(patientFound: boolean) {
+    const context = new TenantContext();
+    context.set(TENANT, 'user-1');
+    const repo = { save: vi.fn().mockResolvedValue(undefined), saveMany: vi.fn().mockResolvedValue(undefined) };
+    const motor = { execute: vi.fn().mockResolvedValue(true) };
+    const audit = { recordAll: vi.fn().mockResolvedValue(undefined) };
+    const patientRepo = { findById: vi.fn().mockResolvedValue(patientFound ? { id: 'p1' } : null) };
+    return { context, repo, motor, audit, patientRepo };
+  }
+
+  it('AgendarConsultaUseCase: paciente não encontrado — 404, o Motor nem é consultado e nada é gravado', async () => {
+    const { context, repo, motor, audit, patientRepo } = setup(false);
+    const useCase = new AgendarConsultaUseCase(repo as never, motor as never, audit as never, context, patientRepo as never);
+
+    await expect(useCase.execute({ patientId: 'p-de-outra-clinica', therapistId: 't1', scheduledAt, modality: 'presencial' })).rejects.toMatchObject({ status: 404 });
+
+    expect(patientRepo.findById).toHaveBeenCalledWith('p-de-outra-clinica');
+    expect(motor.execute).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(audit.recordAll).not.toHaveBeenCalled();
+  });
+
+  it('AgendarConsultaUseCase: paciente da clínica — segue para o Motor e grava', async () => {
+    const { context, repo, motor, audit, patientRepo } = setup(true);
+    const useCase = new AgendarConsultaUseCase(repo as never, motor as never, audit as never, context, patientRepo as never);
+
+    const appointment = await useCase.execute({ patientId: 'p1', therapistId: 't1', scheduledAt, modality: 'presencial' });
+
+    expect(appointment.state).toBe('Reservada');
+    expect(repo.save).toHaveBeenCalledOnce();
+  });
+
+  it('CriarAgendamentoRecorrenteUseCase: paciente não encontrado — 404 e nenhuma ocorrência é gravada', async () => {
+    const { context, repo, motor, audit, patientRepo } = setup(false);
+    const useCase = new CriarAgendamentoRecorrenteUseCase(repo as never, motor as never, context, audit as never, patientRepo as never);
+
+    await expect(
+      useCase.execute({ patientId: 'p-de-outra-clinica', therapistId: 't1', firstScheduledAt: scheduledAt, modality: 'presencial', occurrences: 3, intervalDays: 7 }),
+    ).rejects.toMatchObject({ status: 404 });
+
+    expect(motor.execute).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(repo.saveMany).not.toHaveBeenCalled();
   });
 });

@@ -42,12 +42,33 @@ export class GerarCobrancaUseCase {
     @Inject(SESSION_REPOSITORY) private readonly sessionRepo: SessionRepository,
     private readonly auditService: AuditService,
     private readonly tenantContext: TenantContext,
+    @Inject(PATIENT_REPOSITORY) private readonly patientRepo: PatientRepository,
   ) {}
 
   async execute(input: GerarCobrancaInput): Promise<Billing> {
     if (input.sessionIds.length === 0) {
       throw new Error('Uma cobrança deve estar vinculada a ao menos uma sessão.');
     }
+    // Tarefa 06 (AD-032) — ACHADO REAL: o paciente não era conferido, e a
+    // chave estrangeira não olha a clínica. A leitura passa pela RLS.
+    if (!(await this.patientRepo.findById(input.patientId))) {
+      throw new NotFoundException('Paciente não encontrado.');
+    }
+    // Tarefa 06 — ACHADO REAL: as sessões só eram lidas DEPOIS de a cobrança
+    // e o vínculo já estarem gravados. Com o id de uma sessão de outra
+    // clínica, a resposta era 404, mas o vínculo ficava — e, como cada sessão
+    // só pode ter uma cobrança, a outra clínica não conseguia mais cobrá-la.
+    // Agora todas são lidas antes (pela RLS); sessão alheia ou inexistente
+    // recusa o pedido sem gravar nada.
+    const sessions = [];
+    for (const sessionId of input.sessionIds) {
+      const session = await this.sessionRepo.findById(sessionId);
+      if (!session) {
+        throw new NotFoundException(`Sessão ${sessionId} não encontrada.`);
+      }
+      sessions.push(session);
+    }
+
     const billing = Billing.create({
       id: randomUUID(),
       tenantId: this.tenantContext.tenantId,
@@ -59,11 +80,7 @@ export class GerarCobrancaUseCase {
     await this.repo.linkSessions(billing.id, input.sessionIds); // UNIQUE(session_id) protege contra dupla-cobrança da mesma sessão
 
     const sessionEvents: DomainEvent[] = [];
-    for (const sessionId of input.sessionIds) {
-      const session = await this.sessionRepo.findById(sessionId);
-      if (!session) {
-        throw new NotFoundException(`Sessão ${sessionId} não encontrada.`);
-      }
+    for (const session of sessions) {
       session.transitionTo('Faturada');
       await this.sessionRepo.save(session);
       sessionEvents.push(...session.pullDomainEvents());

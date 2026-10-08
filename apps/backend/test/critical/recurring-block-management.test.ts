@@ -5,6 +5,8 @@ import { PrismaClientProvider } from '@infrastructure/database/prisma-client.pro
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaRecurringBlockRepository } from '@infrastructure/database/repositories/prisma-recurring-block.repository';
 import { PrismaAuditLogRepository } from '@infrastructure/database/repositories/prisma-audit-log.repository';
+import { PrismaPatientRepository } from '@infrastructure/database/repositories/prisma-patient.repository';
+import { PrismaTherapistRepository } from '@infrastructure/database/repositories/prisma-therapist.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { CriarRecurringBlockUseCase, ListarRecurringBlocksUseCase } from '@use-cases/availability/gerenciar-recurring-block.use-case';
 import { TenantContext } from '@shared/tenant-context';
@@ -75,7 +77,13 @@ function buildUseCase() {
   const recurringBlockRepo = new PrismaRecurringBlockRepository(client);
   const auditLogRepo = new PrismaAuditLogRepository(prismaService);
   const auditService = new AuditService(auditLogRepo, tenantContext);
-  const useCase = new CriarRecurringBlockUseCase(recurringBlockRepo, tenantContext, auditService);
+  const useCase = new CriarRecurringBlockUseCase(
+    recurringBlockRepo,
+    tenantContext,
+    auditService,
+    new PrismaPatientRepository(prismaService),
+    new PrismaTherapistRepository(prismaService),
+  );
   return { useCase, recurringBlockRepo };
 }
 

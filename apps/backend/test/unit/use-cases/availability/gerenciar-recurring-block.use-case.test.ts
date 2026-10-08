@@ -43,7 +43,7 @@ function fakeAudit(overrides: Record<string, unknown> = {}) {
 describe('CriarRecurringBlockUseCase', () => {
   it('cria o bloco com o tenantId do contexto', async () => {
     const repo = fakeRepo();
-    const useCase = new CriarRecurringBlockUseCase(repo as never, tenantContext(), fakeAudit() as never);
+    const useCase = new CriarRecurringBlockUseCase(repo as never, tenantContext(), fakeAudit() as never, { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never, { findById: vi.fn().mockResolvedValue({ id: 't1' }) } as never);
 
     const block = await useCase.execute({
       patientId: PATIENT_ID,
@@ -62,7 +62,7 @@ describe('CriarRecurringBlockUseCase', () => {
 
   it('propaga erro de validação da entidade (ex: intervalDays inválido)', async () => {
     const repo = fakeRepo();
-    const useCase = new CriarRecurringBlockUseCase(repo as never, tenantContext(), fakeAudit() as never);
+    const useCase = new CriarRecurringBlockUseCase(repo as never, tenantContext(), fakeAudit() as never, { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never, { findById: vi.fn().mockResolvedValue({ id: 't1' }) } as never);
 
     await expect(
       useCase.execute({
@@ -87,7 +87,7 @@ describe('CriarRecurringBlockUseCase', () => {
     const recordAll = vi.fn().mockImplementation(async () => {
       calls.push('recordAll');
     });
-    const useCase = new CriarRecurringBlockUseCase(repo as never, tenantContext(), fakeAudit({ recordAll }) as never);
+    const useCase = new CriarRecurringBlockUseCase(repo as never, tenantContext(), fakeAudit({ recordAll }) as never, { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never, { findById: vi.fn().mockResolvedValue({ id: 't1' }) } as never);
 
     await useCase.execute({
       patientId: PATIENT_ID,
@@ -109,7 +109,7 @@ describe('CriarRecurringBlockUseCase', () => {
   it('validação inválida nunca dispara recordAll()', async () => {
     const repo = fakeRepo();
     const recordAll = vi.fn();
-    const useCase = new CriarRecurringBlockUseCase(repo as never, tenantContext(), fakeAudit({ recordAll }) as never);
+    const useCase = new CriarRecurringBlockUseCase(repo as never, tenantContext(), fakeAudit({ recordAll }) as never, { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never, { findById: vi.fn().mockResolvedValue({ id: 't1' }) } as never);
 
     await expect(
       useCase.execute({
@@ -154,5 +154,54 @@ describe('ListarRecurringBlocksUseCase', () => {
     // uma tentativa de chamar this.auditService aqui).
     await useCase.execute(THERAPIST_ID);
     expect(repo.save).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Tarefa 06 da auditoria (AD-032) — horário fixo só com paciente e
+ * terapeuta da própria clínica.
+ */
+describe('Tarefa 06 — CriarRecurringBlockUseCase confere paciente e terapeuta', () => {
+  const input = {
+    patientId: 'p1',
+    therapistId: 't1',
+    firstOccurrence: new Date('2031-03-10T14:00:00.000Z'),
+    intervalDays: 7,
+    modality: 'presencial' as const,
+    renewalMode: 'automatic' as const,
+  };
+
+  function setup(found: { patient: boolean; therapist: boolean }) {
+    const repo = { save: vi.fn().mockResolvedValue(undefined) };
+    const audit = { recordAll: vi.fn().mockResolvedValue(undefined) };
+    const patientRepo = { findById: vi.fn().mockResolvedValue(found.patient ? { id: 'p1' } : null) };
+    const therapistRepo = { findById: vi.fn().mockResolvedValue(found.therapist ? { id: 't1' } : null) };
+    const useCase = new CriarRecurringBlockUseCase(repo as never, tenantContext(), audit as never, patientRepo as never, therapistRepo as never);
+    return { useCase, repo, audit };
+  }
+
+  it('paciente não encontrado: 404 e nada é gravado', async () => {
+    const { useCase, repo, audit } = setup({ patient: false, therapist: true });
+
+    await expect(useCase.execute(input)).rejects.toMatchObject({ status: 404, message: 'Paciente não encontrado.' });
+
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(audit.recordAll).not.toHaveBeenCalled();
+  });
+
+  it('terapeuta não encontrado: 404 e nada é gravado', async () => {
+    const { useCase, repo } = setup({ patient: true, therapist: false });
+
+    await expect(useCase.execute(input)).rejects.toMatchObject({ status: 404, message: 'Terapeuta não encontrado.' });
+
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('os dois da clínica: grava', async () => {
+    const { useCase, repo } = setup({ patient: true, therapist: true });
+
+    await useCase.execute(input);
+
+    expect(repo.save).toHaveBeenCalledOnce();
   });
 });

@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Appointment } from '@domain/appointment/appointment.entity';
 import {
@@ -7,6 +7,7 @@ import {
 } from '@domain-services/patient-ops/appointment.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { TenantContext } from '@shared/tenant-context';
+import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { VerificarDisponibilidadeUseCase } from '@use-cases/availability/verificar-disponibilidade.use-case';
 import { SlotNotAvailableError } from '@domain-services/availability/slot-not-available.error';
 
@@ -54,9 +55,16 @@ export class CriarAgendamentoRecorrenteUseCase {
     private readonly verificarDisponibilidade: VerificarDisponibilidadeUseCase,
     private readonly tenantContext: TenantContext,
     private readonly auditService: AuditService,
+    @Inject(PATIENT_REPOSITORY) private readonly patientRepo: PatientRepository,
   ) {}
 
   async execute(input: CriarAgendamentoRecorrenteInput): Promise<Appointment[]> {
+    // Tarefa 06 (AD-032) — mesma conferência de AgendarConsultaUseCase: o
+    // paciente tem de ser desta clínica (a leitura passa pela RLS).
+    if (!(await this.patientRepo.findById(input.patientId))) {
+      throw new NotFoundException('Paciente não encontrado.');
+    }
+
     if (input.occurrences < 1) {
       throw new Error('occurrences deve ser ao menos 1.');
     }
