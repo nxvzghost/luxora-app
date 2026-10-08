@@ -134,6 +134,7 @@ Acrescentado na Tarefa 05 da auditoria (ADR-0061), sem mudar o que já existia:
 - **`GET /billings/{id}/payments`:** devolve `{ data: [...] }` com o pagamento da cobrança — no máximo um, porque `payment.billing_id` é único — ou lista vazia. Cada item: `id`, `billingId`, `amount`, `state`. 404 para cobrança inexistente ou de outra clínica.
 - **`POST /billings/{id}/send` — erro novo:** `WHATSAPP_NOT_CONNECTED` (409) quando a clínica não tem WhatsApp conectado e ativo. Nada é enfileirado e a cobrança continua em `Criada`. Com canal conectado, a resposta 201 significa que a mensagem entrou na fila de envio, não que foi entregue.
 - **Cobrança `Enviada` pode ir direto a `Quitada`:** registrar o pagamento de uma cobrança já enviada respondia 500.
+- **Campo `overdue` em toda cobrança devolvida** (`GET /billings`, `GET /billings/{id}`, `POST /billings`, `POST /billings/{id}/send`): `true` quando a cobrança está em atraso. Regra: estado `Atrasada`; ou estado `Criada`, `Enviada`, `Visualizada` ou `Pendente` com o vencimento passado há um dia inteiro ou mais (o dia do vencimento ainda está em dia; o corte é em UTC). `Quitada` e `Cancelada` nunca; `Negociada` e `Escalada` não entram. É a mesma regra de `overdueBillings` em `GET /dashboard/summary`. O estado gravado não muda.
 
 ---
 
@@ -171,6 +172,8 @@ Somente leitura — nunca altera dados (mesmo princípio já definido em `02-Arq
 | GET | `/api/v1/dashboard/summary` | RF-081 a RF-090 |
 | GET | `/api/v1/dashboard/financial` | RF-083 a RF-085, RF-090 |
 | GET | `/api/v1/dashboard/occupancy` | RF-088, RF-089 |
+
+`GET /dashboard/summary` devolve `{ activePatients, overdueBillings, totalPending }`. Desde a Tarefa 05 da auditoria (ADR-0061), **`overdueBillings` conta as cobranças em atraso pelo vencimento**: estado `Atrasada`, ou estado que ainda aguarda pagamento (`Criada`, `Enviada`, `Visualizada`, `Pendente`) com o vencimento passado há um dia inteiro ou mais. Antes contava só o estado `Atrasada`, a que nenhum fluxo chega, e ficava sempre em zero. É a mesma regra do campo `overdue` das cobranças. `totalPending` não mudou: soma tudo que não está `Quitada` nem `Cancelada`.
 
 ---
 

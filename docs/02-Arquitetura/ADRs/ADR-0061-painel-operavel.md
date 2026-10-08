@@ -22,6 +22,7 @@ Achados que só apareceram ao percorrer o painel contra a API real, todos corrig
 3. Depois de um estorno, o painel continuava somando o valor como recebido.
 4. `GET /patients` e `GET /billings` devolvem 20 itens por página e o painel pedia só a primeira: o 21º paciente não aparecia nos seletores, e os totais do Financeiro somavam só as 20 cobranças mais recentes.
 5. A tela de disponibilidade acusava "alterações não salvas" logo depois de salvar: comparava o JSON enviado com o lido, e o Postgres (`jsonb`) devolve as chaves em outra ordem.
+6. Os contadores "Cobranças em atraso" do Dashboard e do Financeiro contavam só o estado `Atrasada`, e nenhum fluxo leva uma cobrança até ele: ficavam em zero para sempre, mesmo com cobranças vencidas.
 
 ## Decisão
 
@@ -46,6 +47,17 @@ Achados que só apareceram ao percorrer o painel contra a API real, todos corrig
 
 **O estorno não reabre a cobrança — e a tela não esconde isso.** A [ADR-0052](./ADR-0052-fechamento-ciclo-financeiro-sessao-faturada-recebida.md) deixou a reversão financeira fora de escopo, como decisão de produto própria; isso não mudou. O que mudou é a leitura: com `paymentState` na lista, o painel mostra "Pagamento estornado" no lugar de "Quitada" e não soma o valor como recebido.
 
+**"Em atraso" é calculado pelo vencimento, sem transição nova** (decisão do responsável pelo produto em 08/10/2026). A máquina de estados da cobrança não mudou, nenhum job foi criado e o estado gravado continua o mesmo: uma cobrança `Enviada` e vencida segue `Enviada`. A regra, em `Billing.isOverdue()`:
+
+| Estado da cobrança | Em atraso? |
+|---|---|
+| `Atrasada` | Sim, sempre — como já era |
+| `Criada`, `Enviada`, `Visualizada`, `Pendente` | Sim, quando o vencimento passou há um dia inteiro ou mais |
+| `Quitada`, `Cancelada` | Nunca |
+| `Negociada`, `Escalada` | Não entram na contagem — como já não entravam |
+
+"Um dia inteiro ou mais" é a régua que o domínio já tinha em `Billing.daysOverdue()` (D+1 é o primeiro dia de atraso, o mesmo corte da régua de inadimplência): o dia do vencimento ainda está em dia. A regra existe em um lugar só. `GET /dashboard/summary` conta por ela no banco (`overdueBillings`), e cada cobrança devolvida pela API traz o campo `overdue`, calculado pela mesma função; o Financeiro lê esse campo em vez de refazer a conta, então as duas telas não têm como divergir. Toda cobrança tem vencimento (a coluna é obrigatória); sem uma data válida, não há atraso por data.
+
 **O painel busca a lista inteira.** Pacientes e cobranças são lidos página a página, pelo cursor que a API já oferecia, até vir uma página incompleta. Uma falha no meio rejeita a busca em vez de entregar uma lista parcial.
 
 **Ação que não se desfaz pede um segundo passo.** Cancelar consulta, enviar cobrança, estornar, registrar pagamento de valor diferente do cobrado, desativar usuário e remover exceção de disponibilidade passam por confirmação com o efeito escrito por extenso.
@@ -56,12 +68,14 @@ Achados que só apareceram ao percorrer o painel contra a API real, todos corrig
 - **Reabrir a cobrança no estorno.** Mexe em `Billing`, `Payment` e `Session` juntos e depende de regra de produto (a sessão volta a ser cobrável? a cobrança volta a `Pendente`?). Excluída explicitamente pela ADR-0052.
 - **Buscar o pagamento de cada cobrança pelo painel** (uma requisição por cobrança quitada). Funcionaria sem tocar a API, ao custo de dezenas de requisições por abertura da tela.
 - **Avisar no painel quando o envio falha depois de enfileirado** (token recusado pela Meta, por exemplo). O ponto certo é o worker da fila de saída, que pertence à Tarefa 03 e só pode ser validado com a integração real. Registrado como pendência dela.
+- **Um job que move a cobrança para `Atrasada` quando o vencimento passa.** Faria o estado gravado dizer a verdade, mas exige agendador (as rotas de automação respondem 500 hoje — `07-Infra/AUTOMACOES_AGENDADOR.md`), cria uma transição que nenhum fluxo usa e ligaria a régua de inadimplência, que envia mensagem ao paciente. Descartada na decisão de 08/10/2026 em favor do cálculo pelo vencimento.
 
 ## Limitações conhecidas
 
 Do backend, não resolvidas aqui:
 
-- **Nenhum fluxo marca uma cobrança como `Atrasada`.** O estado existe na máquina de estados, e tanto o Financeiro quanto `GET /dashboard/summary` contam "cobranças em atraso" por ele (regra de `06-UX/02-Fluxo-Dashboard.md`, travada pelo teste crítico `dashboard-summary.test.ts`). Mas nenhum caso de uso faz essa transição quando o vencimento passa: **os dois contadores ficam sempre em zero**, mesmo com cobranças vencidas. Corrigir é decidir como uma cobrança vence — um job que muda o estado, ou uma contagem derivada do vencimento — e mexe num contrato coberto por teste. Achado desta tarefa; registrado, não corrigido.
+- **A régua de inadimplência e a segmentação financeira continuam lendo só o estado `Atrasada`** (`findOverdueByTenant`). Como nenhum fluxo chega a esse estado, as duas seguem sem efeito. Foi deliberado: a régua envia mensagem ao paciente, e a regra pelo vencimento foi adotada só para os indicadores do painel. Ligá-la à nova regra é decisão própria, junto com o agendador.
+- **O corte do atraso é em UTC.** O vencimento é gravado como meia-noite UTC da data escolhida e o backend não conhece o fuso da clínica: no horário de Brasília, a cobrança passa a constar em atraso às 21h do dia do vencimento, três horas antes da virada local. É a mesma régua que `daysOverdue()` já usava.
 - **Falha de envio depois do enfileiramento não aparece no painel.** Com canal conectado, se a Meta recusar o envio, a cobrança continua `Enviada` e o único rastro é o job falhado no Redis (já descrito em `04-API/02-Contratos-de-Integracoes-Externas.md`). Pendência da Tarefa 03.
 - **O estorno é um fim de linha.** A cobrança estornada não aceita outro pagamento (`payment.billing_id` é único) e a sessão não volta a ser cobrável. Cobrar de novo depende da decisão de produto da ADR-0052.
 - **Pagamento divergente não tem correção.** A máquina de estados prevê a reconferência (`Divergente → Confirmado`), mas nenhuma rota a executa. A cobrança fica em aberto e não aceita outro pagamento. O painel pede confirmação antes de registrar um valor diferente e avisa disso.
@@ -94,8 +108,9 @@ Do painel:
 - WhatsApp: identificador inválido barrado na tela; conexão gravada com dados fictícios (o registro foi removido em seguida).
 - Sessão: com o access token invalidado, quatro requisições receberam 401, houve uma renovação e as quatro foram repetidas com sucesso. Depois de "Sair", o refresh token antigo passou a ser recusado. Com o usuário desativado, a renovação foi recusada e o painel foi ao login com o aviso de sessão encerrada; a tentativa de entrar foi recusada; reativado, voltou a entrar.
 - Depois das correções: cobrança estornada aparece como "Pagamento estornado" e sai do recebido; envio sem canal é recusado e a cobrança continua `Criada`; a paginação por cursor da API foi conferida com páginas de 2 itens.
+- Cobranças em atraso (08/10/2026): pelo painel, três cobranças — duas com vencimento em 01/10 e uma em 30/10. Financeiro e Dashboard mostraram 2 em atraso, com "Em atraso" nas duas vencidas e nada na que ainda vai vencer. Registrado o pagamento de uma das vencidas, os dois passaram a mostrar 1; a quitada, com o mesmo vencimento antigo, saiu da contagem; a que continuou em atraso seguiu no estado `Criada`. O segundo passo do pagamento de valor diferente também foi conferido nessa rodada (aviso, nenhum pagamento gravado, e volta ao normal ao corrigir o valor).
 
-Não foram percorridos ao vivo, só em teste automatizado: o segundo passo do pagamento divergente, a criação de exceção e de horário fixo, e listas com mais de 100 itens.
+Não foram percorridos ao vivo, só em teste automatizado: a criação de exceção e de horário fixo, listas com mais de 100 itens e cobrança vencida no estado `Enviada` (o envio exige canal conectado).
 
 **Testes automatizados.** Números no `CHANGELOG.md`, entrada da Tarefa 05.
 

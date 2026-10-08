@@ -6,7 +6,7 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ### Tarefa 05 da auditoria — Frontend operável (2026-10-08)
 
-Execução da Tarefa 05 definida pela auditoria de 04/10/2026 (Epic 10; AD-020 e AD-028). **Estado: o ciclo principal da clínica é operado pelo painel, conferido contra a API local; restam dois casos conhecidos em que o painel mostra um estado que não corresponde à realidade, nenhum dos dois corrigível sem decisão — ver "Achados registrados, não corrigidos".** Nada aqui gerou custo e nenhuma chamada foi feita a Meta, Anthropic ou Asaas; a Tarefa 03 (integrações externas) continua parcial e nada foi enviado ao GitHub. Decisões, limitações e evidências em [`ADR-0061`](./docs/02-Arquitetura/ADRs/ADR-0061-painel-operavel.md).
+Execução da Tarefa 05 definida pela auditoria de 04/10/2026 (Epic 10; AD-020 e AD-028). **Estado: o ciclo principal da clínica é operado pelo painel, conferido contra a API local, e os indicadores financeiros da tela correspondem ao que está gravado. Fica registrado um caso que não é do painel: falha de envio do WhatsApp depois do enfileiramento (Tarefa 03) — ver "Achados registrados, não corrigidos".** Nada aqui gerou custo e nenhuma chamada foi feita a Meta, Anthropic ou Asaas; a Tarefa 03 (integrações externas) continua parcial e nada foi enviado ao GitHub. Decisões, limitações e evidências em [`ADR-0061`](./docs/02-Arquitetura/ADRs/ADR-0061-painel-operavel.md).
 
 **Sessão.** Botão "Sair" (encerra a sessão local e pede a revogação ao servidor). Quando o servidor recusa a renovação — sessão revogada, expirada ou usuário desativado — o login explica que a sessão foi encerrada. Só os dois tokens são persistidos. O menu e as ações acompanham o papel lido do access token; a regra de acesso continua toda na API. Não foi criado `middleware.ts`: os tokens ficam no `localStorage`, que um middleware do Next não lê (decisão na ADR-0061; o critério da AD-028 continua não atendido como escrito).
 
@@ -16,7 +16,13 @@ Execução da Tarefa 05 definida pela auditoria de 04/10/2026 (Epic 10; AD-020 e
 
 **Financeiro (AD-020).** Criar cobrança a partir das sessões realizadas do paciente, enviar com confirmação, registrar o pagamento com chave de idempotência estável e estornar em dois passos.
 
-**API — leitura aditiva, só o que o painel não tinha como obter.** `GET /sessions` (filtros `state`, `patientId`, `limit`), `GET /billings/:id/payments`, `GET /therapists/:id/availability/calendar` e o campo `paymentState` em `GET /billings`. Nenhuma rota existente mudou de forma.
+**API — leitura aditiva, só o que o painel não tinha como obter.** `GET /sessions` (filtros `state`, `patientId`, `limit`), `GET /billings/:id/payments`, `GET /therapists/:id/availability/calendar`, o campo `paymentState` em `GET /billings` e o campo `overdue` em toda cobrança devolvida. Nenhuma rota existente mudou de forma.
+
+**Cobranças em atraso calculadas pelo vencimento** (decisão de 08/10/2026). Os contadores "Cobranças em atraso" do Dashboard e do Financeiro contavam só o estado `Atrasada`, e nenhum fluxo leva uma cobrança até ele: ficavam em zero para sempre, mesmo com cobranças vencidas. A regra passou a ser calculada, sem transição nova na máquina de estados e sem job:
+- em atraso: estado `Atrasada` (como já era), ou estado `Criada`, `Enviada`, `Visualizada` ou `Pendente` com o vencimento passado há um dia inteiro ou mais — a mesma régua de `Billing.daysOverdue()`, em que o dia do vencimento ainda está em dia;
+- nunca em atraso: `Quitada` e `Cancelada`; `Negociada` e `Escalada` continuam fora da contagem.
+
+A regra está em um lugar só (`Billing.isOverdue()`): `GET /dashboard/summary` conta por ela no banco e cada cobrança traz `overdue`; o Financeiro lê esse campo em vez de refazer a conta, então as duas telas concordam. O estado gravado não muda. O teste crítico `dashboard-summary.test.ts`, que travava a contagem em `status = atrasada`, foi reescrito para a regra nova: todos os estados, os dois lados do vencimento e a concordância entre o resumo e a lista de cobranças. `totalPending` não mudou. A régua de inadimplência e a segmentação financeira continuam lendo só o estado `Atrasada`.
 
 **Defeitos encontrados ao percorrer o painel contra a API real, corrigidos:**
 - Pagar uma cobrança já enviada respondia 500 e deixava um pagamento confirmado sem cobrança quitada: `Enviada → Quitada` entrou na máquina de estados.
@@ -27,14 +33,14 @@ Execução da Tarefa 05 definida pela auditoria de 04/10/2026 (Epic 10; AD-020 e
 - Registrar um pagamento de valor diferente do cobrado agora pede um segundo passo: um pagamento divergente não tem correção pela API nem pelo painel.
 
 **Achados registrados, não corrigidos** (detalhe na ADR-0061):
-- **Nenhum fluxo marca uma cobrança como `Atrasada`.** Os contadores "Cobranças em atraso" do Dashboard e do Financeiro contam por esse estado e ficam sempre em zero, mesmo com cobranças vencidas. Corrigir muda um contrato coberto por teste crítico e pede decisão sobre como uma cobrança vence.
 - **Falha de envio depois do enfileiramento não aparece no painel**: com canal conectado, se a Meta recusar a mensagem, a cobrança continua `Enviada`. Pertence ao worker da fila de saída (Tarefa 03).
+- A régua de inadimplência e a segmentação financeira continuam lendo só o estado `Atrasada` e seguem sem efeito (a régua envia mensagem ao paciente; ligá-la à regra pelo vencimento é decisão própria). O corte do atraso é em UTC: no horário de Brasília, a cobrança passa a constar em atraso às 21h do dia do vencimento.
 - O estorno não reabre a cobrança nem a sessão (ADR-0052); pagamento divergente não tem fluxo de correção; feriados da clínica não têm rota; não há rota que diga se o WhatsApp já está conectado; o access token vale até 15 minutos depois de sair ou de o usuário ser desativado (ADR-0056); transição de estado inválida responde 500.
 - A API tem e o painel ainda não usa: trocar o papel de um usuário, editar terapeuta, editar, inativar, reativar e dar alta a paciente, agendamento recorrente pela Agenda e `PATCH /clinic`.
 
-**Conferência ao vivo** (07 e 08/10/2026, API, painel, Postgres e Redis locais, isolados): entrar como administrador e como terapeuta; disponibilidade; marcar, remarcar, confirmar e cancelar consulta; criar, enviar, receber e estornar cobrança; pagamento divergente e notificação; criar, desativar e reativar usuário; conexão do WhatsApp com dados fictícios; e a sessão — 401 com uma única renovação e repetição, revogação ao sair, usuário desativado levado ao login. Os dados criados nessa conferência foram removidos do banco local.
+**Conferência ao vivo** (07 e 08/10/2026, API, painel, Postgres e Redis locais, isolados): entrar como administrador e como terapeuta; disponibilidade; marcar, remarcar, confirmar e cancelar consulta; criar, enviar, receber e estornar cobrança; pagamento divergente e notificação; criar, desativar e reativar usuário; conexão do WhatsApp com dados fictícios; e a sessão — 401 com uma única renovação e repetição, revogação ao sair, usuário desativado levado ao login. Cobranças em atraso: com duas cobranças vencidas e uma a vencer, Financeiro e Dashboard mostraram 2; paga uma das vencidas, os dois mostraram 1, e a quitada saiu da contagem. Os dados criados nessa conferência foram removidos do banco local.
 
-Suítes ao fim da Tarefa 05: 908 unitários, 23 de integração e 313 críticos (1 skip pré-existente e 1 pendência registrada como `todo`) no backend; 153 no frontend; 0 falhas. Build e lint limpos nos dois; o build do painel gera 14 rotas. Não há teste de ponta a ponta em navegador automatizado — é da Tarefa 06.
+Suítes ao fim da Tarefa 05: 926 unitários, 23 de integração e 316 críticos (1 skip pré-existente e 1 pendência registrada como `todo`) no backend; 155 no frontend; 0 falhas. Build e lint limpos nos dois; o build do painel gera 14 rotas. Não há teste de ponta a ponta em navegador automatizado — é da Tarefa 06.
 
 ### Tarefa 04 da auditoria — Deploy e operação (2026-10-07)
 

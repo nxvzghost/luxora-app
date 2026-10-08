@@ -11,7 +11,7 @@ Detalhar a tela inicial da plataforma, já descrita em princípio em `02-Arquite
 Organizadas por prioridade visual (topo da tela = maior urgência):
 
 1. Quem precisa de confirmação hoje? (sessões não confirmadas do dia)
-2. Quem está em atraso de pagamento? (`billing` em estado `Atrasada`, ver `01-Domain/03-Maquina-de-Estados.md`)
+2. Quem está em atraso de pagamento? (`billing` em atraso: no estado `Atrasada`, ou ainda aguardando pagamento — `Criada`, `Enviada`, `Visualizada`, `Pendente` — com o vencimento passado há um dia ou mais. Calculado pelo vencimento desde a Tarefa 05 da auditoria, porque nenhum fluxo move a cobrança para `Atrasada`; regra completa na `02-Arquitetura/ADRs/ADR-0061-painel-operavel.md`. Estados em `01-Domain/03-Maquina-de-Estados.md`)
 3. Quais sessões ocorrem hoje, em ordem cronológica?
 4. Quanto já foi recebido hoje/na semana? Quanto falta receber?
 5. Existe algum conflito de agenda a resolver?
