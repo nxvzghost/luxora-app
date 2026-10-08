@@ -65,7 +65,7 @@ Fluxo: Meta → `WhatsAppWebhookController` → `WhatsAppWebhookGuard` (HMAC) �
 Fluxo: Use Case → `MessageQueueProducer` → fila `messages` → `MessageQueueWorker` → `EnviarMensagemUseCase` → `WhatsAppMessageProvider` → Graph API. Decisão registrada na [ADR-0058](../02-Arquitetura/ADRs/ADR-0058-worker-de-saida-whatsapp.md).
 
 - **Payload do job:** `tenantId`, `toPhoneNumber`, `body`, `idempotencyKey`, `correlationId` opcional. O `tenantId` é a única identidade do job e vem sempre do contexto já autenticado de quem enfileira.
-- **Credencial:** a integração é buscada pelo `tenantId` do job; o token é decifrado só no momento da chamada. Clínica sem integração ativa não envia nada.
+- **Credencial:** a integração é buscada pelo `tenantId` do job; o token é decifrado só no momento da chamada. Clínica sem integração ativa não envia nada. Desde a Tarefa 05 da auditoria (ADR-0061), o envio de cobrança (`POST /billings/:id/send`) confere isso antes de enfileirar e responde 409 `WHATSAPP_NOT_CONNECTED`; os outros produtores da fila continuam enfileirando sem essa conferência.
 - **Chamada:** `POST /{phone-number-id}/messages`, `Authorization: Bearer <token da clínica>`, corpo `{ messaging_product, to, type: "text", text.body }`, tempo limite de 10 s (`WHATSAPP_PROVIDER_TIMEOUT_MS`).
 - **Sucesso:** qualquer 2xx. O id da mensagem (`messages[0].id`) é gravado em `message_log.provider_message_id`.
 

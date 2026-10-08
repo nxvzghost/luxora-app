@@ -114,6 +114,7 @@ As ADRs foram organizadas em uma sequência lógica.
 | ADR-0058 | Worker da fila de saída do WhatsApp: instanciação por job, clínica do payload e classificação de falhas (Fase 3 da auditoria) — **ADOTADA E IMPLEMENTADA** |
 | ADR-0059 | Normalização única de telefone na comparação: paciente, conversa e remetente do WhatsApp (Fase 3B da auditoria) — **ADOTADA E IMPLEMENTADA** |
 | ADR-0060 | Deploy e operação: imagens imutáveis, migrations em job próprio, readiness e rollback só da aplicação (Tarefa 04 da auditoria) — **ADOTADA E IMPLEMENTADA** |
+| ADR-0061 | Painel operável: proteção de rota sem middleware, leitura aditiva na API e estado financeiro fiel ao pagamento (Tarefa 05 da auditoria) — **ADOTADA E IMPLEMENTADA** |
 
 
 

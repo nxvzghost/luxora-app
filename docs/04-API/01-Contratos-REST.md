@@ -65,6 +65,10 @@ Recurso singular por Tenant — cada Clínica só acessa os próprios dados via 
 | GET | `/api/v1/therapists/{id}` | ConsultarTerapeuta | — |
 | PATCH | `/api/v1/therapists/{id}` | AtualizarTerapeuta | RF-015 a RF-025 |
 | PUT | `/api/v1/therapists/{id}/availability` | DefinirDisponibilidade | RF-019 a RF-022 |
+| PUT | `/api/v1/therapists/{id}/availability/exceptions` | DefinirExcecoesDisponibilidade | RF-019 a RF-022 |
+| GET | `/api/v1/therapists/{id}/availability/calendar` | ConsultarCalendario | — (Tarefa 05 da auditoria) |
+
+`GET .../availability/calendar` devolve o que está gravado — `{ therapistId, windows, exceptions }` — para o painel editar; responde 404 quando o terapeuta ainda não tem calendário. Não confundir com `GET .../availability` (seção Agenda), que devolve os horários livres já calculados.
 
 ---
 
@@ -108,6 +112,8 @@ Ver `01-Domain/05-Linguagem-Ubiqua.md` para a distinção entre `appointment` (r
 | GET | `/api/v1/sessions/{id}` | ConsultarSessao | — |
 | POST | `/api/v1/sessions/{id}/complete` | RegistrarSessaoRealizada | JP-006 — Sessão |
 
+**Estado em 08/10/2026:** das três, só `GET /sessions` existe no código, implementada na Tarefa 05 da auditoria (só leitura; qualquer usuário autenticado da clínica, com assinatura ativa). Filtros opcionais: `state` (`Realizada`, `Faturada` ou `Recebida`), `patientId` e `limit` (1 a 200, padrão 200); valor inválido responde 400. Cada item traz `id`, `appointmentId`, `patientId`, `therapistId`, `state` e `scheduledAt` (a data da consulta de origem). `state=Realizada` devolve as sessões ainda não cobradas — é de onde o painel monta uma cobrança nova. A sessão continua nascendo da confirmação da consulta, não de `POST /sessions/{id}/complete`.
+
 ---
 
 # Financeiro — Cobranças (`/api/v1/billings`)
@@ -120,6 +126,14 @@ Reflete o modelo N:N `session ↔ billing` via `billing_session`, corrigido em `
 | POST | `/api/v1/billings` | GerarCobranca | RF-071 (aceita `session_ids: []`, permitindo 1 ou N sessões conforme política da clínica) |
 | GET | `/api/v1/billings/{id}` | ConsultarCobranca | — |
 | POST | `/api/v1/billings/{id}/send` | EnviarCobranca | RF-075 |
+| GET | `/api/v1/billings/{id}/payments` | ListarPagamentosDaCobranca | — (Tarefa 05 da auditoria) |
+
+Acrescentado na Tarefa 05 da auditoria (ADR-0061), sem mudar o que já existia:
+
+- **`GET /billings` — campo `paymentState` em cada item:** o estado do pagamento da cobrança (`Recebido`, `EmConferencia`, `Confirmado`, `Divergente` ou `Estornado`), ou `null` quando não há pagamento. Um estorno deixa a cobrança em `Quitada` (ADR-0052); é por este campo que se sabe que o dinheiro foi devolvido. A lista continua paginada por cursor (`cursor`, `limit`, padrão 20) e não devolve `next_cursor`: uma página com `limit` itens pode ter continuação a partir do `id` do último.
+- **`GET /billings/{id}/payments`:** devolve `{ data: [...] }` com o pagamento da cobrança — no máximo um, porque `payment.billing_id` é único — ou lista vazia. Cada item: `id`, `billingId`, `amount`, `state`. 404 para cobrança inexistente ou de outra clínica.
+- **`POST /billings/{id}/send` — erro novo:** `WHATSAPP_NOT_CONNECTED` (409) quando a clínica não tem WhatsApp conectado e ativo. Nada é enfileirado e a cobrança continua em `Criada`. Com canal conectado, a resposta 201 significa que a mensagem entrou na fila de envio, não que foi entregue.
+- **Cobrança `Enviada` pode ir direto a `Quitada`:** registrar o pagamento de uma cobrança já enviada respondia 500.
 
 ---
 

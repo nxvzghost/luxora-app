@@ -4,6 +4,38 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Tarefa 05 da auditoria — Frontend operável (2026-10-08)
+
+Execução da Tarefa 05 definida pela auditoria de 04/10/2026 (Epic 10; AD-020 e AD-028). **Estado: o ciclo principal da clínica é operado pelo painel, conferido contra a API local; restam dois casos conhecidos em que o painel mostra um estado que não corresponde à realidade, nenhum dos dois corrigível sem decisão — ver "Achados registrados, não corrigidos".** Nada aqui gerou custo e nenhuma chamada foi feita a Meta, Anthropic ou Asaas; a Tarefa 03 (integrações externas) continua parcial e nada foi enviado ao GitHub. Decisões, limitações e evidências em [`ADR-0061`](./docs/02-Arquitetura/ADRs/ADR-0061-painel-operavel.md).
+
+**Sessão.** Botão "Sair" (encerra a sessão local e pede a revogação ao servidor). Quando o servidor recusa a renovação — sessão revogada, expirada ou usuário desativado — o login explica que a sessão foi encerrada. Só os dois tokens são persistidos. O menu e as ações acompanham o papel lido do access token; a regra de acesso continua toda na API. Não foi criado `middleware.ts`: os tokens ficam no `localStorage`, que um middleware do Next não lê (decisão na ADR-0061; o critério da AD-028 continua não atendido como escrito).
+
+**Telas novas.** Disponibilidade (horários de atendimento, exceções, horários fixos e prévia dos horários livres), Notificações (lista, contador no menu, marcar como lida) e Usuários (criar acesso, desativar com confirmação, reativar). Em Configurações, a conexão do WhatsApp da clínica; o token só existe no formulário enquanto é digitado. No Dashboard, para o administrador, a lista do que falta antes da primeira consulta.
+
+**Agenda.** Marcar consulta escolhendo entre os horários livres do terapeuta, remarcar, confirmar e cancelar com confirmação; navegação por semana.
+
+**Financeiro (AD-020).** Criar cobrança a partir das sessões realizadas do paciente, enviar com confirmação, registrar o pagamento com chave de idempotência estável e estornar em dois passos.
+
+**API — leitura aditiva, só o que o painel não tinha como obter.** `GET /sessions` (filtros `state`, `patientId`, `limit`), `GET /billings/:id/payments`, `GET /therapists/:id/availability/calendar` e o campo `paymentState` em `GET /billings`. Nenhuma rota existente mudou de forma.
+
+**Defeitos encontrados ao percorrer o painel contra a API real, corrigidos:**
+- Pagar uma cobrança já enviada respondia 500 e deixava um pagamento confirmado sem cobrança quitada: `Enviada → Quitada` entrou na máquina de estados.
+- Sem WhatsApp conectado, enviar a cobrança a marcava como `Enviada`, o envio falhava depois no worker, em definitivo e sem aviso, e a cobrança não podia mais ser enviada. O envio agora é recusado antes de enfileirar (409 `WHATSAPP_NOT_CONNECTED`) e a cobrança continua em `Criada`.
+- Depois de um estorno, o painel continuava somando o valor como recebido. A cobrança segue `Quitada` na API (ADR-0052, sem mudança); com `paymentState`, a tela mostra "Pagamento estornado" e tira o valor do recebido.
+- O painel pedia só a primeira página (20 itens) de pacientes e de cobranças: o 21º paciente não podia ser agendado nem cobrado e os totais do Financeiro ficavam incompletos. As duas listas agora são lidas até o fim.
+- A tela de disponibilidade acusava "alterações não salvas" logo depois de salvar (o `jsonb` devolve as chaves em outra ordem).
+- Registrar um pagamento de valor diferente do cobrado agora pede um segundo passo: um pagamento divergente não tem correção pela API nem pelo painel.
+
+**Achados registrados, não corrigidos** (detalhe na ADR-0061):
+- **Nenhum fluxo marca uma cobrança como `Atrasada`.** Os contadores "Cobranças em atraso" do Dashboard e do Financeiro contam por esse estado e ficam sempre em zero, mesmo com cobranças vencidas. Corrigir muda um contrato coberto por teste crítico e pede decisão sobre como uma cobrança vence.
+- **Falha de envio depois do enfileiramento não aparece no painel**: com canal conectado, se a Meta recusar a mensagem, a cobrança continua `Enviada`. Pertence ao worker da fila de saída (Tarefa 03).
+- O estorno não reabre a cobrança nem a sessão (ADR-0052); pagamento divergente não tem fluxo de correção; feriados da clínica não têm rota; não há rota que diga se o WhatsApp já está conectado; o access token vale até 15 minutos depois de sair ou de o usuário ser desativado (ADR-0056); transição de estado inválida responde 500.
+- A API tem e o painel ainda não usa: trocar o papel de um usuário, editar terapeuta, editar, inativar, reativar e dar alta a paciente, agendamento recorrente pela Agenda e `PATCH /clinic`.
+
+**Conferência ao vivo** (07 e 08/10/2026, API, painel, Postgres e Redis locais, isolados): entrar como administrador e como terapeuta; disponibilidade; marcar, remarcar, confirmar e cancelar consulta; criar, enviar, receber e estornar cobrança; pagamento divergente e notificação; criar, desativar e reativar usuário; conexão do WhatsApp com dados fictícios; e a sessão — 401 com uma única renovação e repetição, revogação ao sair, usuário desativado levado ao login. Os dados criados nessa conferência foram removidos do banco local.
+
+Suítes ao fim da Tarefa 05: 908 unitários, 23 de integração e 313 críticos (1 skip pré-existente e 1 pendência registrada como `todo`) no backend; 153 no frontend; 0 falhas. Build e lint limpos nos dois; o build do painel gera 14 rotas. Não há teste de ponta a ponta em navegador automatizado — é da Tarefa 06.
+
 ### Tarefa 04 da auditoria — Deploy e operação (2026-10-07)
 
 Execução da Tarefa 04 definida pela auditoria de 04/10/2026 (Epic 14, AD-017). **Estado: caminho de deploy construído e ensaiado localmente; nenhum ambiente real foi provisionado.** Nada aqui gerou custo, nenhuma chamada foi feita a Meta, Anthropic ou Asaas, e a Fase 3 (integrações externas) continua parcial. Decisões em `docs/02-Arquitetura/ADRs/ADR-0060-deploy-e-operacao.md`; procedimento em `docs/07-Infra/DEPLOY_RUNBOOK.md`.
