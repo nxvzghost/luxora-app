@@ -41,6 +41,15 @@ export interface BootstrapTestAppOptions {
    * intercepta `fetch`, então nenhuma chamada sai da máquina.
    */
   realMessageQueueWorker?: boolean;
+  /**
+   * Tarefa 06 da auditoria — substitui providers por dublês do próprio
+   * teste. Existe para os testes do fluxo de Contact, que trocam só o que é
+   * externo ou compartilhado: o provedor de IA e o classificador (Anthropic)
+   * por respostas roteirizadas, e o produtor da fila de entrada por um que
+   * guarda o job em memória — para nenhum job deste teste cair na fila real
+   * que o worker de outro arquivo consome. Todo o resto continua real.
+   */
+  overrides?: Array<{ provide: unknown; useValue: unknown }>;
 }
 
 /**
@@ -64,6 +73,9 @@ export async function bootstrapTestApp(options: BootstrapTestAppOptions = {}): P
   }
   if (!options.realMessageQueueWorker) {
     builder.overrideProvider(MessageQueueWorker).useValue({});
+  }
+  for (const override of options.overrides ?? []) {
+    builder.overrideProvider(override.provide).useValue(override.useValue);
   }
   const moduleRef = await builder.compile();
   // ADR-0053 — espelha main.ts: rawBody:true, necessário para os testes
