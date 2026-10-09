@@ -101,6 +101,40 @@ export async function createClinic(options: CreateClinicOptions = {}): Promise<T
   };
 }
 
+/**
+ * Um número que escreveu para a clínica pelo WhatsApp e ainda não identifica
+ * nenhum paciente — do jeito que a conversa o deixa (ADR-0063): com o nome
+ * que a pessoa informou, ou sem nome. Número fictício (faixa 5541 97700-xxxx).
+ * A conversa em si não é simulada aqui: quem a prova são os testes críticos
+ * do backend. Este helper só põe na tela o que o administrador vai aprovar.
+ */
+export async function createPendingContact(tenantId: string, name: string | null): Promise<{ id: string; phoneNumber: string }> {
+  const phoneNumber = `+554197700${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`;
+  const contact = await prisma().contact.create({
+    data: { tenantId, phoneNumber, name, state: name ? 'Identificado' : 'Conversando' },
+  });
+  return { id: contact.id, phoneNumber };
+}
+
+export interface ContactLinkRecord {
+  state: string;
+  patientIds: string[];
+  /** O registro de auditoria da aprovação do vínculo, quando existe. */
+  audit: { userId: string | null; actorType: string; payload: Record<string, unknown> | null } | null;
+}
+
+/** O que ficou gravado para um contato — lido direto do banco, para o teste não confiar só no que a tela diz. */
+export async function readContactLink(contactId: string): Promise<ContactLinkRecord> {
+  const db = prisma();
+  const contact = await db.contact.findUniqueOrThrow({ where: { id: contactId }, include: { associations: true } });
+  const audit = await db.auditLog.findFirst({ where: { entityId: contactId, action: 'ContatoVinculadoAPacienteExistente' } });
+  return {
+    state: contact.state,
+    patientIds: contact.associations.map((association: { patientId: string }) => association.patientId),
+    audit: audit ? { userId: audit.userId, actorType: audit.actorType, payload: audit.payload } : null,
+  };
+}
+
 /** Desativa um usuário como o painel faz: o acesso acaba e os refresh tokens já emitidos deixam de valer. */
 export async function deactivateUser(userId: string): Promise<void> {
   await prisma().user.update({ where: { id: userId }, data: { deletedAt: new Date(), tokenVersion: { increment: 1 } } });
