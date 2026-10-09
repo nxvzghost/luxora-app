@@ -3,6 +3,7 @@
 **Status:** ADOTADO
 **Origem:** Tarefa 06 da auditoria técnica de 04/10/2026 (Fechamento dos testes; Epic 13 — AD-012, AD-022, AD-031, AD-032, AD-035 — e os Cenários 11, 12 e 13 de Contact, do Epic 9).
 **Data:** 8 de outubro de 2026
+**Veredito da Tarefa 06: PARCIAL.** Faltam a execução no CI remoto (depende de um push autorizado) e o tratamento das pendências reais que a tarefa revelou — AD-037 e AD-038 (Contact) e, antes do piloto de produção, AD-039 (fuso). As decisões de produto sobre elas foram tomadas em 08/10/2026 (ADR-0063 e ADR-0064); registrar a decisão não conclui a tarefa.
 
 ## Objetivo
 
@@ -49,9 +50,17 @@ A RLS impede uma clínica de **ler** o dado de outra, mas a chave estrangeira n�
 
 Os quatro passam a usar `createDedicatedFixture`/`cleanupDedicatedFixture`, com datas fixas no lugar das sorteadas. A limpeza da fixture apaga também consultas, horários fixos e feriados da clínica do teste. Nenhuma asserção mudou.
 
-### 5. Defeito conhecido fica preso em um teste, com `it.fails`
+### 5. Defeito conhecido fica preso em um teste que falha — e nunca conta como aprovado
 
-Quando um teste desta tarefa mostrou um comportamento errado que **não cabia corrigir aqui** (falta decisão de produto, ou é do pipeline de IA e WhatsApp da Tarefa 03), o teste foi mantido com `it.fails`: o título diz o que deveria acontecer; ele passa enquanto o defeito existir e quebra no dia da correção, quando basta tirar o `.fails`. Não é prova de comportamento correto. Cada um confere só um fato colhido antes, para que um erro de preparação não se disfarce de falha esperada. Hoje são três, todos em `test/critical/contact-scenarios-real-flow.test.ts`.
+Quando um teste desta tarefa mostrou um comportamento errado que **não cabia corrigir aqui** (é do pipeline de IA e WhatsApp, da Tarefa 03), o teste foi mantido afirmando o comportamento correto. Ele é escrito com `knownDefect` (`test/critical/support/known-defect.ts`) e o título começa por `DEFEITO CONHECIDO (AD-xxx)`, com o item de backlog que o corrige:
+
+- `pnpm --filter @luxora/backend test:known-defects` executa só esses testes, de verdade, e **termina em falha** enquanto houver defeito aberto;
+- na suíte que libera o CI (`test:critical`) eles não são executados e aparecem como **pulados**, com o título à vista — nunca como aprovados;
+- corrigido o defeito, troca-se `knownDefect` por `it` e o teste vira uma garantia como as outras.
+
+Cada um confere só um fato colhido antes, para que um erro de preparação não se confunda com o defeito. Hoje são três, todos em `test/critical/contact-scenarios-real-flow.test.ts`: um da AD-037 e dois da AD-038.
+
+**Revisão de 08/10/2026:** a primeira versão desta decisão usava `it.fails`, que faz o teste contar como aprovado justamente enquanto o defeito existe. Foi abandonada por decisão do responsável pelo produto — uma falha não pode ser mascarada assim. `it.fails` não deve ser usado para este fim.
 
 ### 6. Dublês de provider nos testes críticos
 
@@ -84,7 +93,7 @@ Consequências — as quatro primeiras observadas no teste, a quinta lida no có
 4. **Quando o classificador pede para confirmar a identidade, a ação é executada no mesmo turno.** O backend manda a IA perguntar e marca a consulta para o paciente da conversa.
 5. O pedido de encaminhar a um humano vindo do eixo de Contact não é lido por ninguém (`ProcessarMensagemUseCase` usa do resultado só o paciente, a ação, o resumo e o pedido de confirmação).
 
-Os itens 1, 3 e 4 estão presos por `it.fails`. Nenhum foi corrigido: ligar a identificação exige definir de onde vem o nome e se ele é confirmado; os itens 3 e 4 mudam o comportamento do pipeline de IA do WhatsApp, que é da Tarefa 03 e ainda não foi validado contra a Anthropic real. **Decisões pendentes** estão no fim deste documento.
+Os itens 1, 3 e 4 têm, cada um, um teste de defeito conhecido que falha (decisão 5, acima). Nenhum foi corrigido: mudam o comportamento do pipeline de IA do WhatsApp, que é da Tarefa 03 e ainda não foi validado contra a Anthropic real. O que deve acontecer em cada caso foi decidido em 08/10/2026 e está na [ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md), com o item de backlog de cada defeito (AD-037 e AD-038).
 
 ## Data e fuso horário (levantamento, sem mudança de comportamento)
 
@@ -96,7 +105,7 @@ O que foi verificado no código:
 - **Resumo de agenda e textos ao paciente.** "Amanhã" nos resumos e os horários escritos nas respostas do WhatsApp (`toLocaleString('pt-BR')`) também seguem o fuso do processo.
 - **Testes.** Os de ponta a ponta fixam `America/Sao_Paulo` no backend e no navegador. Todas as suítes rodaram também com o processo em UTC (o fuso do runner do CI), com o mesmo resultado — ver "Evidências".
 
-Nada disso foi alterado. O texto da Fase 6 da tarefa chegou cortado; a decisão sobre o corte do atraso e sobre o fuso dos contêineres fica registrada abaixo.
+Nada disso foi alterado. A regra pretendida foi decidida em 08/10/2026 e está na [ADR-0064](./ADR-0064-fuso-horario-por-clinica.md): fuso por clínica, vencimento pelo dia civil da clínica, nada dependente do contêiner. A implementação é a AD-039, pré-requisito do piloto de produção.
 
 ## Limitações conhecidas
 
@@ -108,14 +117,20 @@ Nada disso foi alterado. O texto da Fase 6 da tarefa chegou cortado; a decisão 
 - `test/integration` continua com um único arquivo e o comentário desatualizado em `vitest.config.ts` (AD-011, não atribuída a esta tarefa).
 - O banco local de desenvolvimento ainda tem 32 clínicas de teste de execuções interrompidas em julho, anteriores ao padrão atual. Não foram removidas.
 
-## Decisões pendentes (não tomadas aqui)
+## Decisões tomadas depois desta tarefa (08/10/2026)
 
-1. **Identificação do contato novo.** De onde vem o nome (texto, entidade da intenção, hint do classificador) e se ele é confirmado antes de cadastrar o paciente. Sem isso, contato novo não agenda pelo WhatsApp.
-2. **Mais de um paciente no mesmo número.** Enquanto não houver desambiguação: manter como está (age pelo mais antigo), ou não ligar a conversa a ninguém e não agir até a clínica resolver pelo painel.
-3. **Pedido de confirmação de identidade.** Suspender a ação clínica no turno em que o backend pede a confirmação.
-4. **Cenário 13.** Como a confirmação da troca de número acontece (pelo paciente, pela clínica no painel, ou ambos) — ainda não há rótulo no classificador nem caso de uso.
-5. **Corte do atraso.** Manter UTC (21h de Brasília) ou calcular pelo dia da clínica.
-6. **Fuso dos contêineres.** Definir `TZ=America/Sao_Paulo` nas imagens ou tornar o fuso um dado da clínica. É pré-requisito do primeiro deploy real: sem isso a agenda sai três horas deslocada.
+As seis questões que esta ADR deixou em aberto foram decididas pelo responsável pelo produto. O texto de cada decisão está na ADR indicada e não é repetido aqui. **Todas estão com a implementação pendente.**
+
+| Questão levantada aqui | Onde está a decisão | Backlog |
+|---|---|---|
+| De onde vem o nome do contato novo e se ele é confirmado | ADR-0063, decisão 1 | AD-037 |
+| Mais de um paciente no mesmo número | ADR-0063, decisão 2 | AD-038 |
+| Ação executada no turno em que o sistema pede confirmação de identidade | ADR-0063, decisões 1 e 2 | AD-038 |
+| Como a troca de número é confirmada (Cenário 13) | ADR-0063, decisão 1 — com um ponto ainda a confirmar (o que basta como confirmação) | AD-038 |
+| Corte do atraso | ADR-0064, decisão 3 | AD-039 |
+| Fuso dos contêineres | ADR-0064, decisões 1, 2 e 4 | AD-039 |
+
+Cada uma das duas ADRs lista, em "Pontos a confirmar na implementação", o que a decisão não cobre.
 
 ## Evidências de validação
 
@@ -126,13 +141,15 @@ Tudo local, em 08/10/2026, no commit `4400c2a` (o último que altera código ou 
 | Backend — build e lint | limpos |
 | Backend — unitários | 950 passaram (92 arquivos) |
 | Backend — integração | 23 passaram |
-| Backend — críticos | 442 passaram, 1 pulado e 1 `todo` (os dois anteriores a esta tarefa), em 44 arquivos. Dos 442, três são `it.fails` (defeitos conhecidos de Contact). |
+| Backend — críticos | 442 passaram, 1 pulado e 1 `todo` (os dois anteriores a esta tarefa), em 44 arquivos. Dos 442, três eram `it.fails` (defeitos conhecidos de Contact) — deixaram de contar como aprovados depois, ver abaixo. |
 | Frontend — testes, lint e build | 180 passaram (17 arquivos); lint limpo; build com as 14 rotas |
 | Ponta a ponta | 20 de 20, pela pilha descartável; nenhum contêiner nem clínica de teste sobrou |
 | Imagens e ensaio de deploy | as três imagens construíram com o lockfile novo; `infra/tests/rehearsal.sh` — 68 de 68 |
 | As mesmas suítes com o processo em UTC | 950, 23, 442 (+1 pulado, +1 `todo`), 180 e 20 de 20 — iguais |
 
 Antes da tarefa: 926 unitários, 23 de integração, 316 críticos, 155 no frontend, nenhum de ponta a ponta.
+
+**Depois da revisão dos defeitos conhecidos (commit `adb5e85`, 08/10/2026):** os três testes deixaram de contar como aprovados e o cenário do contato novo ganhou uma garantia (só o nome, sem confirmação, não cadastra ninguém). A suíte crítica passou a **440 aprovados, 4 pulados (os três defeitos conhecidos e um anterior) e 1 `todo`**, em 445 testes — o mesmo com o processo em UTC. `test:known-defects` executa os três e **falha nos três**, como esperado. Unitários (950), build e lint do backend conferidos de novo; frontend e testes de ponta a ponta não foram tocados.
 
 Repetição e isolamento: a suíte crítica inteira rodou duas vezes seguidas (uma em cada fuso) com o mesmo resultado; os testes de ponta a ponta, quando foram escritos, rodaram com 1 e com 4 processos, um arquivo sozinho, um teste sozinho e três vezes cada um (60 de 60), e no fim rodaram mais duas vezes completos; o arquivo de Contact rodou duas vezes sozinho e uma junto com os outros arquivos de WhatsApp, sem deixar nada no banco.
 
@@ -142,7 +159,8 @@ Segredos: os valores dos `.env` locais foram procurados nos 23 commits ainda nã
 
 ## Documentos relacionados
 
-- `docs/PLANO_DE_EXECUCAO.md` (Epic 9 e Epic 13), `CHANGELOG.md` (Tarefa 06)
+- [ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md) (identidade pelo WhatsApp) e [ADR-0064](./ADR-0064-fuso-horario-por-clinica.md) (fuso por clínica) — as decisões de produto sobre o que esta ADR levantou
+- `docs/PLANO_DE_EXECUCAO.md` (Epic 9, Epic 13 e Epic 14 — AD-037, AD-038 e AD-039), `CHANGELOG.md` (Tarefa 06)
 - ADR-0045, ADR-0046, ADR-0055 (Contact); ADR-0052 e ADR-0061 (financeiro e painel); ADR-0060 (deploy)
 - `docs/04-API/01-Contratos-REST.md`, `docs/04-API/02-Contratos-de-Integracoes-Externas.md` (D5b)
 - `docs/09-Testes/02-Dedicated-Fixtures.md`

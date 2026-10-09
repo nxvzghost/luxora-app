@@ -115,6 +115,9 @@ As ADRs foram organizadas em uma sequência lógica.
 | ADR-0059 | Normalização única de telefone na comparação: paciente, conversa e remetente do WhatsApp (Fase 3B da auditoria) — **ADOTADA E IMPLEMENTADA** |
 | ADR-0060 | Deploy e operação: imagens imutáveis, migrations em job próprio, readiness e rollback só da aplicação (Tarefa 04 da auditoria) — **ADOTADA E IMPLEMENTADA** |
 | ADR-0061 | Painel operável: proteção de rota sem middleware, leitura aditiva na API e estado financeiro fiel ao pagamento (Tarefa 05 da auditoria) — **ADOTADA E IMPLEMENTADA** |
+| ADR-0062 | Fechamento dos testes: ponta a ponta em pilha descartável, referências entre clínicas recusadas e defeitos conhecidos presos por teste que falha (Tarefa 06 da auditoria) — **ADOTADA E IMPLEMENTADA; a Tarefa 06 permanece parcial** |
+| ADR-0063 | Identidade pelo WhatsApp: confirmação explícita antes de criar ou vincular cadastro; número compartilhado nunca resolvido por suposição (AD-037, AD-038) — **APROVADA, implementação pendente** |
+| ADR-0064 | Fuso horário por clínica e vencimento pelo dia civil da clínica (AD-039) — **APROVADA, implementação pendente; pré-requisito do piloto de produção** |
 
 
 
