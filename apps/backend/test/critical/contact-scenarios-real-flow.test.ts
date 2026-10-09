@@ -424,7 +424,10 @@ describe('[Contact] identidade no fluxo real do WhatsApp — Cenários 11, 12 e 
 
       // Do número novo, dizendo quem é. A IA entende de duas formas possíveis
       // — "é um paciente que já existe" e "é um cadastro novo" — e nenhuma
-      // das duas pode virar vínculo ou cadastro sem confirmação.
+      // das duas pode virar vínculo nem cadastro: pela ADR-0063, o número
+      // novo só é vinculado depois de a clínica aprovar pelo painel (o que
+      // quem escreve disser, por mais que insista, não basta), e quem já é
+      // paciente não é cadastrado de novo.
       claim = await turn(NEW_NUMBER, 'Oi, é a Carla Nunes Teste, troquei de número. Quero marcar uma consulta.', {
         intent: bookingRequest(slot),
         decision: 'ASSOCIAR',

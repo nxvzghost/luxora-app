@@ -3,7 +3,7 @@
 **Status:** ADOTADO
 **Origem:** Tarefa 06 da auditoria técnica de 04/10/2026 (Fechamento dos testes; Epic 13 — AD-012, AD-022, AD-031, AD-032, AD-035 — e os Cenários 11, 12 e 13 de Contact, do Epic 9).
 **Data:** 8 de outubro de 2026
-**Veredito da Tarefa 06: PARCIAL.** Faltam a execução no CI remoto (depende de um push autorizado) e o tratamento das pendências reais que a tarefa revelou — AD-037 e AD-038 (Contact) e, antes do piloto de produção, AD-039 (fuso). As decisões de produto sobre elas foram tomadas em 08/10/2026 (ADR-0063 e ADR-0064); registrar a decisão não conclui a tarefa.
+**Veredito da Tarefa 06: PARCIAL**, até a reconciliação de suas evidências e a validação remota autorizada (o CI remoto depende de um push). As pendências reais que a tarefa revelou continuam abertas — AD-037 e AD-038 (Contact) e, antes do piloto de produção, AD-039 (fuso). As decisões de produto sobre elas foram tomadas em 08/10/2026 e, as de Contact, confirmadas em 09/10/2026 (ADR-0063 e ADR-0064); registrar a decisão não conclui a tarefa nem resolve os defeitos.
 
 ## Objetivo
 
@@ -119,14 +119,14 @@ Nada disso foi alterado. A regra pretendida foi decidida em 08/10/2026 e está n
 
 ## Decisões tomadas depois desta tarefa (08/10/2026)
 
-As seis questões que esta ADR deixou em aberto foram decididas pelo responsável pelo produto. O texto de cada decisão está na ADR indicada e não é repetido aqui. **Todas estão com a implementação pendente.**
+As seis questões que esta ADR deixou em aberto foram decididas pelo responsável pelo produto; as de Contact foram confirmadas e detalhadas em 09/10/2026. O texto de cada decisão está na ADR indicada e não é repetido aqui. **Todas estão com a implementação pendente, e nenhum dos defeitos descritos acima foi resolvido.**
 
 | Questão levantada aqui | Onde está a decisão | Backlog |
 |---|---|---|
 | De onde vem o nome do contato novo e se ele é confirmado | ADR-0063, decisão 1 | AD-037 |
 | Mais de um paciente no mesmo número | ADR-0063, decisão 2 | AD-038 |
-| Ação executada no turno em que o sistema pede confirmação de identidade | ADR-0063, decisões 1 e 2 | AD-038 |
-| Como a troca de número é confirmada (Cenário 13) | ADR-0063, decisão 1 — com um ponto ainda a confirmar (o que basta como confirmação) | AD-038 |
+| Ação executada no turno em que o sistema pede confirmação de identidade | ADR-0063, decisão 2 e regra geral da identidade pendente | AD-038 |
+| Como a troca de número é confirmada (Cenário 13) | ADR-0063, decisão 3 — aprovação de um usuário autorizado da clínica, pelo painel; a confirmação de quem escreve não basta | AD-038 |
 | Corte do atraso | ADR-0064, decisão 3 | AD-039 |
 | Fuso dos contêineres | ADR-0064, decisões 1, 2 e 4 | AD-039 |
 
