@@ -11,8 +11,23 @@ import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 export interface ContactRepository {
   findByTenantAndPhone(tenantId: string, phoneNumber: PhoneNumber): Promise<Contact | null>;
   findById(id: string): Promise<Contact | null>;
+  /**
+   * ADR-0063 (AD-038) — lê o Contact travando o registro até o fim da
+   * unidade de trabalho em andamento (UnitOfWork). É por onde passa toda
+   * operação que muda o estado de um Contact que já existe: duas delas
+   * sobre o mesmo contato nunca correm ao mesmo tempo, e a segunda sempre
+   * lê o que a primeira confirmou. Só pode ser chamado dentro de uma
+   * unidade de trabalho.
+   */
+  findByIdForUpdate(id: string): Promise<Contact | null>;
   /** Persiste só o cabeçalho do Contact — nunca as associações (ver saveAssociation()). */
   save(contact: Contact): Promise<void>;
+  /**
+   * ADR-0063 (AD-038) — registra que o contato teve atividade, sem regravar
+   * estado nem nome. É o que uma mensagem recebida faz com um Contact que já
+   * existe.
+   */
+  touch(id: string): Promise<void>;
   /**
    * Persiste uma associação nova. Mesmo padrão de split já usado por
    * BillingRepository.save()/linkSessions() e ConversationRepository.save()/

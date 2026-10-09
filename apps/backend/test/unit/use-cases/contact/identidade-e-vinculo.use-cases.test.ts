@@ -27,6 +27,11 @@ function patient(id: string, name = 'Ana Prado') {
   return Patient.reconstitute({ id, tenantId: TENANT_ID, name, phone: PHONE, state: 'Cadastrado' });
 }
 
+/** Unidade de trabalho de mentira: roda o trabalho na hora e deixa ver se foi usada. */
+function fakeUnitOfWork() {
+  return { run: vi.fn(async (work: () => Promise<unknown>) => work()) };
+}
+
 function association(patientId: string) {
   return ContactPatientAssociation.create({ id: `a-${patientId}`, tenantId: TENANT_ID, contactId: 'c1', patientId, role: 'proprio_paciente' });
 }
@@ -110,9 +115,15 @@ describe('ResolverIdentidadeDoContatoUseCase', () => {
 
 describe('IdentificarContatoUseCase', () => {
   function makeUseCase(contact: Contact | null) {
-    const contactRepo = { findById: vi.fn().mockResolvedValue(contact), save: vi.fn().mockResolvedValue(undefined) };
+    const contactRepo = {
+      findById: vi.fn(),
+      findByIdForUpdate: vi.fn().mockResolvedValue(contact),
+      save: vi.fn().mockResolvedValue(undefined),
+    };
     const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
-    return { useCase: new IdentificarContatoUseCase(contactRepo as never, auditService as never), contactRepo, auditService };
+    const unitOfWork = fakeUnitOfWork();
+    const useCase = new IdentificarContatoUseCase(contactRepo as never, auditService as never, unitOfWork as never);
+    return { useCase, contactRepo, auditService, unitOfWork };
   }
 
   it('guarda o nome, leva o Contact a Identificado e audita como ação do agente — sem cadastrar ninguém', async () => {
@@ -133,6 +144,27 @@ describe('IdentificarContatoUseCase', () => {
     await expect(useCase.execute({ contactId: 'x', name: 'Maria da Silva' })).rejects.toThrow(NotFoundException);
     expect(contactRepo.save).not.toHaveBeenCalled();
   });
+
+  it('lê o contato com a linha travada, dentro de uma unidade de trabalho — nunca por uma leitura solta', async () => {
+    const { useCase, contactRepo, unitOfWork } = makeUseCase(contactIn('Conversando'));
+
+    await useCase.execute({ contactId: 'c1', name: 'Maria da Silva' });
+
+    expect(unitOfWork.run).toHaveBeenCalledTimes(1);
+    expect(contactRepo.findByIdForUpdate).toHaveBeenCalledWith('c1');
+    expect(contactRepo.findById).not.toHaveBeenCalled();
+  });
+
+  it.each(['Vinculado', 'Promovido'] as const)(
+    'contato que virou "%s" enquanto a trava era esperada (a clínica aprovou, ou o cadastro foi concluído): recusado, nada regravado',
+    async (state) => {
+      const { useCase, contactRepo, auditService } = makeUseCase(contactIn(state, 'Carla Nunes'));
+
+      await expect(useCase.execute({ contactId: 'c1', name: 'Outro Nome Qualquer' })).rejects.toThrow(/Transição inválida/);
+      expect(contactRepo.save).not.toHaveBeenCalled();
+      expect(auditService.recordAll).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('VincularContatoAPacienteUseCase — aprovação do vínculo pela clínica', () => {
@@ -145,7 +177,8 @@ describe('VincularContatoAPacienteUseCase — aprovação do vínculo pela clín
   }) {
     const contact = opts.contact === undefined ? contactIn('Identificado', 'Carla Nunes') : opts.contact;
     const contactRepo = {
-      findById: vi.fn().mockResolvedValue(contact),
+      findById: vi.fn(),
+      findByIdForUpdate: vi.fn().mockResolvedValue(contact),
       findAssociationsByContactId: vi.fn().mockResolvedValue(opts.associations ?? []),
       save: vi.fn().mockResolvedValue(undefined),
       saveAssociation: vi.fn().mockResolvedValue(undefined),
@@ -157,8 +190,15 @@ describe('VincularContatoAPacienteUseCase — aprovação do vínculo pela clín
     const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
     const tenantContext = new TenantContext();
     tenantContext.set(TENANT_ID, opts.userId === undefined ? 'admin-1' : opts.userId);
-    const useCase = new VincularContatoAPacienteUseCase(contactRepo as never, patientRepo as never, auditService as never, tenantContext);
-    return { useCase, contactRepo, patientRepo, auditService, contact };
+    const unitOfWork = fakeUnitOfWork();
+    const useCase = new VincularContatoAPacienteUseCase(
+      contactRepo as never,
+      patientRepo as never,
+      auditService as never,
+      tenantContext,
+      unitOfWork as never,
+    );
+    return { useCase, contactRepo, patientRepo, auditService, contact, unitOfWork };
   }
 
   function expectNothingSaved(deps: ReturnType<typeof makeUseCase>) {
@@ -177,6 +217,7 @@ describe('VincularContatoAPacienteUseCase — aprovação do vínculo pela clín
     expect(result.association).toMatchObject({ contactId: 'c1', patientId: 'p1', role: 'proprio_paciente' });
     expect(result.approvedByUserId).toBe('admin-1');
     expect(result.approvedAt.getTime()).toBeGreaterThanOrEqual(before);
+    expect(result.approvedAt.getTime()).toBeLessThanOrEqual(Date.now());
     expect(deps.contactRepo.saveAssociation).toHaveBeenCalledWith(result.association);
 
     // Sem ator explícito: o AuditService grava o usuário da requisição.
@@ -186,6 +227,38 @@ describe('VincularContatoAPacienteUseCase — aprovação do vínculo pela clín
     const linked = events.find((event) => event.eventName === 'ContatoVinculadoAPacienteExistente');
     expect(linked?.approvedByUserId).toBe('admin-1');
     expect(linked?.approvedAt).toBe(result.approvedAt.toISOString());
+  });
+
+  it('tudo em uma única unidade de trabalho, com o contato travado ANTES de qualquer conferência', async () => {
+    const deps = makeUseCase({});
+
+    await deps.useCase.execute({ contactId: 'c1', patientId: 'p1' });
+
+    expect(deps.unitOfWork.run).toHaveBeenCalledTimes(1);
+    expect(deps.contactRepo.findByIdForUpdate).toHaveBeenCalledWith('c1');
+    expect(deps.contactRepo.findById).not.toHaveBeenCalled();
+    const locked = deps.contactRepo.findByIdForUpdate.mock.invocationCallOrder[0];
+    expect(locked).toBeLessThan(deps.contactRepo.findAssociationsByContactId.mock.invocationCallOrder[0]);
+    expect(locked).toBeLessThan(deps.patientRepo.findAllByPhone.mock.invocationCallOrder[0]);
+    // A auditoria é gravada depois do vínculo e ainda dentro da unidade de trabalho.
+    expect(deps.contactRepo.saveAssociation.mock.invocationCallOrder[0]).toBeLessThan(deps.auditService.recordAll.mock.invocationCallOrder[0]);
+  });
+
+  it('falha ao gravar a auditoria: o erro sai de DENTRO da unidade de trabalho — é ela que desfaz o vínculo', async () => {
+    const deps = makeUseCase({});
+    deps.auditService.recordAll.mockRejectedValue(new Error('falha simulada na auditoria'));
+
+    await expect(deps.useCase.execute({ contactId: 'c1', patientId: 'p1' })).rejects.toThrow('falha simulada na auditoria');
+    await expect(deps.unitOfWork.run.mock.results[0].value).rejects.toThrow('falha simulada na auditoria');
+  });
+
+  it('falha ao gravar o vínculo: o erro sai de dentro da unidade de trabalho e a auditoria nem é tentada', async () => {
+    const deps = makeUseCase({});
+    deps.contactRepo.saveAssociation.mockRejectedValue(new Error('falha simulada no vínculo'));
+
+    await expect(deps.useCase.execute({ contactId: 'c1', patientId: 'p1' })).rejects.toThrow('falha simulada no vínculo');
+    await expect(deps.unitOfWork.run.mock.results[0].value).rejects.toThrow('falha simulada no vínculo');
+    expect(deps.auditService.recordAll).not.toHaveBeenCalled();
   });
 
   it('contato que ainda não informou nome: a aprovação da clínica é o que o identifica', async () => {
@@ -202,6 +275,9 @@ describe('VincularContatoAPacienteUseCase — aprovação do vínculo pela clín
 
     await expect(deps.useCase.execute({ contactId: 'c1', patientId: 'p1' })).rejects.toThrow(ForbiddenException);
     expectNothingSaved(deps);
+    // Recusado antes de abrir transação ou travar qualquer coisa.
+    expect(deps.unitOfWork.run).not.toHaveBeenCalled();
+    expect(deps.contactRepo.findByIdForUpdate).not.toHaveBeenCalled();
   });
 
   it('contato inexistente ou de outra clínica: 404, nada gravado', async () => {

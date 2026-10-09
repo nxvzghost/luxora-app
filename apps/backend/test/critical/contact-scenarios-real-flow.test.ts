@@ -636,7 +636,10 @@ describe('[Contact] identidade no fluxo real do WhatsApp — ADR-0063 (AD-037, A
         }
       });
 
-      it('a conversa vai para a clínica, e a pessoa ouve só a frase neutra — sem saber se aquele paciente existe', () => {
+      // A frase não diz o motivo nem menciona paciente algum. Ela não esconde o
+      // desfecho: um cadastro recusado difere de um aceito, e disso se pode
+      // inferir que o nome já existe (limitação registrada na ADR-0063).
+      it('a conversa vai para a clínica, e a pessoa ouve só a frase neutra — o motivo não é dito', () => {
         expect(claim.instructions).toEqual([`[Informe ao paciente: ${CLINIC_WILL_CONTINUE}]`]);
         expect(selfConfirmation.instructions).toEqual([`[Informe ao paciente: ${CLINIC_WILL_CONTINUE}]`]);
         expect(CLINIC_WILL_CONTINUE).not.toMatch(/Carla|paciente|cadastro/i);

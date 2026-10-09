@@ -1,6 +1,6 @@
 # ADR-0063 — Identidade pelo WhatsApp: cadastro novo só com nome completo e confirmação, número novo só vinculado com aprovação da clínica, número compartilhado nunca resolvido por suposição
 
-**Status:** APROVADA E IMPLEMENTADA (AD-037 e AD-038) em 9 de outubro de 2026, com as limitações listadas em "O que continua pendente". Decisão de produto de 8 de outubro de 2026, confirmada e detalhada em 9 de outubro de 2026 (ver "Histórico").
+**Status:** APROVADA E IMPLEMENTADA (AD-037 e AD-038) em 9 de outubro de 2026, com as limitações listadas em "O que continua pendente". No mesmo dia, antes de qualquer publicação, a aprovação de vínculo recebeu uma correção de integridade — concorrência e atomicidade —, descrita em "Integridade da aprovação". Decisão de produto de 8 de outubro de 2026, confirmada e detalhada em 9 de outubro de 2026 (ver "Histórico").
 **Origem:** complemento da Tarefa 06 da auditoria. Os defeitos que motivaram a decisão estão descritos, com a evidência, na [ADR-0062](./ADR-0062-fechamento-dos-testes.md) ("O que o fluxo de Contact faz de verdade") e não são repetidos aqui.
 **Relação com as anteriores:** aplica ao fluxo real o princípio da ADR-0046 (ambiguidade resolvida antes de qualquer ação clínica) e completa as ADR-0045 e ADR-0055, que deixaram em aberto de onde vem o nome do contato e como um vínculo é confirmado.
 **O que esta ADR não prova:** o comportamento do modelo real. Tudo aqui foi verificado com a IA roteirizada; entrada real da Meta e respostas reais da Anthropic continuam não validadas (Tarefa 03).
@@ -51,7 +51,9 @@ Em dois tempos, **em mensagens diferentes**:
 - O nome de perfil do WhatsApp não é lido em nenhum ponto do código.
 - A confirmação chega por um campo novo e opcional do classificador de Contact (`explicitConfirmation`); o texto do pedido ao modelo foi atualizado. Se o modelo não mandar o campo, ninguém é cadastrado — o erro possível é para o lado seguro.
 
-**Sem duplicidade.** A promoção recusa, **antes de gravar qualquer coisa**: contato sem nome guardado em mensagem anterior; número que já consta no cadastro de algum paciente (a lacuna D5b); e nome igual ao de um paciente da clínica (comparação sem acento, caixa e espaços a mais). No último caso pode ser um paciente em número novo: a conversa vai para a clínica (aviso "possível cadastro duplicado") e quem escreve não fica sabendo que o outro cadastro existe. Um número que já identifica um paciente nunca abre outro cadastro, classifique a IA como classificar.
+**Sem duplicidade.** A promoção recusa, **antes de gravar qualquer coisa**: contato sem nome guardado em mensagem anterior; número que já consta no cadastro de algum paciente (a lacuna D5b); e nome igual ao de um paciente da clínica (comparação sem acento, caixa e espaços a mais). No último caso pode ser um paciente em número novo: a conversa vai para a clínica (aviso "possível cadastro duplicado"). Um número que já identifica um paciente nunca abre outro cadastro, classifique a IA como classificar.
+
+**O que a recusa por nome revela — e o que não revela.** O motivo nunca é dito a quem escreve: a frase é a mesma de todo encaminhamento, e nenhum texto que segue para a conversa (nem o do próprio erro interno) afirma que existe outro cadastro; o que distingue o caso é só um código interno, usado para escolher o aviso à equipe. **Mas o desfecho é observável:** um cadastro recusado é diferente de um cadastro aceito. Quem tentar se cadastrar com o nome completo exato de um paciente recebe o encaminhamento em vez da confirmação e, comparando com outra tentativa, pode inferir que existe um cadastro com aquele nome naquela clínica. A versão anterior desta ADR dizia que a pessoa "não fica sabendo que o outro cadastro existe" — era forte demais. Eliminar a inferência exigiria aceitar cadastros duplicados ou nunca confirmar um cadastro na própria conversa; as duas mudam regra de produto e não foram feitas (ver "O que continua pendente", item 9). A comparação é só por **nome idêntico** (sem acento, caixa e espaços a mais): uma variante do nome não é barrada.
 
 ### Número de mais de um paciente (AD-038)
 
@@ -71,10 +73,39 @@ Em dois tempos, **em mensagens diferentes**:
 - Quando a mensagem trata de um paciente que o número não identifica (a própria pessoa em número novo, ou um terceiro), **o pipeline não associa nem vincula nada**: avisa a clínica ("número novo aguardando vínculo") e diz a frase neutra a quem escreve. Isso vale por mais que a pessoa insista ou confirme.
 - **`GET /api/v1/contacts/pending`** (só `admin`): os números que escreveram para a clínica e não identificam nenhum paciente, com o nome que a pessoa informou, se informou.
 - **`POST /api/v1/contacts/{id}/link`** com `{ "patientId" }` (só `admin`): aprova o vínculo. Responde `201` com `contactId`, `patientId`, `state: "Vinculado"`, `approvedByUserId` e `approvedAt`.
-- **Quem aprovou e quando** ficam no evento `ContatoVinculadoAPacienteExistente`, gravado na trilha de auditoria, que não pode ser alterada. Não houve migration. O domínio recusa um vínculo sem aprovação completa.
-- Recusas, sem gravar nada: sem sessão (401); perfil terapeuta (403); identificador malformado ou corpo inválido (400); contato ou paciente inexistente **ou de outra clínica** (404, pela RLS); contato que já tem paciente, ou número que já consta no cadastro de alguém (409).
+- **Quem aprovou e quando** ficam no evento `ContatoVinculadoAPacienteExistente`, gravado na trilha de auditoria, que não pode ser alterada. O aprovador vem da sessão autenticada, nunca do corpo da requisição. Não houve migration. O domínio recusa um vínculo sem aprovação completa.
+- **O vínculo e o seu registro são inseparáveis:** a mudança do contato, o vínculo e os registros de auditoria são confirmados na mesma transação do banco. Se a gravação da auditoria falhar, o vínculo não existe (ver "Integridade da aprovação").
+- Recusas, sem gravar nada: sem sessão (401); perfil terapeuta (403); identificador malformado ou corpo inválido (400); contato ou paciente inexistente **ou de outra clínica** (404, pela RLS); contato que já tem paciente — inclusive quando outra aprovação do mesmo contato chegou no mesmo instante — ou número que já consta no cadastro de alguém (409).
 - **O telefone do cadastro do paciente não é alterado** pela aprovação. O número novo passa a ser reconhecido nas mensagens que chegam; lembretes e cobranças continuam saindo para o telefone do cadastro, até a clínica alterá-lo.
 - **No painel:** em Pacientes, a seção "Números aguardando vínculo", visível só para o administrador. Escolher o paciente e clicar em "Vincular" abre uma confirmação que diz o que muda e que a aprovação fica registrada no usuário; só a confirmação envia.
+
+### Integridade da aprovação: uma transação, com o contato travado
+
+Correção feita em 9 de outubro de 2026, antes de qualquer publicação, a partir do que a revisão de pré-publicação mediu.
+
+**O que estava errado (medido, não suposto).**
+
+- Duas aprovações do mesmo contato ao mesmo tempo passavam as duas. Em 12 rodadas de 12, com pacientes diferentes: `201` + `201`, o contato com dois pacientes e dois registros de aprovação; o número passava a ser tratado como ambíguo e só o banco resolvia. Com o mesmo paciente: `201` + `201`, um vínculo e dois registros de aprovação.
+- O registro de auditoria era gravado depois do vínculo, em outra transação: se falhasse, o vínculo existia sem dizer quem o aprovou.
+- Toda mensagem recebida regravava o contato inteiro com o estado que tinha lido. Uma mensagem que chegasse durante a aprovação devolvia o contato ao estado anterior, e a aprovação se perdia com o vínculo órfão no banco. O mesmo valia para um nome informado ou um cadastro confirmado no mesmo instante.
+
+**A causa.** Cada chamada de repositório abria a sua transação, e o caso de uso lia, conferia e só depois gravava — sem nada que impedisse outra operação de fazer o mesmo entre a leitura e a gravação.
+
+**A correção.**
+
+1. **Unidade de trabalho.** `UnitOfWork` (porta) e `PrismaService.inUnitOfWork()` (implementação): uma transação para tudo o que os repositórios e o `AuditService` gravarem lá dentro. Os repositórios não mudaram — continuam chamando `forTenant()`, que entra na transação aberta em vez de abrir a sua. É opcional e explícita: nenhum fluxo que não a chame muda de comportamento. A auditoria continua passando só pelo `AuditService`; não foi criado caminho paralelo.
+2. **Trava de linha.** A aprovação começa lendo o contato com `SELECT ... FOR UPDATE` (`ContactRepository.findByIdForUpdate()`). A segunda aprovação do mesmo contato espera a primeira confirmar, lê o vínculo que já existe e é recusada com `409`. As conferências são refeitas com a linha travada. É o mesmo recurso já usado no provisionamento do primeiro administrador.
+3. **Tudo ou nada.** A mudança do contato, o vínculo e os registros de auditoria são confirmados juntos. Uma falha em qualquer gravação — a do vínculo ou a da auditoria, antes ou depois do `INSERT` — desfaz tudo, e o contato continua podendo ser aprovado depois.
+4. **A mesma trava para o que o WhatsApp faz com o contato.** Guardar o nome, concluir o cadastro e a primeira interação de um contato existente passam pela mesma trava, na mesma unidade de trabalho. A operação que chegar depois lê o que a anterior confirmou e é recusada pelo próprio domínio quando já não cabe. De quebra, o cadastro pelo WhatsApp ficou atômico (paciente, contato, associação e auditoria), e duas confirmações simultâneas da mesma pessoa não criam dois pacientes.
+5. **Uma mensagem não regrava o contato.** Para um contato que já conversa — quase toda mensagem —, só a atividade é registrada (`touch`), sem tocar em estado nem em nome.
+
+**Por que não uma migration ou uma restrição no banco.** O modelo permite, de propósito, mais de um paciente por contato (casal, responsável e dependente — `docs/01-Domain/08-Contact-e-Identidade-de-Comunicacao.md`, "Relação Contact ↔ Patient"); uma restrição de unicidade por contato seria incompatível com ele. A garantia exigida — no máximo um paciente **por este fluxo** — é dada pela trava e pela rechecagem dentro da transação, sem mudar o esquema nem o nível de isolamento.
+
+**O horário da aprovação.** É um só, tomado uma vez, dentro da transação e depois de a aprovação obter a trava: é o que vai na resposta e no registro de auditoria. Uma aprovação que esperou por outra não carrega o horário de quando começou a esperar. Ele vem do relógio da aplicação, e não do banco, por uma razão medida: é o Prisma, na aplicação, que preenche `created_at` em toda a base — numa transação aberta havia 500 ms, a linha inserida pelo Prisma recebeu +509 ms, e uma inserida por SQL com o `DEFAULT` do banco, +0 ms (o início da transação). Usar o relógio do banco para a aprovação criaria dois relógios nos mesmos registros. O vínculo e os registros de auditoria são gravados em seguida, na mesma transação e pelo mesmo relógio; a prova de que pertencem à mesma transação é o identificador de transação do banco (`xmin`), igual em todas essas linhas — não a coincidência de horários.
+
+**Entre clínicas.** A trava respeita a RLS: o contato de outra clínica não é devolvido nem travado, e quem o pede recebe `404` na hora, sem esperar — mesmo com a aprovação legítima em andamento. Um repositório de outra clínica que tente entrar em uma unidade de trabalho aberta é recusado.
+
+**O que isto custa.** A aprovação passa a depender da auditoria: se o registro não puder ser gravado, a aprovação falha (`500`) e nada muda — é o comportamento pedido. Uma operação que espera por outra consome o tempo da própria transação (o limite padrão do Prisma, 5 s); na prática a espera é de milissegundos.
 
 ### O que mudou em relação ao que havia
 
@@ -109,13 +140,18 @@ Em dois tempos, **em mensagens diferentes**:
 - A aprovação é só do administrador, exige sessão, grava quem aprovou e quando, não pode ser repetida e não muda o telefone do cadastro. Depois dela, o número novo reconhece o paciente; o contato do número antigo permanece intacto.
 - Uma clínica não vê nem vincula contato ou paciente de outra; o vínculo aprovado em uma clínica não identifica ninguém na outra.
 - Em nome de um paciente reconhecido, consulta e cobrança de **outro** paciente da mesma clínica não são canceladas, confirmadas, remarcadas nem informadas.
+- Duas aprovações simultâneas do mesmo contato — para pacientes diferentes ou para o mesmo — resultam em uma aceita (`201`) e uma recusada (`409`), um vínculo e um registro de aprovação.
+- Falha na gravação da auditoria ou do vínculo: nada fica gravado, e a mesma aprovação passa depois.
+- Uma mensagem, um nome informado ou um cadastro confirmado no mesmo instante da aprovação não a desfazem nem a duplicam.
 
 ## Testes
 
 - **Fluxo real** — `apps/backend/test/critical/contact-scenarios-real-flow.test.ts`, 47 testes. Cada mensagem entra pelo webhook assinado, vai para a fila e é processada pelo worker real, contra o Postgres com RLS; a aprovação é feita pela rota do painel, com login. Só a IA é roteirizada, e o roteiro inclui as respostas que tentam forçar uma ação indevida. Fila e worker rodam em um Redis próprio do arquivo (db 12); nenhuma chamada de rede sai dele.
 - **Os três defeitos conhecidos** (um da AD-037, dois da AD-038) viraram testes normais desse arquivo, **com as mesmas asserções**, e passam. Não há mais teste de defeito conhecido: `test:known-defects` não encontra nenhum. A convenção da ADR-0062 continua valendo para o próximo defeito que não couber corrigir na hora.
 - **Prova de que os testes pegam o defeito:** cada regra foi desligada no código, uma por vez (escolher o mais antigo; agir no turno da confirmação; cadastrar sem confirmação; cadastrar com nome e confirmação juntos; cadastrar com nome já existente; terapeuta aprovando vínculo; ação e cobrança sem conferir o dono; pedido de vínculo sem encaminhar), e em todas o arquivo falhou. O código foi restaurado depois de cada rodada.
-- **Repositório, contra Postgres real e RLS** (`test/integration`): todos os pacientes de um número, do mais antigo para o mais novo; busca por nome sem acento, caixa e espaços; contatos pendentes; isolamento entre clínicas nos três.
+- **Integridade da aprovação** — `apps/backend/test/critical/contact-link-approval-integrity.test.ts`, 31 testes, pela rota real, contra o Postgres com RLS. A concorrência é produzida sem esperas de tempo fixo: a primeira operação que trava o contato fica parada com a trava na mão; o teste espera o **banco** informar que outra sessão está bloqueada por ela (`pg_blocking_pids`) e só então a libera. Cobre: duas aprovações simultâneas para pacientes diferentes (5 rodadas) e para o mesmo paciente (3 rodadas); repetição de uma aprovação concluída; falha da auditoria antes e depois do `INSERT`, inclusive do primeiro registro; falha do vínculo antes e depois do `INSERT`; tentativa entre clínicas, sozinha e durante a aprovação legítima; mensagem, nome e cadastro concorrentes, nas duas ordens; duas confirmações do mesmo cadastro; e a prova, pelo `xmin`, de que contato, vínculo e auditoria foram gravados pela mesma transação. Em todos confere o código HTTP, o estado gravado e os registros de auditoria.
+- **Prova de que esses testes pegam o defeito:** oito proteções desligadas no código, uma por vez (sem a trava; repositórios fora da transação; aprovação, nome e cadastro lendo sem travar; mensagem regravando o contato; auditoria fora da transação; horário tomado antes da trava) — em todas o arquivo falhou. Código restaurado depois de cada rodada.
+- **Repositório, contra Postgres real e RLS** (`test/integration`): a unidade de trabalho (confirma junto, desfaz junto, invisível de fora até confirmar, RLS dentro dela, recusa de outra clínica), a trava de linha e o registro de atividade; e o comportamento de `created_at` que o desenho pressupõe, para avisar se um dia mudar. Além disso: todos os pacientes de um número, do mais antigo para o mais novo; busca por nome sem acento, caixa e espaços; contatos pendentes; isolamento entre clínicas nos três.
 - **Unitários:** a regra de identidade, o roteador de Contact, a promoção, a aprovação do vínculo, o aviso à clínica e a conferência de dono.
 - **Painel:** 9 testes da seção de aprovação (o que cada perfil vê, a confirmação, o envio, as recusas, o botão travado) e 4 testes de ponta a ponta, pelo navegador contra a API e o banco reais — inclusive o registro de quem aprovou, lido do banco e da tela de Auditoria, e o isolamento entre clínicas.
 
@@ -128,6 +164,8 @@ Tomadas para caber nas três decisões sem inventar regra de produto; qualquer u
 3. **`ASSOCIAR` nunca age.** Antes podia associar um contato a um paciente por nome mencionado; agora sempre encaminha. `AssociarContatoUseCase` continua no código, sem chamador no fluxo.
 4. **Vínculo só de contato sem paciente.** A aprovação é recusada se o contato já tem paciente ou se o número já consta no cadastro de alguém.
 5. **O painel não pede nem guarda como a identidade foi conferida.** A confirmação lembra que a conferência é da clínica, por outro meio, e o sistema grava só quem aprovou e quando.
+6. **Unidade de trabalho só onde foi pedida.** A aprovação de vínculo e as mudanças de estado de um contato existente. O restante da aplicação continua no padrão anterior — cada repositório na sua transação, a auditoria gravada em seguida —, que não foi revisto aqui.
+7. **A segunda aprovação recebe `409`, também para o mesmo paciente.** Não é tratada como repetição idempotente: quem aprovou foi a primeira, e só ela fica registrada.
 
 ## O que continua pendente
 
@@ -141,12 +179,31 @@ Nada disto é defeito mascarado: são comportamentos que as decisões não defin
 6. **Cenário 14** (paciente cadastrado pelo painel nascer com o Contact vinculado): não implementado e não necessário para a regra — o telefone do cadastro já identifica o paciente. `Contact.createAlreadyLinked()` continua sem chamador.
 7. **Modelo real.** O campo `explicitConfirmation` e o novo texto do classificador não foram exercitados contra a Anthropic. O backend não depende de o modelo acertar para ser seguro, mas a taxa de cadastros concluídos depende. Fica com a validação externa da Tarefa 03.
 8. **Fuso horário** (AD-039, ADR-0064): não tocado aqui.
+9. **A recusa por nome permite inferir que o nome existe** (ver "Sem duplicidade"). Não há como fechar isso sem mudar a regra de produto: ou o cadastro com nome já existente passa a ser aceito (duplicando), ou nenhum cadastro é confirmado na própria conversa.
+10. **Variantes de nome não são barradas.** Só o nome idêntico (sem acento, caixa e espaços) é recusado; "Maria Silva" e "Maria da Silva" viram dois cadastros, sem aviso à clínica. Correspondência aproximada não foi implementada: precisa de regra de produto e de testes próprios.
+11. **Estado do paciente (inativo, alta).** Ver "Revisão: pacientes inativos ou com alta", abaixo. Nada foi alterado.
+
+## Revisão: pacientes inativos ou com alta
+
+O que o domínio define hoje, lido no código:
+
+- A máquina de estados do paciente tem `Inativo → Ativo` (reativação) e `Alta` como estado **terminal**, com a nota "reingresso exige novo cadastro, não reabertura".
+- **Nenhuma regra usa o estado do paciente para permitir ou negar uma ação.** Marcar consulta só confere se o paciente existe; nada em casos de uso, controllers ou repositórios lê `Inativo` ou `Alta` para decidir. As únicas operações que tocam o estado são as do próprio cadastro (inativar, reativar, dar alta).
+
+Consequências para este fluxo, todas coerentes com o resto do sistema e **nenhuma alterada**:
+
+- o número de um paciente inativo ou com alta continua identificando esse paciente, e ele continua podendo marcar pelo WhatsApp;
+- a aprovação de vínculo aceita um paciente em qualquer estado — recusar só aqui criaria uma regra que nenhuma outra parte do sistema tem;
+- a conferência de nome já existente conta também pacientes com alta: quem teve alta e volta de um número novo é encaminhado à clínica, e não cadastrado de novo pelo WhatsApp, embora o domínio diga que o reingresso é por novo cadastro. Quem faz esse novo cadastro, hoje, é a clínica, pelo painel.
+
+Se paciente com alta (ou inativo) deve deixar de ser reconhecido, de marcar ou de receber vínculo é decisão de produto, que vale para o sistema inteiro e não só para este fluxo. Fica registrada como pendência (item 11).
 
 ## Histórico
 
 - **8 de outubro de 2026** — primeira versão: nome completo e confirmação explícita antes de criar ou vincular um cadastro; número compartilhado nunca resolvido por suposição. Dois pontos ficaram a confirmar: se o paciente já reconhecido pelo telefone continuava dispensado de informar o nome, e o que bastava como confirmação para vincular um número novo.
 - **9 de outubro de 2026** — confirmação do responsável pelo produto, que resolve os dois pontos: o número vinculado a exatamente um paciente continua reconhecendo esse paciente; o vínculo de um número novo passa a depender de aprovação da clínica pelo painel, e a confirmação de quem escreve deixa de bastar; na ambiguidade, o sistema pode pedir esclarecimento ou encaminhar a um humano, sem revelar dados de pacientes.
 - **9 de outubro de 2026** — implementação (AD-037 e AD-038). O pedido de execução fixou dois pontos que estavam em aberto: quem aprova o vínculo é um **administrador** da clínica, e a aprovação registra **responsável e horário**. Os demais pontos em aberto da versão anterior estão em "Escolhas de implementação" (os que foram resolvidos) e em "O que continua pendente" (os que não foram).
+- **9 de outubro de 2026** — correção de integridade da aprovação, antes de publicar. A revisão de pré-publicação mediu que duas aprovações simultâneas eram ambas aceitas, que a auditoria ficava fora da transação do vínculo e que uma mensagem concorrente podia desfazer a aprovação; os três pontos foram corrigidos ("Integridade da aprovação"). Corrigido também o texto que dizia que a pessoa "não fica sabendo" da existência de outro cadastro, e registrada a revisão sobre pacientes inativos ou com alta.
 
 ## Documentos relacionados
 

@@ -5,6 +5,7 @@ import { Patient } from '@domain/patient/patient.entity';
 import { ContactRepository, CONTACT_REPOSITORY } from '@domain-services/patient-ops/contact.repository';
 import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
+import { UnitOfWork, UNIT_OF_WORK } from '@domain-services/platform/unit-of-work';
 import { CadastrarPacienteUseCase } from '@use-cases/patient/cadastrar-paciente.use-case';
 
 export interface PromoverContatoInput {
@@ -22,11 +23,16 @@ export interface PromoverContatoResult {
  * Já existe na clínica um paciente com este mesmo nome. Pode ser a mesma
  * pessoa escrevendo de um número novo, pode ser um homônimo — o sistema não
  * tem como saber, e por isso não abre um segundo cadastro: o caso vai para a
- * clínica (ADR-0063). A mensagem não traz o nome nem o id de ninguém.
+ * clínica (ADR-0063).
+ *
+ * A mensagem não traz o nome nem o id de ninguém e NÃO diz que existe outro
+ * cadastro: quem sabe o motivo é o código (pela classe do erro), não o
+ * texto. Se um dia este erro chegar a uma resposta, ela não confirma a
+ * existência de paciente nenhum.
  */
 export class PossibleDuplicatePatientError extends ConflictException {
   constructor() {
-    super('Já existe um paciente com este nome na clínica; o cadastro precisa ser concluído pela equipe.');
+    super('O cadastro precisa ser concluído pela equipe da clínica.');
     this.name = 'PossibleDuplicatePatientError';
   }
 }
@@ -50,6 +56,15 @@ export class PossibleDuplicatePatientError extends ConflictException {
  *
  * Quem decide QUANDO promover — só depois da confirmação explícita — é o
  * ContactIntentActionRouter.
+ *
+ * ADR-0063 (AD-038) — uma unidade de trabalho, com o contato travado. A
+ * promoção e a aprovação de um vínculo pela clínica mudam o mesmo contato;
+ * sem a trava, as duas ao mesmo tempo deixavam o contato com dois pacientes
+ * e a aprovação sem efeito. Agora a que chegar depois lê o que a primeira
+ * confirmou e é recusada. De quebra, o paciente, o contato, a associação e
+ * os registros de auditoria passam a ser confirmados juntos: uma falha no
+ * meio não deixa mais um paciente gravado sem contato, e duas confirmações
+ * simultâneas da mesma pessoa não criam dois cadastros.
  */
 @Injectable()
 export class PromoverContatoUseCase {
@@ -58,42 +73,45 @@ export class PromoverContatoUseCase {
     private readonly cadastrarPaciente: CadastrarPacienteUseCase,
     private readonly auditService: AuditService,
     @Inject(PATIENT_REPOSITORY) private readonly patientRepo: PatientRepository,
+    @Inject(UNIT_OF_WORK) private readonly unitOfWork: UnitOfWork,
   ) {}
 
   async execute(input: PromoverContatoInput): Promise<PromoverContatoResult> {
-    const contact = await this.contactRepo.findById(input.contactId);
-    if (!contact) {
-      throw new NotFoundException(`Contact ${input.contactId} não encontrado.`);
-    }
-    if (!contact.phoneNumber) {
-      throw new ConflictException(`Contact ${input.contactId} não tem telefone (anonimizado) — não pode ser promovido.`);
-    }
-    if (contact.state !== 'Identificado') {
-      throw new ConflictException(`Contact ${input.contactId} não pode ser promovido no estado "${contact.state}".`);
-    }
+    return this.unitOfWork.run(async () => {
+      const contact = await this.contactRepo.findByIdForUpdate(input.contactId);
+      if (!contact) {
+        throw new NotFoundException(`Contact ${input.contactId} não encontrado.`);
+      }
+      if (!contact.phoneNumber) {
+        throw new ConflictException(`Contact ${input.contactId} não tem telefone (anonimizado) — não pode ser promovido.`);
+      }
+      if (contact.state !== 'Identificado') {
+        throw new ConflictException(`Contact ${input.contactId} não pode ser promovido no estado "${contact.state}".`);
+      }
 
-    const phoneNumber = contact.phoneNumber.toE164();
-    if ((await this.patientRepo.findAllByPhone(phoneNumber)).length > 0) {
-      throw new ConflictException('Este número já consta no cadastro de um paciente da clínica.');
-    }
-    if ((await this.patientRepo.findAllByName(input.patientName)).length > 0) {
-      throw new PossibleDuplicatePatientError();
-    }
+      const phoneNumber = contact.phoneNumber.toE164();
+      if ((await this.patientRepo.findAllByPhone(phoneNumber)).length > 0) {
+        throw new ConflictException('Este número já consta no cadastro de um paciente da clínica.');
+      }
+      if ((await this.patientRepo.findAllByName(input.patientName)).length > 0) {
+        throw new PossibleDuplicatePatientError();
+      }
 
-    const patient = await this.cadastrarPaciente.execute({
-      name: input.patientName,
-      phone: phoneNumber,
+      const patient = await this.cadastrarPaciente.execute({
+        name: input.patientName,
+        phone: phoneNumber,
+      });
+
+      const association = contact.promoverParaPaciente(randomUUID(), patient.id);
+
+      await this.contactRepo.save(contact);
+      await this.contactRepo.saveAssociation(association);
+      // Ator 'ai_agent' — ação decidida pelo ContactIntentActionRouter a
+      // partir de uma classificação de IA, mesmo padrão de actorType já
+      // usado por ProcessarMensagemUseCase para ações roteadas por IA.
+      await this.auditService.recordAll(contact.pullDomainEvents(), 'ai_agent');
+
+      return { contact, patient, association };
     });
-
-    const association = contact.promoverParaPaciente(randomUUID(), patient.id);
-
-    await this.contactRepo.save(contact);
-    await this.contactRepo.saveAssociation(association);
-    // Ator 'ai_agent' — ação decidida pelo ContactIntentActionRouter a
-    // partir de uma classificação de IA, mesmo padrão de actorType já
-    // usado por ProcessarMensagemUseCase para ações roteadas por IA.
-    await this.auditService.recordAll(contact.pullDomainEvents(), 'ai_agent');
-
-    return { contact, patient, association };
   }
 }

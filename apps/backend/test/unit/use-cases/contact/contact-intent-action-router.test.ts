@@ -243,6 +243,39 @@ describe('ContactIntentActionRouter — ADR-0055 (AD-018), regras de identidade 
       expect(result.patientNotice).not.toContain('Maria');
       expect(result.error).toBeUndefined();
     });
+
+    it('o que segue para a conversa na recusa por nome já existente é idêntico ao de outro encaminhamento — nada afirma que existe outro cadastro', async () => {
+      const duplicate = makeDeps({
+        contact: contactWith('Identificado', 'Maria da Silva'),
+        classification: { decision: 'PROMOVER', confidence: 0.95, explicitConfirmation: true },
+      });
+      duplicate.promoverContato.execute.mockRejectedValueOnce(new PossibleDuplicatePatientError());
+      const otherHandoff = makeDeps({
+        contact: contactWith('Identificado', 'Maria da Silva'),
+        classification: { decision: 'HUMANO', confidence: 0.95 },
+      });
+
+      const refused = await duplicate.router.route(baseInput());
+      const handedOff = await otherHandoff.router.route(baseInput());
+
+      // Os campos que ProcessarMensagemUseCase usa para falar com a pessoa.
+      const spoken = (result: typeof refused) => ({
+        patientNotice: result.patientNotice,
+        confirmationPrompt: result.confirmationPrompt,
+        actionSummary: result.actionSummary,
+        requiresConfirmation: result.requiresConfirmation,
+        escalateToHuman: result.escalateToHuman,
+        actionTaken: result.actionTaken,
+        patientId: result.patientId,
+      });
+      expect(spoken(refused)).toEqual(spoken(handedOff));
+
+      // Fora o motivo interno (que escolhe o aviso à equipe), nenhum texto do
+      // resultado diz que já existe um paciente — nem o do próprio erro.
+      const { handoffReason: _reason, ...rest } = refused;
+      expect(JSON.stringify(rest)).not.toMatch(/já existe|existe (um )?paciente|duplicad|mesmo nome/i);
+      expect(new PossibleDuplicatePatientError().message).not.toMatch(/já existe|existe (um )?paciente|duplicad|mesmo nome/i);
+    });
   });
 
   describe('ASSOCIAR — nunca associa nem vincula; o caso vai para a clínica (AD-038)', () => {

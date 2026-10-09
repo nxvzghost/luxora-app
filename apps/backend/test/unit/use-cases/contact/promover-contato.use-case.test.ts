@@ -21,7 +21,8 @@ function makeDeps(opts: { contact?: Contact | null; sameNumber?: unknown[]; same
   const contact = opts.contact === undefined ? identifiedContact() : opts.contact;
   const contactRepo = {
     findByTenantAndPhone: vi.fn(),
-    findById: vi.fn().mockResolvedValue(contact),
+    findById: vi.fn(),
+    findByIdForUpdate: vi.fn().mockResolvedValue(contact),
     save: vi.fn().mockResolvedValue(undefined),
     saveAssociation: vi.fn().mockResolvedValue(undefined),
     findAssociationsByContactId: vi.fn(),
@@ -38,8 +39,17 @@ function makeDeps(opts: { contact?: Contact | null; sameNumber?: unknown[]; same
     findAllByName: vi.fn().mockResolvedValue(opts.sameName ?? []),
   };
 
-  const useCase = new PromoverContatoUseCase(contactRepo as never, cadastrarPaciente as never, auditService as never, patientRepo as never);
-  return { useCase, contactRepo, cadastrarPaciente, auditService, contact, patientRepo };
+  // Unidade de trabalho de mentira: roda o trabalho na hora e deixa ver se foi usada.
+  const unitOfWork = { run: vi.fn(async (work: () => Promise<unknown>) => work()) };
+
+  const useCase = new PromoverContatoUseCase(
+    contactRepo as never,
+    cadastrarPaciente as never,
+    auditService as never,
+    patientRepo as never,
+    unitOfWork as never,
+  );
+  return { useCase, contactRepo, cadastrarPaciente, auditService, contact, patientRepo, unitOfWork };
 }
 
 describe('PromoverContatoUseCase — ADR-0055 (AD-018), Fase 6', () => {
@@ -55,6 +65,27 @@ describe('PromoverContatoUseCase — ADR-0055 (AD-018), Fase 6', () => {
     expect(contactRepo.save).toHaveBeenCalledWith(contact);
     expect(contactRepo.saveAssociation).toHaveBeenCalledWith(result.association);
     expect(auditService.recordAll).toHaveBeenCalledWith(expect.any(Array), 'ai_agent');
+  });
+
+  it('roda em uma única unidade de trabalho, com o contato travado antes de qualquer conferência ou cadastro (ADR-0063, AD-038)', async () => {
+    const { useCase, contactRepo, cadastrarPaciente, patientRepo, unitOfWork } = makeDeps({});
+
+    await useCase.execute({ contactId: 'c1', patientName: 'Maria da Silva' });
+
+    expect(unitOfWork.run).toHaveBeenCalledTimes(1);
+    expect(contactRepo.findByIdForUpdate).toHaveBeenCalledWith('c1');
+    expect(contactRepo.findById).not.toHaveBeenCalled();
+    const locked = contactRepo.findByIdForUpdate.mock.invocationCallOrder[0];
+    expect(locked).toBeLessThan(patientRepo.findAllByPhone.mock.invocationCallOrder[0]);
+    expect(locked).toBeLessThan(cadastrarPaciente.execute.mock.invocationCallOrder[0]);
+  });
+
+  it('falha depois de cadastrar o paciente: o erro sai de dentro da unidade de trabalho, que desfaz também o cadastro', async () => {
+    const { useCase, contactRepo, unitOfWork } = makeDeps({});
+    contactRepo.saveAssociation.mockRejectedValue(new Error('falha simulada na associação'));
+
+    await expect(useCase.execute({ contactId: 'c1', patientName: 'Maria da Silva' })).rejects.toThrow('falha simulada na associação');
+    await expect(unitOfWork.run.mock.results[0].value).rejects.toThrow('falha simulada na associação');
   });
 
   it('lança NotFoundException quando o Contact não existe', async () => {

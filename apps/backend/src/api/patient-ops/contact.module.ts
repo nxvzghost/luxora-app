@@ -12,6 +12,8 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
 import { AnthropicContactIntentClassifier } from '@infrastructure/ai/anthropic-contact-intent-classifier';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
+import { PrismaUnitOfWork } from '@infrastructure/database/prisma-unit-of-work';
+import { UNIT_OF_WORK } from '@domain-services/platform/unit-of-work';
 import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-ou-criar-contato.use-case';
 import { ConsultarContatoUseCase } from '@use-cases/contact/consultar-contato.use-case';
 import { PromoverContatoUseCase } from '@use-cases/contact/promover-contato.use-case';
@@ -61,6 +63,10 @@ import { PatientsModule } from '../patients/patients.module';
  * de paciente, de notificação e de assinatura são declarados aqui como nos
  * demais módulos que os usam; AssociarContatoUseCase continua registrado,
  * mas o roteador não o chama mais — nenhuma associação nasce sem a clínica.
+ *
+ * `UNIT_OF_WORK` — a transação única em que rodam a aprovação do vínculo e
+ * toda mudança de estado de um Contact que já existe (identificar, promover,
+ * a primeira interação). Fica declarada só aqui: nenhum outro módulo a usa.
  */
 @Module({
   imports: [JwtModule.register({ secret: process.env.JWT_SECRET }), AuditModule, PatientsModule],
@@ -71,6 +77,7 @@ import { PatientsModule } from '../patients/patients.module';
     { provide: NOTIFICATION_REPOSITORY, useClass: PrismaNotificationRepository },
     { provide: CLINIC_SUBSCRIPTION_REPOSITORY, useClass: PrismaClinicSubscriptionRepository },
     { provide: CONTACT_INTENT_CLASSIFIER, useClass: AnthropicContactIntentClassifier },
+    { provide: UNIT_OF_WORK, useClass: PrismaUnitOfWork },
     PrismaService,
     PrismaClientProvider,
     ReconhecerOuCriarContatoUseCase,

@@ -48,8 +48,14 @@ export interface BootstrapTestAppOptions {
    * por respostas roteirizadas, e o produtor da fila de entrada por um que
    * guarda o job em memória — para nenhum job deste teste cair na fila real
    * que o worker de outro arquivo consome. Todo o resto continua real.
+   *
+   * ADR-0063 (AD-038) — `useClass` troca o provider por uma classe que o Nest
+   * instancia com as dependências reais. Serve para os testes de
+   * concorrência da aprovação de vínculo: a classe ESTENDE o repositório real
+   * e só acrescenta pontos de espera e de falha — o SQL executado é o de
+   * produção.
    */
-  overrides?: Array<{ provide: unknown; useValue: unknown }>;
+  overrides?: Array<{ provide: unknown; useValue: unknown } | { provide: unknown; useClass: new (...args: never[]) => unknown }>;
 }
 
 /**
@@ -75,7 +81,11 @@ export async function bootstrapTestApp(options: BootstrapTestAppOptions = {}): P
     builder.overrideProvider(MessageQueueWorker).useValue({});
   }
   for (const override of options.overrides ?? []) {
-    builder.overrideProvider(override.provide).useValue(override.useValue);
+    if ('useClass' in override) {
+      builder.overrideProvider(override.provide).useClass(override.useClass);
+    } else {
+      builder.overrideProvider(override.provide).useValue(override.useValue);
+    }
   }
   const moduleRef = await builder.compile();
   // ADR-0053 — espelha main.ts: rawBody:true, necessário para os testes

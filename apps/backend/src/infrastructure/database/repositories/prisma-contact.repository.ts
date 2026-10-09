@@ -104,6 +104,46 @@ export class PrismaContactRepository implements ContactRepository {
     return records.map((r) => this.associationToDomain(r));
   }
 
+  /**
+   * ADR-0063 (AD-038) — lê o Contact travando a linha (`SELECT ... FOR
+   * UPDATE`) até o fim da unidade de trabalho. Duas operações sobre o mesmo
+   * contato passam a acontecer uma depois da outra: a segunda espera a
+   * primeira confirmar e então lê o estado já atualizado. Mesmo recurso de
+   * PrismaUserRepository.provisionFirstAdmin(), sem migration e sem mudar o
+   * nível de isolamento.
+   *
+   * A trava só dura enquanto a transação durar; fora de uma unidade de
+   * trabalho ela seria solta no fim desta própria chamada e não protegeria
+   * nada — por isso o uso fora de uma é recusado.
+   *
+   * A RLS vale também aqui: o contato de outra clínica não é devolvido nem
+   * travado, e quem o pede não fica esperando por ele.
+   *
+   * "id" é TEXT no Postgres (ver a nota em provisionFirstAdmin) — sem cast.
+   */
+  async findByIdForUpdate(id: string): Promise<Contact | null> {
+    if (!this.prisma.isInUnitOfWork) {
+      throw new Error('findByIdForUpdate() só pode ser chamado dentro de uma unidade de trabalho.');
+    }
+
+    const record = await this.prisma.forTenant(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "contact" WHERE id = ${id} FOR UPDATE`;
+      if (locked.length === 0) return null;
+      return tx.contact.findUnique({ where: { id } });
+    });
+    return record ? this.toDomain(record) : null;
+  }
+
+  /**
+   * ADR-0063 (AD-038) — registra que o contato teve atividade, e só isso:
+   * grava `updated_at` e não toca em estado nem em nome. Uma mensagem que
+   * chega enquanto a clínica aprova um vínculo não pode regravar o estado
+   * que leu antes da aprovação.
+   */
+  async touch(id: string): Promise<void> {
+    await this.prisma.forTenant((tx) => tx.contact.updateMany({ where: { id }, data: { updatedAt: new Date() } }));
+  }
+
   // ADR-0063 (AD-038) — a RLS limita a busca à clínica, como em qualquer
   // outra leitura. Um Contact anonimizado (sem telefone) não entra.
   async findUnlinked(limit: number): Promise<Contact[]> {

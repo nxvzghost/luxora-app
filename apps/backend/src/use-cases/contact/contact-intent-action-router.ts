@@ -60,6 +60,12 @@ export function askNameConfirmation(name: string): string {
  * em todos os casos, de propósito: ela não diz se existe um paciente com
  * aquele nome, se o número é de mais de uma pessoa, nem coisa alguma sobre
  * cadastro, consulta ou cobrança de quem quer que seja.
+ *
+ * O que a frase NÃO consegue esconder é o desfecho: um cadastro recusado é
+ * diferente de um cadastro aceito. Quem tentar se cadastrar com o nome
+ * completo exato de um paciente pode inferir, pela recusa, que existe um
+ * cadastro com esse nome — é o custo de não duplicar cadastro, registrado
+ * na ADR-0063. O motivo, em si, nunca é dito.
  */
 export const CLINIC_WILL_CONTINUE =
   'Por segurança, a equipe da clínica vai continuar este atendimento e confirmar os dados com você. Nada foi alterado por aqui.';
@@ -256,14 +262,17 @@ export class ContactIntentActionRouter {
     } catch (err) {
       if (err instanceof PossibleDuplicatePatientError) {
         // Pode ser um paciente da clínica em um número novo. Nenhum
-        // cadastro é aberto e nada é dito sobre a existência do outro.
+        // cadastro é aberto e o motivo não é dito: o que segue para a
+        // conversa é igual ao de qualquer outro encaminhamento. Só
+        // `handoffReason` — que não sai do backend e serve para escolher o
+        // aviso interno à equipe — distingue este caso.
         return {
           decision: 'PROMOVER',
           actionTaken: false,
           escalateToHuman: true,
           handoffReason: 'possible_duplicate',
           patientNotice: CLINIC_WILL_CONTINUE,
-          reasoning: 'Já existe paciente com este nome na clínica — cadastro entregue à equipe.',
+          reasoning: 'Cadastro entregue à equipe da clínica.',
         };
       }
       throw err;
