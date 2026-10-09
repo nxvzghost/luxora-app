@@ -11,9 +11,20 @@ import { AuditService } from '@domain-services/platform/audit.service';
 import { VerificarDisponibilidadeUseCase } from '@use-cases/availability/verificar-disponibilidade.use-case';
 import { SlotNotAvailableError } from '@domain-services/availability/slot-not-available.error';
 
-async function findOrThrow(repo: AppointmentRepository, id: string): Promise<Appointment> {
+/**
+ * ADR-0063 (AD-038) — quem age em nome de um paciente (o agente do WhatsApp)
+ * informa de quem a consulta tem de ser. As rotas do painel não informam:
+ * lá quem age é a equipe da clínica, já autorizada pelo papel.
+ */
+export interface AppointmentActionOptions {
+  expectedPatientId?: string;
+}
+
+async function findOrThrow(repo: AppointmentRepository, id: string, options?: AppointmentActionOptions): Promise<Appointment> {
   const appointment = await repo.findById(id);
-  if (!appointment) {
+  // A consulta de outro paciente responde como inexistente: a mesma
+  // resposta, para não confirmar a ninguém que aquele id existe.
+  if (!appointment || (options?.expectedPatientId && appointment.patientId !== options.expectedPatientId)) {
     throw new NotFoundException('Agendamento não encontrado.');
   }
   return appointment;
@@ -35,8 +46,8 @@ export class RemarcarConsultaUseCase {
     private readonly auditService: AuditService,
   ) {}
 
-  async execute(id: string, newScheduledAt: Date): Promise<Appointment> {
-    const appointment = await findOrThrow(this.repo, id);
+  async execute(id: string, newScheduledAt: Date, options?: AppointmentActionOptions): Promise<Appointment> {
+    const appointment = await findOrThrow(this.repo, id, options);
 
     const disponivel = await this.verificarDisponibilidade.execute({
       therapistId: appointment.therapistId,
@@ -63,8 +74,8 @@ export class CancelarConsultaUseCase {
     private readonly auditService: AuditService,
   ) {}
 
-  async execute(id: string): Promise<Appointment> {
-    const appointment = await findOrThrow(this.repo, id);
+  async execute(id: string, options?: AppointmentActionOptions): Promise<Appointment> {
+    const appointment = await findOrThrow(this.repo, id, options);
     appointment.transitionTo('Cancelada');
     await this.repo.save(appointment);
     await this.auditService.recordAll(appointment.pullDomainEvents());
@@ -93,8 +104,8 @@ export class ConfirmarConsultaUseCase {
     private readonly auditService: AuditService,
   ) {}
 
-  async execute(id: string): Promise<Appointment> {
-    const appointment = await findOrThrow(this.repo, id);
+  async execute(id: string, options?: AppointmentActionOptions): Promise<Appointment> {
+    const appointment = await findOrThrow(this.repo, id, options);
     appointment.transitionTo('Confirmada');
     await this.repo.save(appointment);
 

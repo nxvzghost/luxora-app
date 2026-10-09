@@ -6,10 +6,12 @@ import {
   ContactIntentDecision,
   CONTACT_INTENT_CLASSIFIER,
 } from '@domain-services/ai/contact-intent-classifier';
-import { Contact, ContactPatientAssociation, DuplicateContactPatientAssociationError } from '@domain/contact/contact.entity';
+import { Contact, ContactPatientAssociation } from '@domain/contact/contact.entity';
+import { isFullName, normalizePersonName } from '@domain/contact/person-name';
 import { ConsultarContatoUseCase } from './consultar-contato.use-case';
-import { PromoverContatoUseCase } from './promover-contato.use-case';
-import { AssociarContatoUseCase } from './associar-contato.use-case';
+import { IdentificarContatoUseCase } from './identificar-contato.use-case';
+import { PromoverContatoUseCase, PossibleDuplicatePatientError } from './promover-contato.use-case';
+import { HumanHandoffReason } from './solicitar-atendimento-humano.use-case';
 import { MetricsService } from '@shared/metrics.service';
 
 export interface ContactIntentRoutingInput {
@@ -18,10 +20,10 @@ export interface ContactIntentRoutingInput {
   conversationHistory: ConversationMessage[];
   message: string;
   /**
-   * Já resolvido por fora (ex.: Conversation.patientId, obtido via
-   * PatientRepository.findByPhone() em outro Use Case) — o Router NUNCA
-   * descobre ou adivinha um patientId sozinho (ADR-0046: nunca resolver
-   * ambiguidade automaticamente).
+   * O paciente que este número já identifica, quando identifica exatamente
+   * um (ResolverIdentidadeDoContatoUseCase). O Router NUNCA descobre ou
+   * adivinha um patientId sozinho (ADR-0046: nunca resolver ambiguidade
+   * automaticamente).
    */
   knownPatientId?: string;
   /** ADR-0016 — correlaciona esta chamada com o restante dos logs do job/requisição de origem. */
@@ -35,6 +37,10 @@ export interface ContactIntentRoutingResult {
   requiresConfirmation?: boolean;
   confirmationPrompt?: string;
   escalateToHuman?: boolean;
+  /** ADR-0063 (AD-038) — por que a conversa vai para a clínica; vira o aviso interno à equipe. */
+  handoffReason?: HumanHandoffReason;
+  /** ADR-0063 — o que dizer a quem escreve quando a conversa vai para a clínica. Nunca traz dado de paciente. */
+  patientNotice?: string;
   reasoning?: string;
   error?: string;
   /** Espelha IntentActionResult.actionSummary — texto pronto para injetar no contexto de generateResponse(). */
@@ -43,33 +49,51 @@ export interface ContactIntentRoutingResult {
   usage?: UsageMetrics;
 }
 
+export const ASK_FULL_NAME = 'Antes de agendar, preciso do seu nome completo.';
+
+export function askNameConfirmation(name: string): string {
+  return `Confirme, por favor: seu nome completo é "${name}" e você deseja se cadastrar como paciente da clínica?`;
+}
+
 /**
- * ContactIntentActionRouter — ADR-0055 (AD-018), Fase 6.
+ * O que a pessoa ouve quando a conversa vai para a clínica. É a mesma frase
+ * em todos os casos, de propósito: ela não diz se existe um paciente com
+ * aquele nome, se o número é de mais de uma pessoa, nem coisa alguma sobre
+ * cadastro, consulta ou cobrança de quem quer que seja.
+ */
+export const CLINIC_WILL_CONTINUE =
+  'Por segurança, a equipe da clínica vai continuar este atendimento e confirmar os dados com você. Nada foi alterado por aqui.';
+
+/**
+ * ContactIntentActionRouter — ADR-0055 (AD-018), Fase 6; regras de
+ * identidade da ADR-0063 (AD-037 e AD-038).
  *
- * Mesmo papel, para o vínculo de identidade do Contact, que
- * IntentActionRouter (use-cases/ai/) já tem para agendamento/cobrança —
- * um componente deliberadamente SEM lógica de domínio: só traduz uma
- * classificação já feita pela IA (ContactIntentClassifier) em UMA
- * chamada a um dos Use Cases de Contact, ou nenhuma. Depende só de Use
- * Cases (ConsultarContatoUseCase, PromoverContatoUseCase,
- * AssociarContatoUseCase) e do classificador — nunca de
- * ContactRepository, nunca do Prisma, nunca cria um Contact/Aggregate
- * manualmente.
+ * Traduz a classificação da IA (ContactIntentClassifier) em, no máximo, UMA
+ * chamada a um Use Case de Contact. A IA só sinaliza; quem decide é este
+ * roteador, com regras fixas:
  *
- * REGRA DE SEGURANÇA (mesmo espírito do IntentActionRouter existente):
- * toda validação de invariante (transição de estado, duplicidade de
- * associação, qualificação do Contact) já vive inteiramente no Aggregate
- * (Fase 2) — este Router nunca a duplica. Chama o Use Case e deixa
- * qualquer erro de domínio virar `{ actionTaken:false, error }`, o mesmo
- * texto que garante idempotência: chamar PROMOVER duas vezes para o
- * mesmo Contact nunca promove duas vezes — a segunda chamada esbarra na
- * StateMachine do Aggregate (via PromoverContatoUseCase) e retorna aqui
- * como falha segura, nunca como uma segunda mutação.
+ * PROMOVER — cadastro de quem ainda não é paciente, em dois tempos e em
+ * mensagens diferentes:
+ *   1. a pessoa informa o nome completo → o nome é guardado e ela é
+ *      perguntada, com todas as letras, se confirma o nome e o cadastro;
+ *   2. ela confirma explicitamente → só então o paciente é criado.
+ * Nome e confirmação nunca valem no mesmo turno: a confirmação só conta se
+ * o nome já estava guardado antes desta mensagem. Um número que já
+ * identifica um paciente nunca abre outro cadastro. O nome de perfil do
+ * WhatsApp não entra em nenhum ponto.
  *
- * ASSOCIAR só age quando `knownPatientId` já está resolvido — sem ele
- * (ou com múltiplas associações concorrentes e nenhum sinal claro), o
- * Router nunca adivinha: devolve `requiresConfirmation`, nunca chama
- * AssociarContatoUseCase com um palpite.
+ * ASSOCIAR — a mensagem trata de um paciente que este número não identifica
+ * sozinho (outra pessoa, ou a própria pessoa em um número novo). O roteador
+ * nunca associa nem vincula: o caso vai para a clínica, e o vínculo de um
+ * número novo só existe com a aprovação de um administrador, pelo painel
+ * (VincularContatoAPacienteUseCase — que este roteador não conhece).
+ *
+ * DESAMBIGUAR pede confirmação; HUMANO entrega à clínica; IGNORAR não faz
+ * nada. Qualquer falha vira HUMANO — nunca uma ação.
+ *
+ * Quem recebe o resultado (ProcessarMensagemUseCase) não executa nenhuma
+ * ação clínica ou financeira no turno em que este roteador pede confirmação
+ * ou entrega a conversa à clínica.
  */
 @Injectable()
 export class ContactIntentActionRouter {
@@ -79,7 +103,7 @@ export class ContactIntentActionRouter {
     @Inject(CONTACT_INTENT_CLASSIFIER) private readonly classifier: ContactIntentClassifier,
     private readonly consultarContato: ConsultarContatoUseCase,
     private readonly promoverContato: PromoverContatoUseCase,
-    private readonly associarContato: AssociarContatoUseCase,
+    private readonly identificarContato: IdentificarContatoUseCase,
     private readonly metrics: MetricsService,
   ) {}
 
@@ -103,7 +127,14 @@ export class ContactIntentActionRouter {
       this.logger.warn(
         `[correlationId=${input.correlationId ?? 'desconhecido'}] Falha ao rotear Contact ${input.contactId}: ${(err as Error).message}`,
       );
-      result = { decision: 'HUMANO', actionTaken: false, escalateToHuman: true, error: (err as Error).message };
+      result = {
+        decision: 'HUMANO',
+        actionTaken: false,
+        escalateToHuman: true,
+        handoffReason: 'human_review',
+        patientNotice: CLINIC_WILL_CONTINUE,
+        error: (err as Error).message,
+      };
     }
 
     // Fase 8.2 — observabilidade: promoções/associações/desambiguações/
@@ -126,9 +157,9 @@ export class ContactIntentActionRouter {
   ): Promise<Omit<ContactIntentRoutingResult, 'usage'>> {
     switch (classification.decision) {
       case 'PROMOVER':
-        return this.handlePromover(contact, associations, classification);
+        return this.handlePromover(input, contact, associations, classification);
       case 'ASSOCIAR':
-        return this.handleAssociar(input, contact, associations, classification);
+        return this.handleAssociar(input, classification);
       case 'DESAMBIGUAR':
         return {
           decision: 'DESAMBIGUAR',
@@ -142,6 +173,8 @@ export class ContactIntentActionRouter {
           decision: 'HUMANO',
           actionTaken: false,
           escalateToHuman: true,
+          handoffReason: 'human_review',
+          patientNotice: CLINIC_WILL_CONTINUE,
           reasoning: classification.reasoning,
         };
       case 'IGNORAR':
@@ -151,95 +184,109 @@ export class ContactIntentActionRouter {
   }
 
   /**
-   * Cenário 1/3 (ADR-0045) — só age quando o Contact ainda não tem
-   * nenhuma associação e já tem nome capturado (identificar(), Fase 2).
-   * Sem nome: não há como cadastrar o Patient — devolve `actionTaken:false`
-   * em vez de adivinhar um nome. Já associado: idempotente — nunca
-   * promove duas vezes (ver nota da classe).
+   * Cenários 1 a 3 (ADR-0045), com a regra da ADR-0063: nome completo E
+   * confirmação explícita antes de criar o cadastro.
    */
   private async handlePromover(
-    contact: Contact,
-    associations: ContactPatientAssociation[],
-    classification: ContactIntentClassificationResult,
-  ): Promise<ContactIntentRoutingResult> {
-    if (associations.length > 0) {
-      return {
-        decision: 'PROMOVER',
-        actionTaken: false,
-        reasoning: 'Contact já possui associação com um Paciente — promoção não repetida (idempotente).',
-      };
-    }
-    if (!contact.name) {
-      return {
-        decision: 'PROMOVER',
-        actionTaken: false,
-        requiresConfirmation: true,
-        confirmationPrompt: 'Antes de agendar, preciso do seu nome completo.',
-        reasoning: 'Contact ainda não identificado (sem nome) — não é possível promover.',
-      };
-    }
-
-    const { patient } = await this.promoverContato.execute({ contactId: contact.id, patientName: contact.name });
-    return {
-      decision: 'PROMOVER',
-      actionTaken: true,
-      patientId: patient.id,
-      actionSummary: `Cadastro de ${patient.name} realizado com sucesso.`,
-      reasoning: classification.reasoning,
-    };
-  }
-
-  /**
-   * Cenário 11 tardio / 12 — associação adicional. Só age com
-   * `knownPatientId` já resolvido por fora (nunca descoberto aqui).
-   *
-   * Idempotência (Contact já associado a este mesmo Patient) NUNCA é
-   * checada aqui de antemão — isso duplicaria a regra que
-   * `Contact.associarAPaciente()` já garante (DuplicateContactPatientAssociationError).
-   * Em vez disso, sempre tenta o Use Case e trata especificamente esse
-   * erro como sucesso idempotente — única fonte de verdade sobre "já
-   * associado" continua sendo o Aggregate.
-   */
-  private async handleAssociar(
     input: ContactIntentRoutingInput,
     contact: Contact,
     associations: ContactPatientAssociation[],
     classification: ContactIntentClassificationResult,
   ): Promise<ContactIntentRoutingResult> {
-    if (!input.knownPatientId) {
+    if (input.knownPatientId || associations.length > 0) {
       return {
-        decision: 'ASSOCIAR',
+        decision: 'PROMOVER',
         actionTaken: false,
-        requiresConfirmation: true,
-        confirmationPrompt: classification.patientNameHint
-          ? `Você mencionou "${classification.patientNameHint}" — pode confirmar o nome completo desse paciente?`
-          : 'Para qual paciente é esta consulta? Pode confirmar o nome completo?',
-        reasoning: classification.reasoning,
+        reasoning: 'Este número já identifica um paciente — nenhum cadastro novo é aberto.',
       };
     }
 
-    try {
-      const { association } = await this.associarContato.execute({
-        contactId: contact.id,
-        patientId: input.knownPatientId,
-      });
+    const informedName = classification.patientNameHint?.trim();
+    const informedFullName = informedName && isFullName(informedName) ? informedName : undefined;
+
+    if (contact.state === 'Identificado' && contact.name) {
+      // A pessoa corrigiu o nome antes de confirmar: vale o novo, e a
+      // confirmação é pedida de novo — nunca aproveitada do mesmo turno.
+      if (informedFullName && normalizePersonName(informedFullName) !== normalizePersonName(contact.name)) {
+        await this.identificarContato.execute({ contactId: contact.id, name: informedFullName });
+        return this.askForConfirmation(informedFullName, classification);
+      }
+      if (classification.explicitConfirmation !== true) {
+        return this.askForConfirmation(contact.name, classification);
+      }
+      return this.promote(contact, classification);
+    }
+
+    if (!informedFullName) {
       return {
-        decision: 'ASSOCIAR',
+        decision: 'PROMOVER',
+        actionTaken: false,
+        requiresConfirmation: true,
+        confirmationPrompt: ASK_FULL_NAME,
+        reasoning: 'Contact ainda sem nome completo — não é possível cadastrar.',
+      };
+    }
+
+    // Primeiro tempo: guarda o nome e pede a confirmação. Um "confirmo" que
+    // venha junto, neste mesmo turno, não conta.
+    await this.identificarContato.execute({ contactId: contact.id, name: informedFullName });
+    return this.askForConfirmation(informedFullName, classification);
+  }
+
+  private askForConfirmation(name: string, classification: ContactIntentClassificationResult): ContactIntentRoutingResult {
+    return {
+      decision: 'PROMOVER',
+      actionTaken: false,
+      requiresConfirmation: true,
+      confirmationPrompt: askNameConfirmation(name),
+      reasoning: classification.reasoning,
+    };
+  }
+
+  private async promote(contact: Contact, classification: ContactIntentClassificationResult): Promise<ContactIntentRoutingResult> {
+    try {
+      const { patient } = await this.promoverContato.execute({ contactId: contact.id, patientName: contact.name as string });
+      return {
+        decision: 'PROMOVER',
         actionTaken: true,
-        patientId: association.patientId,
-        actionSummary: 'Paciente adicional vinculado ao seu contato.',
+        patientId: patient.id,
+        actionSummary: `Cadastro de ${patient.name} realizado com sucesso.`,
         reasoning: classification.reasoning,
       };
     } catch (err) {
-      if (err instanceof DuplicateContactPatientAssociationError) {
+      if (err instanceof PossibleDuplicatePatientError) {
+        // Pode ser um paciente da clínica em um número novo. Nenhum
+        // cadastro é aberto e nada é dito sobre a existência do outro.
         return {
-          decision: 'ASSOCIAR',
+          decision: 'PROMOVER',
           actionTaken: false,
-          patientId: input.knownPatientId,
-          reasoning: 'Contact já associado a este Paciente — associação não repetida (idempotente).',
+          escalateToHuman: true,
+          handoffReason: 'possible_duplicate',
+          patientNotice: CLINIC_WILL_CONTINUE,
+          reasoning: 'Já existe paciente com este nome na clínica — cadastro entregue à equipe.',
         };
       }
       throw err;
     }
+  }
+
+  /**
+   * Cenários 11, 12 e 13 — a mensagem trata de um paciente que este número
+   * não identifica sozinho. Nada é associado nem vinculado aqui: o caso vai
+   * para a clínica. Quando o número ainda não identifica ninguém, é um
+   * pedido de vínculo de número novo, que só um administrador aprova.
+   */
+  private handleAssociar(
+    input: ContactIntentRoutingInput,
+    classification: ContactIntentClassificationResult,
+  ): ContactIntentRoutingResult {
+    return {
+      decision: 'ASSOCIAR',
+      actionTaken: false,
+      escalateToHuman: true,
+      handoffReason: input.knownPatientId ? 'human_review' : 'link_request',
+      patientNotice: CLINIC_WILL_CONTINUE,
+      reasoning: classification.reasoning,
+    };
   }
 }

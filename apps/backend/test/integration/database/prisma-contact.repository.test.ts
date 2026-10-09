@@ -237,6 +237,49 @@ describe('[AD-018 Fase 3] PrismaContactRepository — persistência real', () =>
     expect(crossTenantById).toBeNull();
   });
 
+  it('ADR-0063 — findUnlinked() devolve só quem já conversou, tem telefone e não tem paciente; nunca o contato de outra clínica', async () => {
+    const make = async (repo: PrismaContactRepository, tenantId: string, national: string, prepare: (contact: Contact) => void) => {
+      const contact = Contact.create({ id: randomUUID(), tenantId, phoneNumber: PhoneNumber.normalize(national) });
+      prepare(contact);
+      await repo.save(contact);
+      return contact;
+    };
+    const talking = await make(repoA, fixtureA.tenantId, '11988880101', (c) => c.interagir());
+    const named = await make(repoA, fixtureA.tenantId, '11988880102', (c) => {
+      c.interagir();
+      c.identificar('Nome Informado Teste');
+    });
+    const fresh = await make(repoA, fixtureA.tenantId, '11988880103', () => undefined);
+    const promoted = await make(repoA, fixtureA.tenantId, '11988880104', (c) => {
+      c.interagir();
+      c.identificar('Já Paciente Teste');
+    });
+    await repoA.saveAssociation(promoted.promoverParaPaciente(randomUUID(), fixtureA.patientId));
+    await repoA.save(promoted);
+    const archived = await make(repoA, fixtureA.tenantId, '11988880105', (c) => c.arquivar());
+    const anonymized = await make(repoA, fixtureA.tenantId, '11988880106', (c) => {
+      c.arquivar();
+      c.anonimizar();
+    });
+    const otherClinic = await make(repoB, fixtureB.tenantId, '11988880101', (c) => c.interagir());
+
+    const idsA = (await repoA.findUnlinked(500)).map((contact) => contact.id);
+    const idsB = (await repoB.findUnlinked(500)).map((contact) => contact.id);
+
+    expect(idsA).toContain(talking.id);
+    expect(idsA).toContain(named.id);
+    expect(idsA).not.toContain(fresh.id);
+    expect(idsA).not.toContain(promoted.id);
+    expect(idsA).not.toContain(archived.id);
+    expect(idsA).not.toContain(anonymized.id);
+    expect(idsA).not.toContain(otherClinic.id);
+    expect(idsB).toContain(otherClinic.id);
+    expect(idsB).not.toContain(talking.id);
+
+    // O limite é respeitado.
+    expect(await repoA.findUnlinked(1)).toHaveLength(1);
+  });
+
   it('DI: ContactModule resolve CONTACT_REPOSITORY e ReconhecerOuCriarContatoUseCase — wiring completo', async () => {
     // TenantContextModule e MetricsModule são @Global() (ver
     // shared/tenant-context.module.ts e shared/metrics.module.ts) — só

@@ -22,6 +22,13 @@ export interface ContactRepository {
    */
   saveAssociation(association: ContactPatientAssociation): Promise<void>;
   findAssociationsByContactId(contactId: string): Promise<ContactPatientAssociation[]>;
+  /**
+   * ADR-0063 (AD-038) — Contacts da clínica que ainda não identificam
+   * ninguém: sem nenhuma associação a paciente e ainda conversando ou só
+   * com o nome informado. Os que tiveram atividade mais recente primeiro.
+   * É a lista que a clínica vê no painel para aprovar um vínculo.
+   */
+  findUnlinked(limit: number): Promise<Contact[]>;
 }
 
 export const CONTACT_REPOSITORY = Symbol('CONTACT_REPOSITORY');

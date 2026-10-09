@@ -62,7 +62,7 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
       { tenantId: 'tenant1', patientId: 'p1' },
     );
     expect(result.actionTaken).toBe(true);
-    expect(cancelarConsulta.execute).toHaveBeenCalledWith('a1');
+    expect(cancelarConsulta.execute).toHaveBeenCalledWith('a1', { expectedPatientId: 'p1' });
   });
 
   it('cancelar_consulta SEM appointmentId nunca executa (nunca "adivinha" qual consulta)', async () => {
@@ -87,7 +87,7 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
 
   it('consultar_cobranca com billingId retorna resumo', async () => {
     const { router, consultarCobranca } = makeRouter();
-    consultarCobranca.execute.mockResolvedValue({ amount: 597, state: 'Pendente' });
+    consultarCobranca.execute.mockResolvedValue({ amount: 597, state: 'Pendente', patientId: 'p1' });
     const result = await router.route(
       { intent: 'consultar_cobranca', confidence: 0.9, entities: { billingId: 'b1' }, requiresEscalation: false },
       { tenantId: 'tenant1', patientId: 'p1' },
@@ -128,7 +128,7 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
       { tenantId: 'tenant1', patientId: 'p1' },
     );
     expect(result.actionTaken).toBe(true);
-    expect(remarcarConsulta.execute).toHaveBeenCalledWith('a1', new Date('2026-08-02T10:00:00'));
+    expect(remarcarConsulta.execute).toHaveBeenCalledWith('a1', new Date('2026-08-02T10:00:00'), { expectedPatientId: 'p1' });
   });
 
   it('AD-010: remarcar_consulta com horário indisponível (SlotNotAvailableError) nunca é mascarado como sucesso', async () => {
@@ -187,5 +187,92 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
     );
     expect(result.actionTaken).toBe(true);
     expect(result.actionSummary).toContain('Nenhum horário');
+  });
+});
+
+describe('IntentActionRouter — identidade antes da ação (ADR-0063, AD-038)', () => {
+  const identityDependent = [
+    ['agendar_consulta', { therapistId: 't1', scheduledAt: '2026-08-01T10:00:00' }],
+    ['cancelar_consulta', { appointmentId: 'a1' }],
+    ['confirmar_presenca', { appointmentId: 'a1' }],
+    ['remarcar_consulta', { appointmentId: 'a1', newScheduledAt: '2026-08-02T10:00:00' }],
+    ['consultar_cobranca', { billingId: 'b1' }],
+  ] as const;
+
+  function expectNothingCalled(deps: ReturnType<typeof makeRouter>) {
+    for (const useCase of [deps.agendarConsulta, deps.cancelarConsulta, deps.confirmarConsulta, deps.remarcarConsulta, deps.consultarCobranca]) {
+      expect(useCase.execute).not.toHaveBeenCalled();
+    }
+  }
+
+  it.each(identityDependent)('%s com a identidade pendente não chama nenhum Caso de Uso', async (intent, entities) => {
+    const deps = makeRouter();
+
+    const result = await deps.router.route(
+      { intent, confidence: 0.9, entities, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1', identityResolved: false },
+    );
+
+    expect(result).toEqual({ actionTaken: false, blockedByIdentity: true });
+    expectNothingCalled(deps);
+  });
+
+  it.each(identityDependent)('%s sem paciente identificado não chama nenhum Caso de Uso', async (intent, entities) => {
+    const deps = makeRouter();
+
+    const result = await deps.router.route({ intent, confidence: 0.9, entities, requiresEscalation: false }, { tenantId: 'tenant1' });
+
+    expect(result).toEqual({ actionTaken: false, blockedByIdentity: true });
+    expectNothingCalled(deps);
+  });
+
+  it('consultar_disponibilidade não depende de identidade: responde mesmo sem paciente', async () => {
+    const { router, consultarDisponibilidade } = makeRouter();
+    consultarDisponibilidade.execute.mockResolvedValue([]);
+
+    const result = await router.route(
+      { intent: 'consultar_disponibilidade', confidence: 0.9, entities: { therapistId: 't1' }, requiresEscalation: false },
+      { tenantId: 'tenant1', identityResolved: false },
+    );
+
+    expect(result.actionTaken).toBe(true);
+    expect(result.blockedByIdentity).toBeUndefined();
+  });
+
+  it('confirmar_presenca passa ao Caso de Uso de quem a consulta tem de ser', async () => {
+    const { router, confirmarConsulta } = makeRouter();
+    confirmarConsulta.execute.mockResolvedValue({});
+
+    await router.route(
+      { intent: 'confirmar_presenca', confidence: 0.9, entities: { appointmentId: 'a1' }, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1', identityResolved: true },
+    );
+
+    expect(confirmarConsulta.execute).toHaveBeenCalledWith('a1', { expectedPatientId: 'p1' });
+  });
+
+  it('consulta de outro paciente (o Caso de Uso recusa como inexistente): nenhuma ação, nunca sucesso', async () => {
+    const { router, cancelarConsulta } = makeRouter();
+    cancelarConsulta.execute.mockRejectedValue(new Error('Agendamento não encontrado.'));
+
+    const result = await router.route(
+      { intent: 'cancelar_consulta', confidence: 0.9, entities: { appointmentId: 'a-de-outro' }, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1' },
+    );
+
+    expect(result.actionTaken).toBe(false);
+    expect(result.actionSummary).toBeUndefined();
+  });
+
+  it('cobrança de outro paciente não é resumida para quem escreve', async () => {
+    const { router, consultarCobranca } = makeRouter();
+    consultarCobranca.execute.mockResolvedValue({ amount: 597, state: 'Pendente', patientId: 'p-outro' });
+
+    const result = await router.route(
+      { intent: 'consultar_cobranca', confidence: 0.9, entities: { billingId: 'b-de-outro' }, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1' },
+    );
+
+    expect(result).toEqual({ actionTaken: false });
   });
 });

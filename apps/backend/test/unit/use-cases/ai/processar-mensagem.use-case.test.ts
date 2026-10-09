@@ -12,6 +12,10 @@ function makeUseCase(
     patientId?: string;
     actionSummary?: string;
     confirmationPrompt?: string;
+    requiresConfirmation?: boolean;
+    escalateToHuman?: boolean;
+    handoffReason?: string;
+    patientNotice?: string;
     usage?: { inputTokens: number; outputTokens: number; costEstimate: number; latencyMs: number };
   } = { actionTaken: false },
 ) {
@@ -23,8 +27,16 @@ function makeUseCase(
   const intentActionRouter = { route: vi.fn().mockResolvedValue(routerResult) };
   const contactIntentActionRouter = { route: vi.fn().mockResolvedValue(contactRouterResult) };
   const metrics = new MetricsService();
-  const useCase = new ProcessarMensagemUseCase(aiProvider, auditService, intentActionRouter, contactIntentActionRouter, metrics);
-  return { useCase, aiProvider, auditService, intentActionRouter, contactIntentActionRouter, metrics };
+  const solicitarAtendimentoHumano = { execute: vi.fn().mockResolvedValue(undefined) };
+  const useCase = new ProcessarMensagemUseCase(
+    aiProvider,
+    auditService as never,
+    intentActionRouter as never,
+    contactIntentActionRouter as never,
+    metrics,
+    solicitarAtendimentoHumano as never,
+  );
+  return { useCase, aiProvider, auditService, intentActionRouter, contactIntentActionRouter, metrics, solicitarAtendimentoHumano };
 }
 
 describe('ProcessarMensagemUseCase', () => {
@@ -123,7 +135,11 @@ describe('ProcessarMensagemUseCase', () => {
 
       await useCase.execute({ tenantId: 't1', contactId: 'c1', conversationHistory: [], message: 'quero agendar minha primeira consulta' });
 
-      expect(intentActionRouter.route).toHaveBeenCalledWith(expect.anything(), { tenantId: 't1', patientId: 'patient-recem-criado' });
+      expect(intentActionRouter.route).toHaveBeenCalledWith(expect.anything(), {
+        tenantId: 't1',
+        patientId: 'patient-recem-criado',
+        identityResolved: true,
+      });
     });
 
     it('actionTaken=true quando só o ContactIntentActionRouter agiu (ex.: promoção sem intent de agendamento na mesma mensagem)', async () => {
@@ -217,6 +233,102 @@ describe('ProcessarMensagemUseCase', () => {
       await useCase.execute({ tenantId: 't1', conversationHistory: [], message: 'não sei se aguento' });
 
       expect(metrics.getCounter('conversation_turns_total', { requires_escalation: true, action_taken: false })).toBe(1);
+    });
+  });
+});
+
+describe('ProcessarMensagemUseCase — identidade antes da ação (ADR-0063)', () => {
+  const booking = { intent: 'agendar_consulta', confidence: 0.9, entities: { therapistId: 'th1', scheduledAt: '2026-08-10T10:00:00.000Z' }, requiresEscalation: false };
+
+  function identityContext(deps: ReturnType<typeof makeUseCase>) {
+    return deps.intentActionRouter.route.mock.calls[0][1] as { patientId?: string; identityResolved?: boolean };
+  }
+
+  function instructions(deps: ReturnType<typeof makeUseCase>): string[] {
+    const context = deps.aiProvider.generateResponse.mock.calls[0][0] as { conversationHistory: Array<{ role: string; content: string }> };
+    return context.conversationHistory.filter((message) => message.role === 'assistant').map((message) => message.content);
+  }
+
+  it('paciente reconhecido, sem dúvida de identidade: a ação é roteada em nome dele', async () => {
+    const deps = makeUseCase(booking, { actionTaken: true }, undefined, { decision: 'IGNORAR', actionTaken: false });
+
+    await deps.useCase.execute({ tenantId: 't1', patientId: 'p1', contactId: 'c1', conversationHistory: [], message: 'quero marcar' });
+
+    expect(identityContext(deps)).toMatchObject({ patientId: 'p1', identityResolved: true });
+    expect(deps.solicitarAtendimentoHumano.execute).not.toHaveBeenCalled();
+  });
+
+  it('o roteador de identidade pede confirmação: a identidade fica pendente neste turno, mesmo com o paciente reconhecido', async () => {
+    const deps = makeUseCase(booking, { actionTaken: false }, undefined, {
+      decision: 'DESAMBIGUAR',
+      actionTaken: false,
+      requiresConfirmation: true,
+      confirmationPrompt: 'Para quem é?',
+    });
+
+    await deps.useCase.execute({ tenantId: 't1', patientId: 'p1', contactId: 'c1', conversationHistory: [], message: 'quero marcar a dele' });
+
+    expect(identityContext(deps).identityResolved).toBe(false);
+    expect(instructions(deps)).toContain('[Pergunte ao paciente: Para quem é?]');
+  });
+
+  it('o roteador de identidade entrega a conversa à clínica: identidade pendente, aviso à equipe e frase neutra à pessoa', async () => {
+    const deps = makeUseCase(booking, { actionTaken: false }, undefined, {
+      decision: 'ASSOCIAR',
+      actionTaken: false,
+      escalateToHuman: true,
+      handoffReason: 'link_request',
+      patientNotice: 'A equipe vai continuar.',
+    });
+
+    const result = await deps.useCase.execute({ tenantId: 't1', contactId: 'c1', conversationHistory: [], message: 'troquei de número' });
+
+    expect(identityContext(deps).identityResolved).toBe(false);
+    expect(deps.solicitarAtendimentoHumano.execute).toHaveBeenCalledWith({ tenantId: 't1', contactId: 'c1', reason: 'link_request' });
+    expect(instructions(deps)).toContain('[Informe ao paciente: A equipe vai continuar.]');
+    expect(result.requiresEscalation).toBe(true);
+  });
+
+  it('contato que ainda não é paciente: a identidade não está resolvida', async () => {
+    const deps = makeUseCase(booking, { actionTaken: false }, undefined, { decision: 'IGNORAR', actionTaken: false });
+
+    await deps.useCase.execute({ tenantId: 't1', contactId: 'c1', conversationHistory: [], message: 'quero marcar' });
+
+    expect(identityContext(deps)).toMatchObject({ patientId: undefined, identityResolved: false });
+  });
+
+  it('cadastro concluído neste turno (nome e confirmação já dados): a identidade está resolvida para a mesma mensagem', async () => {
+    const deps = makeUseCase(booking, { actionTaken: true }, undefined, { decision: 'PROMOVER', actionTaken: true, patientId: 'p-novo' });
+
+    await deps.useCase.execute({ tenantId: 't1', contactId: 'c1', conversationHistory: [], message: 'sim, confirmo' });
+
+    expect(identityContext(deps)).toMatchObject({ patientId: 'p-novo', identityResolved: true });
+  });
+
+  describe('número de mais de um paciente (AD-038)', () => {
+    const input = { tenantId: 't1', patientId: 'p-mais-antigo', contactId: 'c1', identityAmbiguous: true, conversationHistory: [], message: 'quero marcar' };
+
+    it('ninguém é escolhido: nenhum paciente chega ao roteador de ações nem ao provedor de IA', async () => {
+      const deps = makeUseCase(booking, { actionTaken: false });
+
+      await deps.useCase.execute(input);
+
+      expect(identityContext(deps)).toMatchObject({ patientId: undefined, identityResolved: false });
+      expect(deps.aiProvider.interpretIntent.mock.calls[0][0].patientId).toBeUndefined();
+      expect(deps.aiProvider.generateResponse.mock.calls[0][0].patientId).toBeUndefined();
+      expect(JSON.stringify(deps.aiProvider.generateResponse.mock.calls[0][0])).not.toContain('p-mais-antigo');
+    });
+
+    it('o classificador de identidade nem é consultado, a clínica é avisada e a pessoa ouve a frase neutra', async () => {
+      const deps = makeUseCase(booking, { actionTaken: false });
+
+      const result = await deps.useCase.execute(input);
+
+      expect(deps.contactIntentActionRouter.route).not.toHaveBeenCalled();
+      expect(deps.solicitarAtendimentoHumano.execute).toHaveBeenCalledWith({ tenantId: 't1', contactId: 'c1', reason: 'shared_number' });
+      expect(instructions(deps).some((line) => line.startsWith('[Informe ao paciente:'))).toBe(true);
+      expect(result.requiresEscalation).toBe(true);
+      expect(result.actionTaken).toBe(false);
     });
   });
 });

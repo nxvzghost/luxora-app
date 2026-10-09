@@ -4,6 +4,7 @@ import { PrismaService } from '@infrastructure/database/prisma.service';
 import { Patient, PatientState } from '@domain/patient/patient.entity';
 import { PatientRepository } from '@domain-services/patient-ops/patient.repository';
 import { PhoneNumber } from '@domain/contact/phone-number.value-object';
+import { normalizePersonName } from '@domain/contact/person-name';
 
 /**
  * PrismaPatientRepository — implementação da porta PatientRepository.
@@ -84,11 +85,22 @@ export class PrismaPatientRepository implements PatientRepository {
    * não é normalizável e cai na comparação exata de antes.
    */
   async findByPhone(phone: string): Promise<Patient | null> {
+    const [first] = await this.findAllByPhone(phone);
+    return first ?? null;
+  }
+
+  /**
+   * ADR-0063 (AD-038) — a mesma comparação de findByPhone(), sem escolher
+   * um: devolve todos os pacientes da clínica com este número, do cadastro
+   * mais antigo para o mais novo. Quem decide o que fazer quando há mais de
+   * um é o caso de uso — e a decisão é não escolher ninguém.
+   */
+  async findAllByPhone(phone: string): Promise<Patient[]> {
     const normalized = PhoneNumber.tryNormalize(phone);
 
-    const record = await this.prisma.forTenant(async (tx) => {
+    const records = await this.prisma.forTenant(async (tx) => {
       if (!normalized) {
-        return tx.patient.findFirst({ where: { phone } });
+        return tx.patient.findMany({ where: { phone }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
       }
       const matches = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id
@@ -96,12 +108,44 @@ export class PrismaPatientRepository implements PatientRepository {
         WHERE regexp_replace(phone, '[^0-9]', '', 'g') = ${normalized.toDigits()}
            OR (ltrim(phone) NOT LIKE '+%' AND regexp_replace(phone, '[^0-9]', '', 'g') = ${normalized.toNationalDigits()})
         ORDER BY created_at ASC, id ASC
-        LIMIT 1
       `;
-      return matches.length > 0 ? tx.patient.findUnique({ where: { id: matches[0].id } }) : null;
+      if (matches.length === 0) return [];
+      return tx.patient.findMany({
+        where: { id: { in: matches.map((match) => match.id) } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
     });
 
-    return record ? this.toDomain(record) : null;
+    return records.map((record) => this.toDomain(record));
+  }
+
+  /**
+   * ADR-0063 (AD-037) — pacientes com o mesmo nome, na forma comparável de
+   * normalizePersonName(): o banco aplica a mesma redução (minúsculas, sem
+   * os acentos do português, espaços simples) ao nome gravado. Roda dentro
+   * de forTenant(): só enxerga os pacientes da clínica.
+   */
+  async findAllByName(name: string): Promise<Patient[]> {
+    const normalized = normalizePersonName(name);
+    if (!normalized) return [];
+
+    const records = await this.prisma.forTenant(async (tx) => {
+      const matches = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id
+        FROM patient
+        WHERE btrim(regexp_replace(
+                translate(lower(name), 'áàâãäåéèêëíìîïóòôõöúùûüçñ', 'aaaaaaeeeeiiiiooooouuuucn'),
+                '[[:space:]]+', ' ', 'g')) = ${normalized}
+        ORDER BY created_at ASC, id ASC
+      `;
+      if (matches.length === 0) return [];
+      return tx.patient.findMany({
+        where: { id: { in: matches.map((match) => match.id) } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
+    });
+
+    return records.map((record) => this.toDomain(record));
   }
 
   async countActiveByTenant(): Promise<number> {

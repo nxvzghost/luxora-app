@@ -10,7 +10,9 @@ function fakeMessage(id: string, direction: 'entrada' | 'saida', content: string
   return Message.reconstitute({ id, conversationId: 'c1', tenantId: TENANT_ID, direction, content });
 }
 
-function makeDeps(opts: { conversation?: Conversation | null; history?: Message[] }) {
+type Identity = { status: 'recognized'; patientId: string } | { status: 'ambiguous' } | { status: 'unknown' };
+
+function makeDeps(opts: { conversation?: Conversation | null; history?: Message[]; identity?: Identity }) {
   const conversation =
     opts.conversation === undefined
       ? Conversation.reconstitute({ id: 'c1', tenantId: TENANT_ID, phoneNumber: '+5541999990000', patientId: 'p1' })
@@ -28,6 +30,8 @@ function makeDeps(opts: { conversation?: Conversation | null; history?: Message[
   const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
   const reconhecerOuCriarContato = { execute: vi.fn().mockResolvedValue({ id: 'contact-1', state: 'Conversando' }) };
   const metrics = new MetricsService();
+  // ADR-0063 — a identidade é resolvida a cada mensagem, pela regra única.
+  const resolverIdentidade = { execute: vi.fn().mockResolvedValue(opts.identity ?? { status: 'recognized', patientId: 'p1' }) };
 
   const useCase = new ProcessarMensagemWhatsAppUseCase(
     processarMensagem as never,
@@ -35,9 +39,10 @@ function makeDeps(opts: { conversation?: Conversation | null; history?: Message[
     auditService as never,
     reconhecerOuCriarContato as never,
     metrics,
+    resolverIdentidade as never,
   );
 
-  return { useCase, processarMensagem, conversationRepo, auditService, reconhecerOuCriarContato, metrics, conversation };
+  return { useCase, processarMensagem, conversationRepo, auditService, reconhecerOuCriarContato, metrics, conversation, resolverIdentidade };
 }
 
 describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007), escopo revisado por ADR-0054 (AD-036)', () => {
@@ -124,5 +129,44 @@ describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007), escopo revisad
       expect(metrics.getCounter('whatsapp_messages_processed_total', { outcome: 'error' })).toBe(1);
       expect(metrics.getCounter('whatsapp_messages_processed_total', { outcome: 'success' })).toBe(0);
     });
+  });
+});
+
+describe('ProcessarMensagemWhatsAppUseCase — identidade resolvida a cada mensagem (ADR-0063)', () => {
+  const job = { tenantId: TENANT_ID, conversationId: 'c1', message: 'Quero marcar', externalId: 'wamid.id' };
+
+  it('número de exatamente um paciente: é ele que segue para o processamento', async () => {
+    const { useCase, processarMensagem, resolverIdentidade, reconhecerOuCriarContato } = makeDeps({ identity: { status: 'recognized', patientId: 'p-unico' } });
+
+    await useCase.execute(job);
+
+    expect(resolverIdentidade.execute).toHaveBeenCalledWith(await reconhecerOuCriarContato.execute.mock.results[0].value);
+    expect(processarMensagem.execute).toHaveBeenCalledWith(expect.objectContaining({ patientId: 'p-unico', identityAmbiguous: false }));
+  });
+
+  it('número de mais de um paciente: nenhum paciente segue, e o processamento é avisado da ambiguidade', async () => {
+    const { useCase, processarMensagem } = makeDeps({ identity: { status: 'ambiguous' } });
+
+    await useCase.execute(job);
+
+    expect(processarMensagem.execute).toHaveBeenCalledWith(expect.objectContaining({ patientId: undefined, identityAmbiguous: true }));
+  });
+
+  it('número desconhecido: nenhum paciente, sem ambiguidade', async () => {
+    const { useCase, processarMensagem } = makeDeps({ identity: { status: 'unknown' } });
+
+    await useCase.execute(job);
+
+    expect(processarMensagem.execute).toHaveBeenCalledWith(expect.objectContaining({ patientId: undefined, identityAmbiguous: false }));
+  });
+
+  it('o patientId que veio no job (calculado antes) e o da conversa não identificam ninguém', async () => {
+    const { useCase, processarMensagem } = makeDeps({ identity: { status: 'ambiguous' } });
+
+    await useCase.execute({ ...job, patientId: 'p-do-job' });
+
+    const input = processarMensagem.execute.mock.calls[0][0];
+    expect(input.patientId).toBeUndefined();
+    expect(JSON.stringify(input)).not.toContain('p-do-job');
   });
 });

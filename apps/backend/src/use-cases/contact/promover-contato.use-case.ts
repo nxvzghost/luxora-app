@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Contact, ContactPatientAssociation } from '@domain/contact/contact.entity';
 import { Patient } from '@domain/patient/patient.entity';
 import { ContactRepository, CONTACT_REPOSITORY } from '@domain-services/patient-ops/contact.repository';
+import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { CadastrarPacienteUseCase } from '@use-cases/patient/cadastrar-paciente.use-case';
 
@@ -18,14 +19,37 @@ export interface PromoverContatoResult {
 }
 
 /**
+ * Já existe na clínica um paciente com este mesmo nome. Pode ser a mesma
+ * pessoa escrevendo de um número novo, pode ser um homônimo — o sistema não
+ * tem como saber, e por isso não abre um segundo cadastro: o caso vai para a
+ * clínica (ADR-0063). A mensagem não traz o nome nem o id de ninguém.
+ */
+export class PossibleDuplicatePatientError extends ConflictException {
+  constructor() {
+    super('Já existe um paciente com este nome na clínica; o cadastro precisa ser concluído pela equipe.');
+    this.name = 'PossibleDuplicatePatientError';
+  }
+}
+
+/**
  * PromoverContatoUseCase — ADR-0055 (AD-018), Fase 6. Cenário 1/3
  * (ADR-0045, "primeira consulta agendada"): cria o Patient via
  * CadastrarPacienteUseCase (existente, inalterado) e promove o Contact
  * via Contact.promoverParaPaciente() — a única forma de mutar o Aggregate.
- * A validação de estado (só Identificado→Promovido é uma transição
- * válida) é inteiramente da StateMachine do Aggregate — este Use Case
- * nunca a duplica, só propaga o erro se a transição não for permitida
- * (ex.: Contact chamado duas vezes, já Promovido/Vinculado).
+ *
+ * ADR-0063 (AD-037) — nunca abre um cadastro duplicado. Antes de criar o
+ * paciente, três conferências, e qualquer uma delas recusa SEM gravar nada:
+ *
+ * 1. o Contact tem de estar `Identificado` — com o nome já guardado em uma
+ *    mensagem anterior. Antes, o paciente era criado primeiro e a transição
+ *    de estado só era conferida depois: uma promoção fora de hora deixava
+ *    um paciente gravado sem contato;
+ * 2. o número não pode constar no cadastro de nenhum paciente da clínica
+ *    (a lacuna D5b);
+ * 3. não pode existir paciente com o mesmo nome (PossibleDuplicatePatientError).
+ *
+ * Quem decide QUANDO promover — só depois da confirmação explícita — é o
+ * ContactIntentActionRouter.
  */
 @Injectable()
 export class PromoverContatoUseCase {
@@ -33,6 +57,7 @@ export class PromoverContatoUseCase {
     @Inject(CONTACT_REPOSITORY) private readonly contactRepo: ContactRepository,
     private readonly cadastrarPaciente: CadastrarPacienteUseCase,
     private readonly auditService: AuditService,
+    @Inject(PATIENT_REPOSITORY) private readonly patientRepo: PatientRepository,
   ) {}
 
   async execute(input: PromoverContatoInput): Promise<PromoverContatoResult> {
@@ -43,10 +68,21 @@ export class PromoverContatoUseCase {
     if (!contact.phoneNumber) {
       throw new ConflictException(`Contact ${input.contactId} não tem telefone (anonimizado) — não pode ser promovido.`);
     }
+    if (contact.state !== 'Identificado') {
+      throw new ConflictException(`Contact ${input.contactId} não pode ser promovido no estado "${contact.state}".`);
+    }
+
+    const phoneNumber = contact.phoneNumber.toE164();
+    if ((await this.patientRepo.findAllByPhone(phoneNumber)).length > 0) {
+      throw new ConflictException('Este número já consta no cadastro de um paciente da clínica.');
+    }
+    if ((await this.patientRepo.findAllByName(input.patientName)).length > 0) {
+      throw new PossibleDuplicatePatientError();
+    }
 
     const patient = await this.cadastrarPaciente.execute({
       name: input.patientName,
-      phone: contact.phoneNumber.toE164(),
+      phone: phoneNumber,
     });
 
     const association = contact.promoverParaPaciente(randomUUID(), patient.id);

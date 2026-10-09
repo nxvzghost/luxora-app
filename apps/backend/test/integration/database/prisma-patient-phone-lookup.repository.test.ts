@@ -58,12 +58,17 @@ function newMobile(ddd = '41'): string {
   return `${ddd}9${Math.floor(Math.random() * 90000000 + 10000000)}`;
 }
 
-async function createPatient(fixture: DedicatedFixture, phone: string, createdAt?: Date) {
+async function createPatient(fixture: DedicatedFixture, phone: string, createdAt?: Date, name = `Paciente telefone ${phone}`) {
   const patient = await fixturePrisma.patient.create({
-    data: { tenantId: fixture.tenantId, name: `Paciente telefone ${phone}`, phone, ...(createdAt ? { createdAt } : {}) },
+    data: { tenantId: fixture.tenantId, name, phone, ...(createdAt ? { createdAt } : {}) },
   });
   fixture.patientIds.push(patient.id);
   return patient;
+}
+
+/** Um trecho de nome que nenhum outro paciente tem: só letras, para valer como nome de pessoa. */
+function uniqueWord(): string {
+  return `x${Math.random().toString(36).replace(/[^a-z]/g, '')}${Math.random().toString(36).replace(/[^a-z]/g, '')}`;
 }
 
 beforeAll(async () => {
@@ -168,5 +173,76 @@ describe('[Fase 3B] PrismaPatientRepository.findByPhone — comparação normali
 
     expect((await repoA.findByPhone(foreign))?.id).toBe(patient.id);
     expect(await repoA.findByPhone(`+${foreign.slice(0, 3)} ${foreign.slice(3)}`)).toBeNull();
+  });
+});
+
+/**
+ * ADR-0063 (AD-037 e AD-038) — as duas buscas de que a identidade no
+ * WhatsApp depende. findByPhone() acima continua devolvendo o cadastro mais
+ * antigo, mas deixou de ser usado para decidir quem está falando: essa
+ * decisão é de findAllByPhone(), que devolve todos.
+ */
+describe('[ADR-0063] PrismaPatientRepository.findAllByPhone — todos os pacientes do número', () => {
+  it('devolve os dois pacientes do mesmo número, em qualquer grafia, do mais antigo para o mais novo', async () => {
+    const national = newMobile();
+    const newer = await createPatient(fixtureA, `+55${national}`, new Date('2026-06-01T12:00:00Z'));
+    const older = await createPatient(fixtureA, `(${national.slice(0, 2)}) ${national.slice(2)}`, new Date('2026-01-01T12:00:00Z'));
+
+    const found = await repoA.findAllByPhone(`+55${national}`);
+
+    expect(found.map((patient) => patient.id)).toEqual([older.id, newer.id]);
+  });
+
+  it('um só paciente no número: lista de um; ninguém no número: lista vazia', async () => {
+    const national = newMobile();
+    const patient = await createPatient(fixtureA, national);
+
+    expect((await repoA.findAllByPhone(`55${national}`)).map((found) => found.id)).toEqual([patient.id]);
+    expect(await repoA.findAllByPhone(`55${newMobile()}`)).toEqual([]);
+  });
+
+  it('isolamento: o paciente de outra clínica com o mesmo número não entra na conta', async () => {
+    const national = newMobile();
+    const patientA = await createPatient(fixtureA, `+55${national}`);
+    const patientB = await createPatient(fixtureB, `+55${national}`);
+
+    expect((await repoA.findAllByPhone(`55${national}`)).map((found) => found.id)).toEqual([patientA.id]);
+    expect((await repoB.findAllByPhone(`55${national}`)).map((found) => found.id)).toEqual([patientB.id]);
+  });
+});
+
+describe('[ADR-0063] PrismaPatientRepository.findAllByName — mesmo nome, para não cadastrar em duplicidade', () => {
+  it('ignora acento, caixa e espaços a mais — dos dois lados', async () => {
+    const unique = uniqueWord();
+    const patient = await createPatient(fixtureA, newMobile(), undefined, `  João  d'Ávila   ${unique} `);
+
+    for (const searched of [`João d'Ávila ${unique}`, `joao d'avila ${unique}`, `JOÃO   D'ÁVILA  ${unique.toUpperCase()}`]) {
+      expect((await repoA.findAllByName(searched)).map((found) => found.id)).toEqual([patient.id]);
+    }
+  });
+
+  it('nome diferente não casa — nem um nome que só começa igual', async () => {
+    const unique = uniqueWord();
+    await createPatient(fixtureA, newMobile(), undefined, `Marta ${unique}`);
+
+    expect(await repoA.findAllByName(`Marta ${unique} Filha`)).toEqual([]);
+    expect(await repoA.findAllByName('Marta')).toEqual([]);
+    expect(await repoA.findAllByName(`Marcia ${unique}`)).toEqual([]);
+  });
+
+  it('homônimos: devolve todos, do mais antigo para o mais novo', async () => {
+    const name = `Homônimo ${uniqueWord()} Teste`;
+    const newer = await createPatient(fixtureA, newMobile(), new Date('2026-06-01T12:00:00Z'), name);
+    const older = await createPatient(fixtureA, newMobile(), new Date('2026-01-01T12:00:00Z'), name.toUpperCase());
+
+    expect((await repoA.findAllByName(name)).map((found) => found.id)).toEqual([older.id, newer.id]);
+  });
+
+  it('isolamento: o paciente de mesmo nome em outra clínica nunca é devolvido', async () => {
+    const name = `Isolado ${uniqueWord()} Teste`;
+    const patientB = await createPatient(fixtureB, newMobile(), undefined, name);
+
+    expect(await repoA.findAllByName(name)).toEqual([]);
+    expect((await repoB.findAllByName(name)).map((found) => found.id)).toEqual([patientB.id]);
   });
 });

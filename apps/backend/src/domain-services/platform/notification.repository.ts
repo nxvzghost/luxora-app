@@ -13,6 +13,12 @@ export interface NotificationRepository {
   findByTenant(params?: { cursor?: string; limit?: number }): Promise<Notification[]>;
   countUnreadByTenant(): Promise<number>;
   /**
+   * ADR-0063 (AD-038) — já existe uma notificação deste tipo, ainda não
+   * lida, para esta entidade? Evita repetir o mesmo aviso a cada mensagem
+   * de uma conversa que continua esperando a clínica.
+   */
+  hasUnread(type: string, entityId: string): Promise<boolean>;
+  /**
    * Idempotente quanto ao readAt (chamar novamente numa Notification já lida
    * não sobrescreve o timestamp original). Lança NotFoundException se o id
    * não existir no tenant atual — mesmo contrato de recurso singular usado

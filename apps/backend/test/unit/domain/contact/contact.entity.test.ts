@@ -5,12 +5,14 @@ import {
   ContactNotQualifiedError,
   DuplicateContactPatientAssociationError,
   BlankContactNameError,
+  ContactLinkWithoutApprovalError,
 } from '@domain/contact/contact.entity';
 import { InvalidStateTransitionError } from '@domain/shared/state-machine';
 import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const PHONE = PhoneNumber.normalize('11988887777');
+const APPROVAL = { approvedByUserId: 'admin-1', approvedAt: new Date('2026-10-09T15:00:00.000Z') };
 
 function newContact() {
   return Contact.create({ id: 'c1', tenantId: TENANT_ID, phoneNumber: PHONE });
@@ -172,10 +174,10 @@ describe('Contact — Aggregate Root (ADR-0055, Marco 1)', () => {
     });
   });
 
-  describe('vincularAPacienteExistente() — Cenário 13 (troca de número, após confirmação)', () => {
+  describe('vincularAPacienteExistente() — Cenário 13 (número novo, só com a aprovação da clínica — ADR-0063)', () => {
     it('avança de Identificado para Vinculado, papel sempre proprio_paciente', () => {
       const contact = identifiedContact();
-      const association = contact.vincularAPacienteExistente('a1', 'p1');
+      const association = contact.vincularAPacienteExistente('a1', 'p1', APPROVAL);
 
       expect(contact.state).toBe('Vinculado');
       expect(association.role).toBe('proprio_paciente');
@@ -183,10 +185,67 @@ describe('Contact — Aggregate Root (ADR-0055, Marco 1)', () => {
 
     it('emite ContatoAssociadoAPaciente + ContatoVinculadoAPacienteExistente', () => {
       const contact = identifiedContact();
-      contact.vincularAPacienteExistente('a1', 'p1');
+      contact.vincularAPacienteExistente('a1', 'p1', APPROVAL);
 
       const events = contact.pullDomainEvents();
       expect(events.map((e) => e.eventName)).toEqual(['ContatoAssociadoAPaciente', 'ContatoVinculadoAPacienteExistente']);
+    });
+
+    it('o evento de vínculo leva quem aprovou e quando — é o que a trilha de auditoria guarda', () => {
+      const contact = identifiedContact();
+      contact.vincularAPacienteExistente('a1', 'p1', APPROVAL);
+
+      const linked = contact.pullDomainEvents()[1] as unknown as { patientId: string; approvedByUserId: string; approvedAt: string };
+      expect(linked.patientId).toBe('p1');
+      expect(linked.approvedByUserId).toBe('admin-1');
+      expect(linked.approvedAt).toBe('2026-10-09T15:00:00.000Z');
+    });
+
+    it.each([undefined, {}, { approvedByUserId: '', approvedAt: new Date() }, { approvedByUserId: 'admin-1' }])(
+      'sem aprovação completa (%j) não vincula e não muda de estado',
+      (approval) => {
+        const contact = identifiedContact();
+
+        expect(() => contact.vincularAPacienteExistente('a1', 'p1', approval as never)).toThrow(ContactLinkWithoutApprovalError);
+        expect(contact.state).toBe('Identificado');
+        expect(contact.pullDomainEvents()).toHaveLength(0);
+      },
+    );
+
+    it('nunca vincula um Contact que ainda não se identificou', () => {
+      const contact = newContact();
+      contact.interagir();
+      expect(() => contact.vincularAPacienteExistente('a1', 'p1', APPROVAL)).toThrow(InvalidStateTransitionError);
+    });
+  });
+
+  describe('identificar() — correção do nome antes da confirmação (ADR-0063, AD-037)', () => {
+    it('em Identificado, um nome diferente substitui o guardado, sem mudar de estado', () => {
+      const contact = identifiedContact('Maria da Silva');
+
+      contact.identificar('Mariana da Silva');
+
+      expect(contact.state).toBe('Identificado');
+      expect(contact.name).toBe('Mariana da Silva');
+      expect(contact.pullDomainEvents().map((e) => e.eventName)).toEqual(['ContatoIdentificado']);
+    });
+
+    it('o mesmo nome de novo não é um fato novo: nenhum evento', () => {
+      const contact = identifiedContact('Maria da Silva');
+
+      contact.identificar(' Maria da Silva ');
+
+      expect(contact.pullDomainEvents()).toHaveLength(0);
+    });
+
+    it('depois do cadastro ou do vínculo, o nome não é mais alterado por aqui', () => {
+      const promovido = identifiedContact();
+      promovido.promoverParaPaciente('a1', 'p1');
+      expect(() => promovido.identificar('Outro Nome')).toThrow(InvalidStateTransitionError);
+
+      const vinculado = identifiedContact();
+      vinculado.vincularAPacienteExistente('a1', 'p1', APPROVAL);
+      expect(() => vinculado.identificar('Outro Nome')).toThrow(InvalidStateTransitionError);
     });
   });
 

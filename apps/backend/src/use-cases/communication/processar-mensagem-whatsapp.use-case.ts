@@ -5,6 +5,7 @@ import { ConversationRepository, CONVERSATION_REPOSITORY } from '@domain-service
 import { AuditService } from '@domain-services/platform/audit.service';
 import { ProcessarMensagemUseCase } from '@use-cases/ai/processar-mensagem.use-case';
 import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-ou-criar-contato.use-case';
+import { ResolverIdentidadeDoContatoUseCase } from '@use-cases/contact/resolver-identidade-do-contato.use-case';
 import { WhatsAppInboundJobData } from '@infrastructure/messaging/whatsapp-inbound-queue.producer';
 import { MetricsService } from '@shared/metrics.service';
 
@@ -49,6 +50,7 @@ export class ProcessarMensagemWhatsAppUseCase {
     private readonly auditService: AuditService,
     private readonly reconhecerOuCriarContato: ReconhecerOuCriarContatoUseCase,
     private readonly metrics: MetricsService,
+    private readonly resolverIdentidade: ResolverIdentidadeDoContatoUseCase,
   ) {}
 
   async execute(input: WhatsAppInboundJobData): Promise<ProcessarMensagemWhatsAppResult> {
@@ -83,9 +85,18 @@ export class ProcessarMensagemWhatsAppUseCase {
 
     const contact = await this.reconhecerOuCriarContato.execute(input.tenantId, conversation.phoneNumber);
 
+    // ADR-0063 (AD-037 e AD-038) — a quem o número pertence é resolvido
+    // AGORA, a cada mensagem, pela regra única de
+    // ResolverIdentidadeDoContatoUseCase. O `patientId` que veio no job (e o
+    // gravado na Conversation) foi calculado antes e não é mais usado para
+    // identificar ninguém: ele ficava congelado no primeiro paciente achado
+    // pelo telefone — o mais antigo, quando havia mais de um.
+    const identity = await this.resolverIdentidade.execute(contact);
+
     const result = await this.processarMensagem.execute({
       tenantId: input.tenantId,
-      patientId: input.patientId,
+      patientId: identity.status === 'recognized' ? identity.patientId : undefined,
+      identityAmbiguous: identity.status === 'ambiguous',
       contactId: contact.id,
       conversationHistory,
       message: input.message,

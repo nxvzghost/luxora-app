@@ -13,7 +13,36 @@ export interface IntentActionResult {
   actionTaken: boolean;
   actionSummary?: string;
   error?: string;
+  /** ADR-0063 (AD-038) — a ação dependia de saber quem é o paciente e isso não estava resolvido. */
+  blockedByIdentity?: boolean;
 }
+
+export interface IntentActionContext {
+  tenantId: string;
+  /** O paciente que a conversa identifica — o único em nome de quem uma ação pode ser executada. */
+  patientId?: string;
+  /**
+   * ADR-0063 (AD-038) — `false` quando a identidade está pendente ou
+   * ambígua neste turno (número de mais de um paciente, pedido de
+   * confirmação, conversa entregue à clínica). Ausente, vale a presença de
+   * `patientId`.
+   */
+  identityResolved?: boolean;
+}
+
+/**
+ * Ações que só fazem sentido em nome de um paciente: marcar, cancelar,
+ * confirmar e remarcar consulta, e consultar cobrança. Consultar horários
+ * livres não está aqui — é leitura da agenda da clínica, igual para qualquer
+ * pessoa.
+ */
+const IDENTITY_DEPENDENT_INTENTS: ReadonlySet<string> = new Set([
+  'agendar_consulta',
+  'cancelar_consulta',
+  'confirmar_presenca',
+  'consultar_cobranca',
+  'remarcar_consulta',
+]);
 
 /**
  * IntentActionRouter — Módulo 12, fecha o gap do ADR-0033.
@@ -35,6 +64,13 @@ export interface IntentActionResult {
  * existiam prontos em AppointmentsModule, só não estavam conectados
  * aqui). `duvida_geral`, `enviar_comprovante`, `outro` permanecem apenas
  * conversacionais.
+ *
+ * ADR-0063 (AD-038) — SEGUNDA REGRA DE SEGURANÇA: nenhuma ação que dependa
+ * de quem é o paciente é executada com a identidade pendente ou ambígua, e
+ * toda ação sobre uma consulta ou cobrança confere se o registro é do
+ * paciente da conversa. O identificador vem da IA; a conferência é do
+ * backend. Antes, cancelar, confirmar, remarcar e consultar cobrança agiam
+ * sobre qualquer registro da clínica cujo id chegasse nas entidades.
  */
 @Injectable()
 export class IntentActionRouter {
@@ -49,19 +85,24 @@ export class IntentActionRouter {
     private readonly consultarDisponibilidade: ConsultarDisponibilidadeUseCase,
   ) {}
 
-  async route(intent: IntentResult, context: { tenantId: string; patientId?: string }): Promise<IntentActionResult> {
+  async route(intent: IntentResult, context: IntentActionContext): Promise<IntentActionResult> {
+    if (IDENTITY_DEPENDENT_INTENTS.has(intent.intent) && (context.identityResolved === false || !context.patientId)) {
+      return { actionTaken: false, blockedByIdentity: true };
+    }
+    const patientId = context.patientId as string;
+
     try {
       switch (intent.intent) {
         case 'agendar_consulta':
           return await this.routeAgendarConsulta(intent, context);
         case 'cancelar_consulta':
-          return await this.routeCancelarConsulta(intent);
+          return await this.routeCancelarConsulta(intent, patientId);
         case 'confirmar_presenca':
-          return await this.routeConfirmarConsulta(intent);
+          return await this.routeConfirmarConsulta(intent, patientId);
         case 'consultar_cobranca':
-          return await this.routeConsultarCobranca(intent);
+          return await this.routeConsultarCobranca(intent, patientId);
         case 'remarcar_consulta':
-          return await this.routeRemarcarConsulta(intent);
+          return await this.routeRemarcarConsulta(intent, patientId);
         case 'consultar_disponibilidade':
           return await this.routeConsultarDisponibilidade(intent);
         default:
@@ -73,10 +114,7 @@ export class IntentActionRouter {
     }
   }
 
-  private async routeAgendarConsulta(
-    intent: IntentResult,
-    context: { tenantId: string; patientId?: string },
-  ): Promise<IntentActionResult> {
+  private async routeAgendarConsulta(intent: IntentResult, context: IntentActionContext): Promise<IntentActionResult> {
     const { therapistId, scheduledAt, modality } = intent.entities as {
       therapistId?: string;
       scheduledAt?: string;
@@ -100,27 +138,32 @@ export class IntentActionRouter {
     };
   }
 
-  private async routeCancelarConsulta(intent: IntentResult): Promise<IntentActionResult> {
+  // Nas três rotas de consulta abaixo, `expectedPatientId` faz o próprio Caso
+  // de Uso recusar (como "não encontrado") a consulta que não é do paciente
+  // da conversa — antes de qualquer mudança de estado.
+  private async routeCancelarConsulta(intent: IntentResult, patientId: string): Promise<IntentActionResult> {
     const { appointmentId } = intent.entities as { appointmentId?: string };
     if (!appointmentId) return { actionTaken: false };
 
-    await this.cancelarConsulta.execute(appointmentId);
+    await this.cancelarConsulta.execute(appointmentId, { expectedPatientId: patientId });
     return { actionTaken: true, actionSummary: 'Consulta cancelada.' };
   }
 
-  private async routeConfirmarConsulta(intent: IntentResult): Promise<IntentActionResult> {
+  private async routeConfirmarConsulta(intent: IntentResult, patientId: string): Promise<IntentActionResult> {
     const { appointmentId } = intent.entities as { appointmentId?: string };
     if (!appointmentId) return { actionTaken: false };
 
-    await this.confirmarConsulta.execute(appointmentId);
+    await this.confirmarConsulta.execute(appointmentId, { expectedPatientId: patientId });
     return { actionTaken: true, actionSummary: 'Presença confirmada.' };
   }
 
-  private async routeConsultarCobranca(intent: IntentResult): Promise<IntentActionResult> {
+  private async routeConsultarCobranca(intent: IntentResult, patientId: string): Promise<IntentActionResult> {
     const { billingId } = intent.entities as { billingId?: string };
     if (!billingId) return { actionTaken: false };
 
     const billing = await this.consultarCobranca.execute(billingId);
+    // A cobrança de outro paciente não é lida em voz alta para quem escreve.
+    if (billing.patientId !== patientId) return { actionTaken: false };
     return {
       actionTaken: true,
       actionSummary: `Cobrança de R$ ${billing.amount.toFixed(2)}, status: ${billing.state}.`,
@@ -128,11 +171,13 @@ export class IntentActionRouter {
   }
 
   /** AD-010 — RemarcarConsultaUseCase já existia pronto, só não conectado aqui. */
-  private async routeRemarcarConsulta(intent: IntentResult): Promise<IntentActionResult> {
+  private async routeRemarcarConsulta(intent: IntentResult, patientId: string): Promise<IntentActionResult> {
     const { appointmentId, newScheduledAt } = intent.entities as { appointmentId?: string; newScheduledAt?: string };
     if (!appointmentId || !newScheduledAt) return { actionTaken: false };
 
-    const appointment = await this.remarcarConsulta.execute(appointmentId, new Date(newScheduledAt));
+    const appointment = await this.remarcarConsulta.execute(appointmentId, new Date(newScheduledAt), {
+      expectedPatientId: patientId,
+    });
     return {
       actionTaken: true,
       actionSummary: `Consulta reagendada para ${appointment.scheduledAt.toLocaleString('pt-BR')}.`,

@@ -127,12 +127,40 @@ export class ContactPromotedToPatientEvent extends DomainEvent {
   }
 }
 
-/** Cenário 13 — troca de número, só após confirmação explícita (ADR-0046). */
+/**
+ * Aprovação do vínculo de um número novo a um paciente existente (ADR-0063,
+ * decisão 3): quem aprovou, pelo painel, e quando. A confirmação de quem
+ * escreve pelo próprio número novo nunca chega aqui — só um usuário da
+ * clínica aprova.
+ */
+export interface ContactLinkApproval {
+  approvedByUserId: string;
+  approvedAt: Date;
+}
+
+/**
+ * Cenário 13 — número novo de um paciente já cadastrado. Só nasce de uma
+ * aprovação da clínica (ADR-0046 e ADR-0063); o evento leva quem aprovou e
+ * quando, e é o que fica gravado na trilha de auditoria.
+ */
 export class ContactLinkedToExistingPatientEvent extends DomainEvent {
   declare readonly patientId: string;
+  declare readonly approvedByUserId: string;
+  declare readonly approvedAt: string;
 
-  constructor(contactId: string, tenantId: string, patientId: string) {
-    super('ContatoVinculadoAPacienteExistente', contactId, tenantId, { patientId });
+  constructor(contactId: string, tenantId: string, patientId: string, approval: ContactLinkApproval) {
+    super('ContatoVinculadoAPacienteExistente', contactId, tenantId, {
+      patientId,
+      approvedByUserId: approval.approvedByUserId,
+      approvedAt: approval.approvedAt.toISOString(),
+    });
+  }
+}
+
+export class ContactLinkWithoutApprovalError extends Error {
+  constructor(contactId: string) {
+    super(`O Contact ${contactId} só pode ser vinculado a um paciente existente com a aprovação de um usuário da clínica.`);
+    this.name = 'ContactLinkWithoutApprovalError';
   }
 }
 
@@ -338,13 +366,26 @@ export class Contact {
     this._pendingEvents.push(new ContactInteractedEvent(this.props.id, this.props.tenantId));
   }
 
-  /** Cenário 2 (avanço) — nome capturado na conversa. */
+  /**
+   * Cenário 2 (avanço) — nome capturado na conversa.
+   *
+   * ADR-0063 (AD-037): o nome fica guardado até a pessoa confirmá-lo, e só
+   * depois da confirmação vira cadastro. Enquanto isso ela pode corrigi-lo:
+   * chamar de novo em `Identificado` troca o nome, sem mudar o estado. Com o
+   * mesmo nome, nada acontece.
+   */
   identificar(name: string): void {
     const trimmed = name.trim();
     if (!trimmed) {
       throw new BlankContactNameError();
     }
-    contactStateMachine.assertTransition(this.props.state, 'Identificado');
+    if (this.props.state === 'Identificado') {
+      if (this.props.name === trimmed) {
+        return;
+      }
+    } else {
+      contactStateMachine.assertTransition(this.props.state, 'Identificado');
+    }
     this.props.name = trimmed;
     this.props.state = 'Identificado';
     this._pendingEvents.push(new ContactIdentifiedEvent(this.props.id, this.props.tenantId, trimmed));
@@ -383,12 +424,21 @@ export class Contact {
   }
 
   /**
-   * Cenário 13 — troca de número. Só deve ser chamado depois de
-   * confirmação explícita (ADR-0046) — a confirmação em si é
-   * responsabilidade do caso de uso/IA, nunca desta entidade; aqui só se
-   * garante que a transição de estado é válida e o evento correto nasce.
+   * Cenário 13 — número novo de um paciente já cadastrado.
+   *
+   * ADR-0063, decisão 3: o vínculo só existe com a aprovação de um usuário
+   * da clínica, dada pelo painel. Por isso a aprovação é um argumento
+   * obrigatório desta operação — não há como vincular sem dizer quem
+   * aprovou e quando. A confirmação de quem escreve não é uma aprovação.
    */
-  vincularAPacienteExistente(associationId: string, patientId: string): ContactPatientAssociation {
+  vincularAPacienteExistente(
+    associationId: string,
+    patientId: string,
+    approval: ContactLinkApproval,
+  ): ContactPatientAssociation {
+    if (!approval?.approvedByUserId || !(approval.approvedAt instanceof Date)) {
+      throw new ContactLinkWithoutApprovalError(this.props.id);
+    }
     contactStateMachine.assertTransition(this.props.state, 'Vinculado');
 
     const association = ContactPatientAssociation.create({
@@ -402,7 +452,7 @@ export class Contact {
     this.props.state = 'Vinculado';
     this._pendingEvents.push(
       new ContactAssociatedToPatientEvent(this.props.id, this.props.tenantId, patientId, 'proprio_paciente'),
-      new ContactLinkedToExistingPatientEvent(this.props.id, this.props.tenantId, patientId),
+      new ContactLinkedToExistingPatientEvent(this.props.id, this.props.tenantId, patientId, approval),
     );
 
     return association;

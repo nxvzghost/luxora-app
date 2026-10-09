@@ -288,3 +288,77 @@ describe('Tarefa 06 — consulta só para paciente da própria clínica', () => 
     expect(repo.saveMany).not.toHaveBeenCalled();
   });
 });
+
+describe('Consulta de quem? — conferência de dono para quem age em nome de um paciente (ADR-0063, AD-038)', () => {
+  function repoWith(appointment: Appointment) {
+    const repo = { findById: vi.fn().mockResolvedValue(appointment), findActiveByTherapistAndRange: vi.fn(), save: vi.fn().mockResolvedValue(undefined), saveMany: vi.fn() };
+    // Só o que estes Casos de Uso chamam; o resto do repositório não entra na conta.
+    return repo as typeof repo & AppointmentRepository;
+  }
+  const audit = () => ({ recordAll: vi.fn().mockResolvedValue(undefined) }) as never;
+
+  it('cancelar a consulta de OUTRO paciente responde "não encontrado" e não grava nada', async () => {
+    const appointment = fakeAppointment('Reservada');
+    const repo = repoWith(appointment);
+    const useCase = new CancelarConsultaUseCase(repo, audit());
+
+    await expect(useCase.execute('a1', { expectedPatientId: 'p-outro' })).rejects.toThrow(NotFoundException);
+
+    expect(appointment.state).toBe('Reservada');
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('confirmar a consulta de OUTRO paciente não confirma nem cria sessão', async () => {
+    const appointment = fakeAppointment('Reservada');
+    const repo = repoWith(appointment);
+    const sessionRepo = { findById: vi.fn(), save: vi.fn(), findSummaries: vi.fn() };
+    const useCase = new ConfirmarConsultaUseCase(repo, sessionRepo as never, audit());
+
+    await expect(useCase.execute('a1', { expectedPatientId: 'p-outro' })).rejects.toThrow(NotFoundException);
+
+    expect(appointment.state).toBe('Reservada');
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(sessionRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('remarcar a consulta de OUTRO paciente não consulta o Motor nem muda o horário', async () => {
+    const appointment = fakeAppointment('Reservada');
+    const repo = repoWith(appointment);
+    const motor = motorDisponivel();
+    const useCase = new RemarcarConsultaUseCase(repo, motor as never, audit());
+
+    await expect(useCase.execute('a1', new Date('2026-08-04T10:00:00'), { expectedPatientId: 'p-outro' })).rejects.toThrow(NotFoundException);
+
+    expect(motor.execute).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(appointment.scheduledAt).toEqual(new Date('2026-08-03T09:00:00'));
+  });
+
+  it('a recusa é a mesma de uma consulta inexistente — não confirma a ninguém que o id existe', async () => {
+    const existing = new CancelarConsultaUseCase(repoWith(fakeAppointment('Reservada')), audit());
+    const missing = new CancelarConsultaUseCase({ findById: vi.fn().mockResolvedValue(null), save: vi.fn() } as never, audit());
+
+    const wrongOwner = await existing.execute('a1', { expectedPatientId: 'p-outro' }).catch((error: Error) => error.message);
+    const notFound = await missing.execute('a1', { expectedPatientId: 'p1' }).catch((error: Error) => error.message);
+
+    expect(wrongOwner).toBe(notFound);
+  });
+
+  it('do próprio paciente: age normalmente', async () => {
+    const appointment = fakeAppointment('Reservada');
+    const useCase = new CancelarConsultaUseCase(repoWith(appointment), audit());
+
+    await useCase.execute('a1', { expectedPatientId: 'p1' });
+
+    expect(appointment.state).toBe('Cancelada');
+  });
+
+  it('sem informar de quem (rotas do painel): comportamento de antes', async () => {
+    const appointment = fakeAppointment('Reservada');
+    const useCase = new CancelarConsultaUseCase(repoWith(appointment), audit());
+
+    await useCase.execute('a1');
+
+    expect(appointment.state).toBe('Cancelada');
+  });
+});

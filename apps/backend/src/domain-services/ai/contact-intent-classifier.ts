@@ -32,6 +32,14 @@ export interface ContactIntentClassificationResult {
   confidence: number;
   /** Nome mencionado na conversa (ex.: "meu filho João") — só um hint textual, nunca um patientId resolvido. */
   patientNameHint?: string;
+  /**
+   * ADR-0063 (AD-037) — a mensagem atual confirma, de forma explícita, o
+   * nome e o cadastro que o assistente pediu para confirmar. É só o sinal:
+   * quem decide se a confirmação vale é o backend, que exige o nome já
+   * guardado em uma mensagem anterior — nome e confirmação nunca valem no
+   * mesmo turno. Ausente ou diferente de `true`, não houve confirmação.
+   */
+  explicitConfirmation?: boolean;
   /** Só para observabilidade/auditoria — nunca usado para decidir o fluxo. */
   reasoning?: string;
   /** ADR-0055 (AD-018), Fase 7 — RNF-021: custo real desta chamada. */

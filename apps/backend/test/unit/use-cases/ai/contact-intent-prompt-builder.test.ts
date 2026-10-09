@@ -19,4 +19,16 @@ describe('buildContactIntentPrompt — ADR-0055 (AD-018), Fase 7', () => {
     const prompt = buildContactIntentPrompt({ contactState: 'Novo', associationCount: 0 });
     expect(prompt).not.toContain('agendar_consulta');
   });
+
+  it('ADR-0063: pede o sinal de confirmação explícita e proíbe usar o nome de perfil do WhatsApp', () => {
+    const prompt = buildContactIntentPrompt({ contactState: 'Identificado', associationCount: 0 });
+    expect(prompt).toContain('"explicitConfirmation"');
+    expect(prompt).toContain('explícita e inequívoca');
+    expect(prompt).toContain('nome de perfil do WhatsApp');
+  });
+
+  it('ADR-0063: ASSOCIAR cobre o número novo de quem já é paciente — o backend nunca vincula por isso', () => {
+    const prompt = buildContactIntentPrompt({ contactState: 'Conversando', associationCount: 0 });
+    expect(prompt).toContain('número novo');
+  });
 });

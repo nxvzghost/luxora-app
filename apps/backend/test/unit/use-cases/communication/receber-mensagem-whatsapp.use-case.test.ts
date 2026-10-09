@@ -18,6 +18,7 @@ function makeDeps(opts: {
   existingMessage?: unknown;
   existingConversation?: Conversation | null;
   patient?: { id: string } | null;
+  identity?: { status: 'recognized'; patientId: string } | { status: 'ambiguous' } | { status: 'unknown' };
 }) {
   // 'integration' in opts, não ??: um valor explicitamente null (caso de
   // teste "phoneNumberId sem Tenant conectado") não pode cair no default
@@ -33,7 +34,9 @@ function makeDeps(opts: {
     appendMessages: vi.fn().mockResolvedValue(undefined),
     findMessagesByConversationId: vi.fn(),
   };
-  const patientRepo = { findByPhone: vi.fn().mockResolvedValue(opts.patient ?? null), findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn() };
+  // ADR-0063 — quem diz a quem o número pertence é ResolverIdentidadeDoContatoUseCase.
+  const identity = opts.identity ?? (opts.patient ? { status: 'recognized', patientId: opts.patient.id } : { status: 'unknown' });
+  const resolverIdentidade = { execute: vi.fn().mockResolvedValue(identity) };
   const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
   const inboundQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
   const reconhecerOuCriarContatoUseCase = { execute: vi.fn().mockResolvedValue({ id: 'contact-1', state: 'Conversando' }) };
@@ -43,14 +46,14 @@ function makeDeps(opts: {
     prismaClient,
     tenantContext,
     conversationRepo as never,
-    patientRepo as never,
     auditService as never,
     inboundQueue as never,
     reconhecerOuCriarContatoUseCase as never,
     correlationContext as never,
+    resolverIdentidade as never,
   );
 
-  return { useCase, prismaClient, tenantContext, conversationRepo, patientRepo, auditService, inboundQueue, reconhecerOuCriarContatoUseCase, correlationContext };
+  return { useCase, prismaClient, tenantContext, conversationRepo, resolverIdentidade, auditService, inboundQueue, reconhecerOuCriarContatoUseCase, correlationContext };
 }
 
 function payloadWith(messageId: string, body: string, phoneNumberId = PHONE_NUMBER_ID): WhatsAppWebhookPayload {
@@ -199,7 +202,7 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
       appendMessages: vi.fn().mockResolvedValue(undefined),
       findMessagesByConversationId: vi.fn(),
     };
-    const patientRepo = { findByPhone: vi.fn().mockResolvedValue(null), findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn() };
+    const resolverIdentidade = { execute: vi.fn().mockResolvedValue({ status: 'unknown' }) };
     const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
     const inboundQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
     const reconhecerOuCriarContatoUseCase = { execute: vi.fn().mockResolvedValue({ id: 'contact-x', state: 'Conversando' }) };
@@ -208,11 +211,11 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
       prismaClient,
       tenantContext,
       conversationRepo as never,
-      patientRepo as never,
       auditService as never,
       inboundQueue as never,
       reconhecerOuCriarContatoUseCase as never,
       correlationContext as never,
+      resolverIdentidade as never,
     );
 
     const payload: WhatsAppWebhookPayload = {
@@ -256,12 +259,12 @@ describe('ReceberMensagemWhatsAppUseCase — remetente que não é do Brasil (Fa
     ['Estados Unidos', '14155552671'],
     ['Portugal', '351912345678'],
   ])('%s: não lança, não cria Contact nem Conversation e não enfileira', async (_label, from) => {
-    const { useCase, reconhecerOuCriarContatoUseCase, conversationRepo, patientRepo, inboundQueue } = makeDeps({});
+    const { useCase, reconhecerOuCriarContatoUseCase, conversationRepo, resolverIdentidade, inboundQueue } = makeDeps({});
 
     await expect(useCase.execute(payloadFrom([{ id: 'wamid.estrangeiro', from }]))).resolves.toBeUndefined();
 
     expect(reconhecerOuCriarContatoUseCase.execute).not.toHaveBeenCalled();
-    expect(patientRepo.findByPhone).not.toHaveBeenCalled();
+    expect(resolverIdentidade.execute).not.toHaveBeenCalled();
     expect(conversationRepo.save).not.toHaveBeenCalled();
     expect(conversationRepo.appendMessages).not.toHaveBeenCalled();
     expect(inboundQueue.enqueue).not.toHaveBeenCalled();
@@ -281,5 +284,36 @@ describe('ReceberMensagemWhatsAppUseCase — remetente que não é do Brasil (Fa
     expect(reconhecerOuCriarContatoUseCase.execute).toHaveBeenCalledWith(TENANT_ID, '5541999990000');
     expect(inboundQueue.enqueue).toHaveBeenCalledTimes(1);
     expect(inboundQueue.enqueue.mock.calls[0][0]).toMatchObject({ externalId: 'wamid.brasil' });
+  });
+});
+
+describe('ReceberMensagemWhatsAppUseCase — identidade do número (ADR-0063, AD-038)', () => {
+  it('número de mais de um paciente: a conversa nasce sem paciente e o job não leva nenhum', async () => {
+    const { useCase, conversationRepo, inboundQueue } = makeDeps({ identity: { status: 'ambiguous' } });
+
+    await useCase.execute(payloadWith('wamid.ambiguo', 'Quero marcar'));
+
+    expect(conversationRepo.save).toHaveBeenCalledOnce();
+    expect(conversationRepo.save.mock.calls[0][0].patientId).toBeNull();
+    expect(inboundQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ patientId: undefined }));
+  });
+
+  it('a identidade é resolvida a partir do Contact reconhecido para o número, nunca de uma busca própria', async () => {
+    const { useCase, resolverIdentidade, reconhecerOuCriarContatoUseCase } = makeDeps({ patient: { id: 'p1' } });
+    const contact = { id: 'contact-do-numero', state: 'Conversando' };
+    reconhecerOuCriarContatoUseCase.execute.mockResolvedValue(contact);
+
+    await useCase.execute(payloadWith('wamid.identidade', 'Olá'));
+
+    expect(resolverIdentidade.execute).toHaveBeenCalledWith(contact);
+  });
+
+  it('conversa antiga ligada a um paciente: se hoje o número é ambíguo, o job não leva o paciente da conversa', async () => {
+    const existingConversation = Conversation.reconstitute({ id: 'conv-antiga', tenantId: TENANT_ID, phoneNumber: FROM, patientId: 'p-mais-antigo' });
+    const { useCase, inboundQueue } = makeDeps({ existingConversation, identity: { status: 'ambiguous' } });
+
+    await useCase.execute(payloadWith('wamid.legado', 'Quero cancelar'));
+
+    expect(inboundQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'conv-antiga', patientId: undefined }));
   });
 });

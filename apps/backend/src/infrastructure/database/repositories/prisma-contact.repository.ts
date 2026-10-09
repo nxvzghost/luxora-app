@@ -104,6 +104,23 @@ export class PrismaContactRepository implements ContactRepository {
     return records.map((r) => this.associationToDomain(r));
   }
 
+  // ADR-0063 (AD-038) — a RLS limita a busca à clínica, como em qualquer
+  // outra leitura. Um Contact anonimizado (sem telefone) não entra.
+  async findUnlinked(limit: number): Promise<Contact[]> {
+    const records = await this.prisma.forTenant((tx) =>
+      tx.contact.findMany({
+        where: {
+          state: { in: ['Conversando', 'Identificado'] },
+          phoneNumber: { not: null },
+          associations: { none: {} },
+        },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+        take: limit,
+      }),
+    );
+    return records.map((r) => this.toDomain(r));
+  }
+
   private toDomain(record: PrismaContact): Contact {
     return Contact.reconstitute({
       id: record.id,

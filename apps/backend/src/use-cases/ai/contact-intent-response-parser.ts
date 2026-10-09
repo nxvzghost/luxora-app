@@ -13,6 +13,10 @@ const VALID_DECISIONS: readonly ContactIntentDecision[] = ['PROMOVER', 'ASSOCIAR
  * esperado — HUMANO é o rótulo mais seguro (mesmo espírito de
  * AnthropicAIProvider.interpretIntent(), que escala por segurança em vez
  * de assumir um intent errado).
+ *
+ * ADR-0063 (AD-037) — `explicitConfirmation` só vale quando o modelo
+ * devolve literalmente `true`. Qualquer outra coisa ("true" como texto, 1,
+ * "sim", ausente) é falta de confirmação: na dúvida, nenhum cadastro.
  */
 export function parseContactIntentResponse(text: string): ContactIntentClassificationResult {
   try {
@@ -23,7 +27,8 @@ export function parseContactIntentResponse(text: string): ContactIntentClassific
     return {
       decision: parsed.decision,
       confidence: parsed.confidence,
-      patientNameHint: parsed.patientNameHint,
+      patientNameHint: typeof parsed.patientNameHint === 'string' ? parsed.patientNameHint : undefined,
+      explicitConfirmation: parsed.explicitConfirmation === true,
       reasoning: parsed.reasoning,
     };
   } catch {

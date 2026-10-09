@@ -17,6 +17,19 @@ export interface PatientRepository {
    * ocorrência, nunca lança em caso de duplicidade.
    */
   findByPhone(phone: string): Promise<Patient | null>;
+  /**
+   * ADR-0063 (AD-038) — TODOS os pacientes da clínica cujo telefone é este
+   * número (mesma comparação de findByPhone), do cadastro mais antigo para
+   * o mais novo. É o que permite saber que um número pertence a mais de um
+   * paciente: nesse caso ninguém é escolhido.
+   */
+  findAllByPhone(phone: string): Promise<Patient[]>;
+  /**
+   * ADR-0063 (AD-037) — pacientes da clínica com este mesmo nome, comparado
+   * sem acento, sem maiúsculas e com espaços simples. Usado para não abrir
+   * um segundo cadastro de quem já é paciente e escreve de outro número.
+   */
+  findAllByName(name: string): Promise<Patient[]>;
   /** Epic 11 — contagem agregada no banco, para GET /dashboard/summary. */
   countActiveByTenant(): Promise<number>;
 }

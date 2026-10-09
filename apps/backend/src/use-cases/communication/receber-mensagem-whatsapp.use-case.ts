@@ -5,10 +5,10 @@ import { TenantContext } from '@shared/tenant-context';
 import { CorrelationContext } from '@shared/correlation-context';
 import { Conversation } from '@domain/communication/conversation.entity';
 import { ConversationRepository, CONVERSATION_REPOSITORY } from '@domain-services/communication/conversation.repository';
-import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { WhatsAppInboundQueueProducer } from '@infrastructure/messaging/whatsapp-inbound-queue.producer';
 import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-ou-criar-contato.use-case';
+import { ResolverIdentidadeDoContatoUseCase } from '@use-cases/contact/resolver-identidade-do-contato.use-case';
 import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 
 export interface WhatsAppWebhookPayload {
@@ -43,11 +43,11 @@ export class ReceberMensagemWhatsAppUseCase {
     private readonly prismaClient: PrismaClientProvider,
     private readonly tenantContext: TenantContext,
     @Inject(CONVERSATION_REPOSITORY) private readonly conversationRepo: ConversationRepository,
-    @Inject(PATIENT_REPOSITORY) private readonly patientRepo: PatientRepository,
     private readonly auditService: AuditService,
     private readonly inboundQueue: WhatsAppInboundQueueProducer,
     private readonly reconhecerOuCriarContatoUseCase: ReconhecerOuCriarContatoUseCase,
     private readonly correlationContext: CorrelationContext,
+    private readonly resolverIdentidade: ResolverIdentidadeDoContatoUseCase,
   ) {}
 
   async execute(payload: WhatsAppWebhookPayload): Promise<void> {
@@ -117,20 +117,27 @@ export class ReceberMensagemWhatsAppUseCase {
     // ADR-0055 (AD-018), Fase 5 — único ponto de entrada para reconhecimento/
     // criação de Contact (identidade de comunicação, ver docs/01-Domain/08).
     // Aggregate independente de Conversation (Bounded Contexts distintos
-    // dentro do mesmo domínio) — resultado não é usado por este fluxo ainda
-    // (promoção/desambiguação são Fase 6); só garante que todo Contact real
-    // exista e reflita a interação, a cada mensagem de entrada.
-    await this.reconhecerOuCriarContatoUseCase.execute(tenantId, fromPhoneNumber);
+    // dentro do mesmo domínio). Garante que todo Contact real exista e
+    // reflita a interação, a cada mensagem de entrada; é a partir dele que a
+    // identidade de quem escreve é resolvida, logo abaixo.
+    const contact = await this.reconhecerOuCriarContatoUseCase.execute(tenantId, fromPhoneNumber);
+
+    // ADR-0063 (AD-038) — a conversa só é ligada a um paciente quando o
+    // número identifica exatamente um. Antes, com dois pacientes no mesmo
+    // telefone, ela nascia ligada ao cadastro mais antigo. Quem decide em
+    // nome de quem agir, a cada mensagem, é o processamento assíncrono, pela
+    // mesma regra (ResolverIdentidadeDoContatoUseCase).
+    const identity = await this.resolverIdentidade.execute(contact);
+    const recognizedPatientId = identity.status === 'recognized' ? identity.patientId : null;
 
     let conversation = await this.conversationRepo.findByTenantAndPhone(tenantId, fromPhoneNumber);
     const isNewConversation = !conversation;
     if (!conversation) {
-      const patient = await this.patientRepo.findByPhone(fromPhoneNumber);
       conversation = Conversation.create({
         id: randomUUID(),
         tenantId,
         phoneNumber: fromPhoneNumber,
-        patientId: patient?.id ?? null,
+        patientId: recognizedPatientId,
       });
     }
 
@@ -148,7 +155,7 @@ export class ReceberMensagemWhatsAppUseCase {
     await this.inboundQueue.enqueue({
       tenantId,
       conversationId: conversation.id,
-      patientId: conversation.patientId ?? undefined,
+      patientId: recognizedPatientId ?? undefined,
       message: body,
       externalId,
       // ADR-0055 (AD-018), Fase 8.2 — ACHADO REAL: este campo já existia em
