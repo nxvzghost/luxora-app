@@ -6,6 +6,7 @@ import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
 import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
+import { knownDefect } from './support/known-defect';
 import { TenantContext } from '@shared/tenant-context';
 import {
   AI_PROVIDER,
@@ -55,13 +56,13 @@ import { ProcessarMensagemWhatsAppUseCase } from '@use-cases/communication/proce
  *
  * DOIS TIPOS DE TESTE, e a diferença importa:
  *   - `it(...)`: uma garantia que vale hoje e tem de continuar valendo;
- *   - `it.fails(...)`: o título diz o que DEVERIA acontecer e hoje não
- *     acontece. O teste passa enquanto o defeito existir e quebra no dia em
- *     que for corrigido — aí basta tirar o `.fails`. Não é prova de
- *     comportamento correto; é um defeito conhecido, preso para não ser
- *     esquecido nem dado como resolvido. Cada um só confere um fato já
- *     colhido no beforeAll, para que um erro de preparação não se disfarce
- *     de "falha esperada".
+ *   - `knownDefect(...)`: afirma o comportamento decidido na ADR-0063, que o
+ *     código ainda não tem — por isso FALHA. Não conta como aprovado em lugar
+ *     nenhum: na suíte que libera o CI aparece como pulado e roda de verdade
+ *     com `pnpm --filter @luxora/backend test:known-defects` (ver
+ *     support/known-defect.ts). O título traz o item de backlog que o
+ *     corrige (AD-037 ou AD-038). Cada um confere só um fato já colhido no
+ *     beforeAll, para que um erro de preparação não se confunda com o defeito.
  */
 
 let app: INestApplication;
@@ -339,7 +340,10 @@ describe('[Contact] identidade no fluxo real do WhatsApp — Cenários 11, 12 e 
     let firstMessage: Turn;
     let patientsAfterFirstMessage: number;
     let appointmentsAfterFirstMessage: number;
+    let patientsAfterName: number;
     let appointmentsAfterName: number;
+    let patientsAfterConfirmation: number;
+    let appointmentsAfterConfirmation: number;
 
     beforeAll(async () => {
       patientsBefore = await patientCount();
@@ -351,16 +355,24 @@ describe('[Contact] identidade no fluxo real do WhatsApp — Cenários 11, 12 e 
       patientsAfterFirstMessage = await patientCount();
       appointmentsAfterFirstMessage = (await appointmentsAt(slot)).length;
 
-      // A pessoa responde com o nome. O roteiro entrega o nome por todos os
-      // caminhos que a IA tem para entregá-lo (o texto, o hint do
+      // A pessoa responde com o nome completo. O roteiro entrega o nome por
+      // todos os caminhos que a IA tem para entregá-lo (o texto, o hint do
       // classificador, as entidades da intenção), para o teste não depender
       // de qual deles um dia será usado.
-      await turn(FROM, 'Meu nome é Marina Duarte Teste.', {
+      const named: Script = {
         intent: bookingRequest(slot, { patientName: 'Marina Duarte Teste' }),
         decision: 'PROMOVER',
         patientNameHint: 'Marina Duarte Teste',
-      });
+      };
+      await turn(FROM, 'Meu nome completo é Marina Duarte Teste.', named);
+      patientsAfterName = await patientCount();
       appointmentsAfterName = (await appointmentsAt(slot)).length;
+
+      // E confirma, com todas as letras (ADR-0063: nome completo E confirmação
+      // explícita antes de criar o cadastro).
+      await turn(FROM, 'Sim, confirmo: sou Marina Duarte Teste e quero me cadastrar para marcar a consulta.', named);
+      patientsAfterConfirmation = await patientCount();
+      appointmentsAfterConfirmation = (await appointmentsAt(slot)).length;
     }, 60_000);
 
     it('sem nome, ninguém é cadastrado e nada é marcado — o fluxo pede o nome', async () => {
@@ -377,12 +389,21 @@ describe('[Contact] identidade no fluxo real do WhatsApp — Cenários 11, 12 e 
       expect(await fixturePrisma.conversation.count({ where: { tenantId: fixture.tenantId, phoneNumber: FROM } })).toBe(1);
     });
 
-    // LACUNA ABERTA — nenhum código chama Contact.identificar(): o nome nunca
-    // é guardado, então o contato nunca é promovido e a primeira consulta de
-    // quem ainda não é paciente não acontece pelo WhatsApp.
-    it.fails('LACUNA ABERTA — depois de informar o nome, o contato novo consegue marcar a primeira consulta', () => {
-      expect(appointmentsAfterName).toBe(1);
+    it('só o nome, sem a confirmação explícita, ainda não cadastra ninguém nem marca nada (ADR-0063)', () => {
+      expect(patientsAfterName).toBe(patientsBefore);
+      expect(appointmentsAfterName).toBe(0);
     });
+
+    // Hoje nenhum código chama Contact.identificar(): o nome nunca é guardado,
+    // o contato nunca é promovido e a primeira consulta de quem ainda não é
+    // paciente não acontece pelo WhatsApp.
+    knownDefect(
+      'DEFEITO CONHECIDO (AD-037) — depois de informar o nome completo e confirmar, o contato vira paciente e a primeira consulta é marcada',
+      () => {
+        expect(patientsAfterConfirmation).toBe(patientsBefore + 1);
+        expect(appointmentsAfterConfirmation).toBe(1);
+      },
+    );
   });
 
   describe('Cenário 13 — paciente conhecido escreve de um número novo', () => {
@@ -499,11 +520,14 @@ describe('[Contact] identidade no fluxo real do WhatsApp — Cenários 11, 12 e 
       expect(await patientCount()).toBe(patientsBefore);
     });
 
-    // DEFEITO ABERTO — a conversa é ligada, sem perguntar, ao paciente mais
-    // antigo entre os que têm o número, e a consulta é marcada para ele.
-    it.fails('DEFEITO ABERTO — nenhuma consulta é marcada sem confirmar para qual dos dois é (ADR-0046)', () => {
-      expect(bookedFor).toEqual([]);
-    });
+    // Hoje a conversa é ligada, sem perguntar, ao paciente mais antigo entre
+    // os que têm o número, e a consulta é marcada para ele.
+    knownDefect(
+      'DEFEITO CONHECIDO (AD-038) — com dois pacientes no mesmo número, nenhuma consulta é marcada sem esclarecer para quem é (ADR-0063)',
+      () => {
+        expect(bookedFor).toEqual([]);
+      },
+    );
   });
 
   describe('a IA sinaliza dúvida sobre a identidade (DESAMBIGUAR)', () => {
@@ -524,11 +548,14 @@ describe('[Contact] identidade no fluxo real do WhatsApp — Cenários 11, 12 e 
       );
     });
 
-    // DEFEITO ABERTO — o backend pede a confirmação e, no mesmo turno,
-    // executa a ação para o paciente da conversa.
-    it.fails('DEFEITO ABERTO — nada é marcado no mesmo turno em que o sistema pede para confirmar a identidade (ADR-0046)', () => {
-      expect(appointmentsBooked).toBe(0);
-    });
+    // Hoje o backend pede a confirmação e, no mesmo turno, executa a ação para
+    // o paciente da conversa.
+    knownDefect(
+      'DEFEITO CONHECIDO (AD-038) — nada é marcado no turno em que o sistema pede para confirmar a identidade (ADR-0063)',
+      () => {
+        expect(appointmentsBooked).toBe(0);
+      },
+    );
   });
 
   it('nenhuma chamada de rede saiu deste arquivo — a IA foi sempre a roteirizada', () => {
