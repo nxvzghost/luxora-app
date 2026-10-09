@@ -58,6 +58,8 @@ Quando há ambiguidade real (mais de um Patient associado ao mesmo Contact, e a 
 
 ## Casos especiais
 
+> **Estado da implementação em 09/10/2026 ([ADR-0063](../02-Arquitetura/ADRs/ADR-0063-identidade-confirmada-no-whatsapp.md)).** Os casos abaixo descrevem o modelo. No fluxo que roda hoje: quem identifica um paciente é o telefone do cadastro dele ou um vínculo aprovado por um administrador da clínica; a conversa **não** cria associações nem resolve sozinha para qual paciente é o pedido — com mais de um paciente no número, as ações ficam bloqueadas e a equipe é avisada ("Responsável" e "Casal" continuam com atendimento humano); a troca de número é concluída pela aprovação no painel; e o paciente cadastrado pelo painel é reconhecido pelo telefone, sem que o Contact passe a `Vinculado`.
+
 ### Responsável falando por paciente
 A pessoa que conversa (o Contact) não é necessariamente quem recebe o tratamento. A IA precisa identificar isso na conversa e criar a associação com papel `responsavel_por`, apontando para um `Patient` diferente do Contact — nunca presumir que "quem fala" é "quem é atendido".
 

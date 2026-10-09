@@ -3,7 +3,7 @@
 **Status:** ADOTADO
 **Origem:** Tarefa 06 da auditoria técnica de 04/10/2026 (Fechamento dos testes; Epic 13 — AD-012, AD-022, AD-031, AD-032, AD-035 — e os Cenários 11, 12 e 13 de Contact, do Epic 9).
 **Data:** 8 de outubro de 2026
-**Veredito da Tarefa 06: PARCIAL**, até a reconciliação de suas evidências e a validação remota autorizada (o CI remoto depende de um push). As pendências reais que a tarefa revelou continuam abertas — AD-037 e AD-038 (Contact) e, antes do piloto de produção, AD-039 (fuso). As decisões de produto sobre elas foram tomadas em 08/10/2026 e, as de Contact, confirmadas em 09/10/2026 (ADR-0063 e ADR-0064); registrar a decisão não conclui a tarefa nem resolve os defeitos.
+**Veredito da Tarefa 06: PARCIAL**, por decisão do responsável pelo produto, até ele avaliar os resultados remotos e as pendências funcionais. O que mudou desde o registro original: **(a) o CI remoto rodou** — em 09/10/2026, com push autorizado, os commits até `1aa507c` foram publicados e a execução 37977379502 do workflow `CI` passou nos seis jobs, inclusive `test-e2e` (20 de 20); **(b) a AD-037 e a AD-038 foram implementadas** em 09/10/2026 ([ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md)) e os três defeitos conhecidos de Contact estão corrigidos — em commits locais (`48837ad` (backend), `1794aa5` (painel) e `f8ec0ab` (ponta a ponta)), **ainda não enviados nem executados no CI remoto**. Continuam abertos: a validação remota desses commits (depende de novo push autorizado), a AD-039 (fuso, antes do piloto), as pendências listadas na ADR-0063 e a validação externa de Meta e Anthropic (Tarefa 03). Registrar a decisão ou atualizar a documentação não conclui a tarefa.
 
 ## Objetivo
 
@@ -58,7 +58,7 @@ Quando um teste desta tarefa mostrou um comportamento errado que **não cabia co
 - na suíte que libera o CI (`test:critical`) eles não são executados e aparecem como **pulados**, com o título à vista — nunca como aprovados;
 - corrigido o defeito, troca-se `knownDefect` por `it` e o teste vira uma garantia como as outras.
 
-Cada um confere só um fato colhido antes, para que um erro de preparação não se confunda com o defeito. Hoje são três, todos em `test/critical/contact-scenarios-real-flow.test.ts`: um da AD-037 e dois da AD-038.
+Cada um confere só um fato colhido antes, para que um erro de preparação não se confunda com o defeito. Eram três, todos em `test/critical/contact-scenarios-real-flow.test.ts`: um da AD-037 e dois da AD-038. **Em 09/10/2026 os três defeitos foram corrigidos** e os testes viraram testes normais, com as mesmas asserções. Hoje não há nenhum teste de defeito conhecido: `test:known-defects` não encontra nenhum. O comando e o helper continuam no repositório, para o próximo defeito que não couber corrigir na hora.
 
 **Revisão de 08/10/2026:** a primeira versão desta decisão usava `it.fails`, que faz o teste contar como aprovado justamente enquanto o defeito existe. Foi abandonada por decisão do responsável pelo produto — uma falha não pode ser mascarada assim. `it.fails` não deve ser usado para este fim.
 
@@ -95,6 +95,8 @@ Consequências — as quatro primeiras observadas no teste, a quinta lida no có
 
 Os itens 1, 3 e 4 têm, cada um, um teste de defeito conhecido que falha (decisão 5, acima). Nenhum foi corrigido: mudam o comportamento do pipeline de IA do WhatsApp, que é da Tarefa 03 e ainda não foi validado contra a Anthropic real. O que deve acontecer em cada caso foi decidido em 08/10/2026 e está na [ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md), com o item de backlog de cada defeito (AD-037 e AD-038).
 
+**Atualização de 09/10/2026 (AD-037 e AD-038, [ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md)):** os itens 1, 3, 4 e 5 foram corrigidos — contato novo se cadastra com nome completo e confirmação explícita e marca a primeira consulta; com dois pacientes no mesmo número ninguém é escolhido e as ações ficam bloqueadas; nada é executado no turno em que a identidade está pendente; e o encaminhamento a um humano vira aviso interno à clínica. O item 2 mudou por decisão: a conversa continua sem criar associações — quem associa é o cadastro concluído pela própria pessoa ou a aprovação de um administrador no painel. Na tabela acima, `Contact.identificar()` e `Contact.vincularAPacienteExistente()` passaram a ter chamador; `createAlreadyLinked()` e `arquivar()` continuam sem.
+
 ## Data e fuso horário (levantamento, sem mudança de comportamento)
 
 O que foi verificado no código:
@@ -109,7 +111,7 @@ Nada disso foi alterado. A regra pretendida foi decidida em 08/10/2026 e está n
 
 ## Limitações conhecidas
 
-- **O CI remoto não rodou com estas mudanças.** O job `test-e2e` foi escrito e validado localmente (o mesmo script, `actionlint` e `shellcheck` limpos); a execução no GitHub depende de um push, que não foi autorizado nesta tarefa.
+- **O CI remoto rodou em 09/10/2026.** Com push autorizado, a execução 37977379502 do workflow `CI` executou o commit `1aa507c` no GitHub e passou nos seis jobs: lint, unitários (950 no backend e 180 no frontend), integração (23), críticos (440 aprovados, 4 pulados e 1 `todo`), ponta a ponta (20 de 20) e ensaio de deploy (68 de 68). Os commits da AD-037 e da AD-038, posteriores, **ainda não foram enviados**: para eles vale só a execução local, abaixo.
 - A IA dos testes de Contact é roteirizada. Entrada real da Meta e respostas reais da Anthropic continuam não validadas (Tarefa 03).
 - Achados dos testes dos controllers, registrados e não corrigidos: uma cobrança pode ser criada para o paciente X com a sessão do paciente Y da mesma clínica; uma cobrança recusada por `SESSION_ALREADY_BILLED` ainda pode ficar gravada sem sessão; transição de estado inválida responde 500.
 - Tela de Assinatura: se o cartão for recusado depois de a assinatura ser criada, repetir o envio responde 409 e a tela não oferece outro caminho para registrar o cartão. As mensagens de erro dessa tela são as cruas da API. Em Configurações, o perfil terapeuta vê os formulários que só o administrador pode salvar (a recusa aparece como "sem permissão").
@@ -119,7 +121,7 @@ Nada disso foi alterado. A regra pretendida foi decidida em 08/10/2026 e está n
 
 ## Decisões tomadas depois desta tarefa (08/10/2026)
 
-As seis questões que esta ADR deixou em aberto foram decididas pelo responsável pelo produto; as de Contact foram confirmadas e detalhadas em 09/10/2026. O texto de cada decisão está na ADR indicada e não é repetido aqui. **Todas estão com a implementação pendente, e nenhum dos defeitos descritos acima foi resolvido.**
+As seis questões que esta ADR deixou em aberto foram decididas pelo responsável pelo produto; as de Contact foram confirmadas e detalhadas em 09/10/2026. O texto de cada decisão está na ADR indicada e não é repetido aqui. **Atualização de 09/10/2026: as quatro de Contact foram implementadas (AD-037 e AD-038); as duas de fuso continuam com a implementação pendente (AD-039).**
 
 | Questão levantada aqui | Onde está a decisão | Backlog |
 |---|---|---|
@@ -150,6 +152,8 @@ Tudo local, em 08/10/2026, no commit `4400c2a` (o último que altera código ou 
 Antes da tarefa: 926 unitários, 23 de integração, 316 críticos, 155 no frontend, nenhum de ponta a ponta.
 
 **Depois da revisão dos defeitos conhecidos (commit `adb5e85`, 08/10/2026):** os três testes deixaram de contar como aprovados e o cenário do contato novo ganhou uma garantia (só o nome, sem confirmação, não cadastra ninguém). A suíte crítica passou a **440 aprovados, 4 pulados (os três defeitos conhecidos e um anterior) e 1 `todo`**, em 445 testes — o mesmo com o processo em UTC. `test:known-defects` executa os três e **falha nos três**, como esperado. Unitários (950), build e lint do backend conferidos de novo; frontend e testes de ponta a ponta não foram tocados.
+
+**Depois da AD-037 e da AD-038 (09/10/2026, commits `48837ad` (backend), `1794aa5` (painel) e `f8ec0ab` (ponta a ponta); execução local, sem push):** 1067 unitários (93 arquivos), 31 de integração e 474 críticos (1 pulado e 1 `todo`, os dois anteriores a estas tarefas; nenhum defeito conhecido) no backend; 189 no frontend (17 arquivos); 24 de ponta a ponta; build e lint limpos nos dois; as três imagens construídas e o ensaio de deploy em 68 de 68. A suíte crítica passou de 445 para 476 testes: os três defeitos conhecidos deixaram de ser pulados e passam, e o arquivo de Contact foi de 16 para 47 testes, agora com a fila e o worker reais em um Redis próprio (db 12), que termina vazio. Integração foi de 23 para 31. Cada regra nova foi desligada no código, uma por vez, para conferir que o arquivo de Contact falha (9 mutações, todas detectadas; código restaurado). Nenhuma chamada a Meta, Anthropic ou Asaas.
 
 Repetição e isolamento: a suíte crítica inteira rodou duas vezes seguidas (uma em cada fuso) com o mesmo resultado; os testes de ponta a ponta, quando foram escritos, rodaram com 1 e com 4 processos, um arquivo sozinho, um teste sozinho e três vezes cada um (60 de 60), e no fim rodaram mais duas vezes completos; o arquivo de Contact rodou duas vezes sozinho e uma junto com os outros arquivos de WhatsApp, sem deixar nada no banco.
 

@@ -89,6 +89,19 @@ Recurso singular por Tenant — cada Clínica só acessa os próprios dados via 
 
 ---
 
+# Contatos do WhatsApp — vínculo de número novo (`/api/v1/contacts`) — ADR-0063 (AD-038)
+
+O mínimo para a clínica aprovar o vínculo de um número novo de WhatsApp a um paciente que já existe. As duas rotas são só de `admin`. Contato ou paciente de outra clínica responde 404 (RLS), como se não existisse.
+
+| Método | Rota | Caso de Uso | Descrição |
+|---|---|---|---|
+| GET | `/api/v1/contacts/pending` | ListarContatosPendentes | Números que escreveram para a clínica e não identificam nenhum paciente — no máximo 100, os de atividade mais recente primeiro. Resposta: `{ "data": [{ "id", "phoneNumber", "name", "state", "createdAt" }] }`. `name` é o que a pessoa informou na conversa (ninguém o conferiu) ou `null`. |
+| POST | `/api/v1/contacts/{id}/link` | VincularContatoAPaciente | Corpo: `{ "patientId": "<uuid>" }`. Aprova o vínculo: `201` com `{ "contactId", "patientId", "state": "Vinculado", "approvedByUserId", "approvedAt" }`. `400` identificador ou corpo inválido; `404` contato ou paciente inexistente; `409` contato que já tem paciente, ou número que já consta no cadastro de um paciente. |
+
+Quem aprovou e quando ficam também na trilha de auditoria (ação `ContatoVinculadoAPacienteExistente`, ator `user`). A aprovação **não altera** o telefone do cadastro do paciente, e não existe rota para desfazer um vínculo aprovado (pendência registrada na ADR-0063).
+
+---
+
 # Agenda e Agendamento (`/api/v1/appointments`)
 
 Ver `01-Domain/05-Linguagem-Ubiqua.md` para a distinção entre `appointment` (reserva de horário) e `session` (atendimento realizado).
@@ -198,7 +211,7 @@ Notificações internas por Tenant (isoladas por RLS), sem destinatário por usu
 | GET | `/api/v1/notifications/unread-count` | Devolve `{ "count": n }` com o total de não lidas |
 | POST | `/api/v1/notifications/:id/read` | Marca a notificação como lida e a devolve |
 
-Gatilho existente: um pagamento registrado com valor divergente gera uma notificação `payment_divergent`. Não há outros gatilhos nem canal externo (e-mail ou push).
+Gatilhos: um pagamento registrado com valor divergente gera uma notificação `payment_divergent`; e, desde a ADR-0063 (09/10/2026), uma conversa do WhatsApp que o sistema não pode resolver sozinho gera `whatsapp_shared_number` (número de mais de um paciente), `whatsapp_link_request` (número novo que diz ser de um paciente), `whatsapp_possible_duplicate` (pedido de cadastro com nome que já existe) ou `whatsapp_human_review` — sempre com `entityType: "Contact"`, só os quatro últimos dígitos do número no texto e no máximo uma não lida por contato e por tipo. Não há canal externo (e-mail ou push).
 
 ---
 

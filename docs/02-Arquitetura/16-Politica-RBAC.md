@@ -48,8 +48,12 @@ Toda rota desta tabela tem `RolesGuard` na cadeia de `@UseGuards()` do seu Contr
 | `UsersController` | PATCH | `/users/:id` | `admin` | Alterar papel/vínculo de um usuário existente. | **AD-001** |
 | `UsersController` | POST | `/users/:id/deactivate` | `admin` | Desativação lógica de usuário — ação sensível de acesso. | **AD-001** |
 | `UsersController` | POST | `/users/:id/reactivate` | `admin` | Idem. | **AD-001** |
+| `ContactsController` | GET | `/contacts/pending` | `admin` | Lista números de quem escreveu para a clínica e o nome que cada um informou — dado pessoal de quem ainda não é paciente. | **AD-038** (ADR-0063) |
+| `ContactsController` | POST | `/contacts/:id/link` | `admin` | Muda quem um número identifica no WhatsApp: a partir daí, quem escreve dele age em nome do paciente. Decisão de produto: só o administrador aprova. | **AD-038** (ADR-0063) |
 
 **Total: 33 rotas** (8 pré-existentes + 21 da AD-003 + 4 da AD-001).
+
+**Nota de 09/10/2026 (ADR-0063):** as duas rotas de `ContactsController` foram acrescentadas à tabela, e o total acima **não foi recontado**. A contagem já estava defasada antes desta mudança: o código tem hoje 40 rotas com `@Roles()` (38 antes destas duas), e rotas criadas depois da AD-001 — as três de `NotificationController`, a de `DashboardController` e outras — não constam aqui. Reconciliar a matriz inteira é trabalho à parte; o que esta nota garante é que as duas rotas novas estão declaradas.
 
 Resumo da política, conforme aprovado no Design Review:
 - **Financeiro e gestão de equipe** (`Clinic`, `Therapists`, `Billing`, `Payment`, `Subscription`, `AuditLog`, `WhatsApp`, `Users`) permanecem exclusivos de `admin`.
