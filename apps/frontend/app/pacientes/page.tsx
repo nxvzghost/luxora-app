@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import { SideNav } from '@/components/ui/side-nav';
 import { Button } from '@/components/ui/button';
+import { PendingContactLinks } from '@/components/pending-contact-links';
 import { usePatients, useCreatePatient } from '@/lib/api-client/dashboard.hooks';
 import { describeApiError } from '@/lib/api-client/errors';
+import { useRole } from '@/lib/session';
 
 const STATE_LABELS: Record<string, string> = {
   Ativo: 'Ativo',
@@ -19,6 +21,8 @@ const STATE_LABELS: Record<string, string> = {
 export default function PacientesPage() {
   const { data, isLoading, isError } = usePatients();
   const createPatient = useCreatePatient();
+  // Só o administrador aprova vínculo de número — como na API (ADR-0063).
+  const isAdmin = useRole() === 'admin';
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -63,6 +67,8 @@ export default function PacientesPage() {
             </Button>
           </form>
         )}
+
+        {isAdmin && <PendingContactLinks patients={data?.data ?? []} />}
 
         {isLoading && <p style={{ color: 'var(--sage)' }}>Carregando...</p>}
         {isError && (
