@@ -7,7 +7,7 @@ const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const CONTEXT = { billingId: 'b1', amount: 400 };
 
 function repoMock() {
-  return { create: vi.fn().mockResolvedValue(undefined), findById: vi.fn(), findByTenant: vi.fn(), countUnreadByTenant: vi.fn(), markAsRead: vi.fn() };
+  return { create: vi.fn().mockResolvedValue(undefined), findById: vi.fn(), findByTenant: vi.fn(), countUnreadByTenant: vi.fn(), markAsRead: vi.fn(), hasUnread: vi.fn() };
 }
 
 describe('NotificationService', () => {

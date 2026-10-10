@@ -9,6 +9,7 @@ describe('ListarAgendamentosUseCase', () => {
       findByTenantAndRange: vi.fn().mockResolvedValue([]),
       save: vi.fn(),
       saveMany: vi.fn(),
+      existsForRecurringBlockOccurrence: vi.fn(),
     };
     const useCase = new ListarAgendamentosUseCase(repo);
     const from = new Date('2026-08-01');

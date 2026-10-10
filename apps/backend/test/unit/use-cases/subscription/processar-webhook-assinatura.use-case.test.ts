@@ -16,7 +16,7 @@ function makeUseCase(subscription: ClinicSubscription | null, alreadyProcessed =
   const webhookRepo = { wasProcessed: vi.fn().mockResolvedValue(alreadyProcessed), markProcessed: vi.fn().mockResolvedValue(undefined) };
   const auditService = { recordAll: vi.fn().mockResolvedValue(undefined) };
   const tenantContext = new TenantContext();
-  const useCase = new ProcessarWebhookAssinaturaUseCase(subscriptionRepo, webhookRepo, auditService, tenantContext);
+  const useCase = new ProcessarWebhookAssinaturaUseCase(subscriptionRepo, webhookRepo, auditService as never, tenantContext);
   return { useCase, subscriptionRepo, webhookRepo, auditService };
 }
 

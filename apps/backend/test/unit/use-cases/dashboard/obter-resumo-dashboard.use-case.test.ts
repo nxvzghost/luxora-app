@@ -10,6 +10,8 @@ function buildPatientRepositoryMock(overrides: Partial<PatientRepository> = {}):
     save: vi.fn(),
     findByPhone: vi.fn(),
     countActiveByTenant: vi.fn().mockResolvedValue(0),
+    findAllByPhone: vi.fn(),
+    findAllByName: vi.fn(),
     ...overrides,
   };
 }

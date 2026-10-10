@@ -10,12 +10,12 @@ function makeRouter() {
   const remarcarConsulta = { execute: vi.fn() };
   const consultarDisponibilidade = { execute: vi.fn() };
   const router = new IntentActionRouter(
-    agendarConsulta,
-    cancelarConsulta,
-    confirmarConsulta,
-    consultarCobranca,
-    remarcarConsulta,
-    consultarDisponibilidade,
+    agendarConsulta as never,
+    cancelarConsulta as never,
+    confirmarConsulta as never,
+    consultarCobranca as never,
+    remarcarConsulta as never,
+    consultarDisponibilidade as never,
   );
   return { router, agendarConsulta, cancelarConsulta, confirmarConsulta, consultarCobranca, remarcarConsulta, consultarDisponibilidade };
 }

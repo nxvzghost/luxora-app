@@ -13,28 +13,28 @@ function overdueBilling(id: string, daysAgo: number) {
 
 describe('ConsultarSegmentacaoFinanceiraUseCase — limiares 7 e 40 dias', () => {
   it('classifica 7 dias como em_atraso (fronteira inclusiva)', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 7)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 7)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new ConsultarSegmentacaoFinanceiraUseCase(repo);
     const [result] = await useCase.execute();
     expect(result.segment).toBe('em_atraso');
   });
 
   it('classifica 8 dias como em_atraso, não um terceiro estágio', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 8)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 8)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new ConsultarSegmentacaoFinanceiraUseCase(repo);
     const [result] = await useCase.execute();
     expect(result.segment).toBe('em_atraso');
   });
 
   it('classifica 40 dias como em_atraso (fronteira exata — só vira inadimplente ACIMA de 40)', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 40)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 40)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new ConsultarSegmentacaoFinanceiraUseCase(repo);
     const [result] = await useCase.execute();
     expect(result.segment).toBe('em_atraso');
   });
 
   it('classifica 41 dias como inadimplente', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 41)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findOverdueByTenant: vi.fn().mockResolvedValue([overdueBilling('b1', 41)]), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new ConsultarSegmentacaoFinanceiraUseCase(repo);
     const [result] = await useCase.execute();
     expect(result.segment).toBe('inadimplente');
@@ -48,9 +48,9 @@ describe('ExecutarReguaInadimplenciaUseCase — nunca envia mensagem em D+40, s�
 
   it('envia lembrete D+1 ao paciente', async () => {
     const segmentacao = { execute: vi.fn().mockResolvedValue([{ billingId: 'b1', patientId: 'p-b1', amount: 400, daysOverdue: 1, segment: 'em_atraso' }]) };
-    const patientRepo = { findById: vi.fn().mockResolvedValue(fakePatient('p-b1')), findAllByTenant: vi.fn(), save: vi.fn() };
+    const patientRepo = { findById: vi.fn().mockResolvedValue(fakePatient('p-b1')), findAllByTenant: vi.fn(), save: vi.fn(), findByPhone: vi.fn(), findAllByPhone: vi.fn(), findAllByName: vi.fn(), countActiveByTenant: vi.fn() };
     const messageQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
-    const useCase = new ExecutarReguaInadimplenciaUseCase(segmentacao, patientRepo, messageQueue);
+    const useCase = new ExecutarReguaInadimplenciaUseCase(segmentacao as never, patientRepo, messageQueue as never);
 
     const result = await useCase.execute(TENANT_ID);
 
@@ -60,9 +60,9 @@ describe('ExecutarReguaInadimplenciaUseCase — nunca envia mensagem em D+40, s�
 
   it('D+40 NUNCA envia mensagem ao paciente — apenas sinaliza', async () => {
     const segmentacao = { execute: vi.fn().mockResolvedValue([{ billingId: 'b1', patientId: 'p-b1', amount: 400, daysOverdue: 40, segment: 'em_atraso' }]) };
-    const patientRepo = { findById: vi.fn().mockResolvedValue(fakePatient('p-b1')), findAllByTenant: vi.fn(), save: vi.fn() };
+    const patientRepo = { findById: vi.fn().mockResolvedValue(fakePatient('p-b1')), findAllByTenant: vi.fn(), save: vi.fn(), findByPhone: vi.fn(), findAllByPhone: vi.fn(), findAllByName: vi.fn(), countActiveByTenant: vi.fn() };
     const messageQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
-    const useCase = new ExecutarReguaInadimplenciaUseCase(segmentacao, patientRepo, messageQueue);
+    const useCase = new ExecutarReguaInadimplenciaUseCase(segmentacao as never, patientRepo, messageQueue as never);
 
     const result = await useCase.execute(TENANT_ID);
 
@@ -72,9 +72,9 @@ describe('ExecutarReguaInadimplenciaUseCase — nunca envia mensagem em D+40, s�
 
   it('dias fora de 1/7/40 (ex: D+15) não geram nenhuma ação', async () => {
     const segmentacao = { execute: vi.fn().mockResolvedValue([{ billingId: 'b1', patientId: 'p-b1', amount: 400, daysOverdue: 15, segment: 'em_atraso' }]) };
-    const patientRepo = { findById: vi.fn().mockResolvedValue(fakePatient('p-b1')), findAllByTenant: vi.fn(), save: vi.fn() };
+    const patientRepo = { findById: vi.fn().mockResolvedValue(fakePatient('p-b1')), findAllByTenant: vi.fn(), save: vi.fn(), findByPhone: vi.fn(), findAllByPhone: vi.fn(), findAllByName: vi.fn(), countActiveByTenant: vi.fn() };
     const messageQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
-    const useCase = new ExecutarReguaInadimplenciaUseCase(segmentacao, patientRepo, messageQueue);
+    const useCase = new ExecutarReguaInadimplenciaUseCase(segmentacao as never, patientRepo, messageQueue as never);
 
     const result = await useCase.execute(TENANT_ID);
 

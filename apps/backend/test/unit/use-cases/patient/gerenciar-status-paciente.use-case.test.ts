@@ -25,6 +25,10 @@ function repoWithPatient(state: PatientState): PatientRepository {
     findById: vi.fn().mockResolvedValue(fakePatient(state)),
     findAllByTenant: vi.fn(),
     save: vi.fn().mockResolvedValue(undefined),
+    findByPhone: vi.fn(),
+    findAllByPhone: vi.fn(),
+    findAllByName: vi.fn(),
+    countActiveByTenant: vi.fn(),
   };
 }
 

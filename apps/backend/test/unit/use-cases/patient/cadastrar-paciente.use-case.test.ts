@@ -16,6 +16,10 @@ describe('CadastrarPacienteUseCase', () => {
       findById: vi.fn(),
       findAllByTenant: vi.fn(),
       save: vi.fn().mockResolvedValue(undefined),
+      findByPhone: vi.fn(),
+      findAllByPhone: vi.fn(),
+      findAllByName: vi.fn(),
+      countActiveByTenant: vi.fn(),
     };
     tenantContext = new TenantContext();
     tenantContext.set(TENANT_ID, 'user-1');

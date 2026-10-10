@@ -30,10 +30,12 @@ function makeUseCase(
     findActiveByTherapistAndRange: vi.fn().mockResolvedValue(appointments),
     save: vi.fn(),
     saveMany: vi.fn(),
+    findByTenantAndRange: vi.fn(),
+    existsForRecurringBlockOccurrence: vi.fn(),
   };
   const availabilityRepo = { findByTherapistId: vi.fn().mockResolvedValue(calendar), save: vi.fn() };
   const therapistRepo = { findById: vi.fn().mockResolvedValue(therapist), findAllByTenant: vi.fn(), save: vi.fn() };
-  const clinicHolidayRepo = { findByTenantAndRange: vi.fn().mockResolvedValue(holidays), save: vi.fn() };
+  const clinicHolidayRepo = { findByTenantAndRange: vi.fn().mockResolvedValue(holidays), save: vi.fn(), findById: vi.fn(), delete: vi.fn() };
   const useCase = new ConsultarDisponibilidadeUseCase(appointmentRepo, availabilityRepo, therapistRepo, clinicHolidayRepo);
   return { useCase, appointmentRepo, availabilityRepo, therapistRepo, clinicHolidayRepo };
 }

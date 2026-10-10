@@ -35,13 +35,14 @@ function sessionRepoMock(sessionIds: string[]) {
   return {
     findById: vi.fn((id: string) => Promise.resolve(sessions.get(id) ?? null)),
     save: vi.fn().mockResolvedValue(undefined),
+    findSummaries: vi.fn(),
   };
 }
 
 describe('RegistrarPagamentoUseCase — Teste Crítico #8 (idempotência)', () => {
   it('cria o pagamento e quita a cobrança quando o valor confere', async () => {
-    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(null), save: vi.fn().mockResolvedValue(undefined) };
-    const billingRepo = { findById: vi.fn().mockResolvedValue(fakeBilling(400)), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn(), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn().mockResolvedValue([]) };
+    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(null), save: vi.fn().mockResolvedValue(undefined), findByBillingId: vi.fn(), findStatesByBillingIds: vi.fn() };
+    const billingRepo = { findById: vi.fn().mockResolvedValue(fakeBilling(400)), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn(), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn().mockResolvedValue([]), findOverdueByTenant: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new RegistrarPagamentoUseCase(paymentRepo, billingRepo, sessionRepoMock([]), { recordAll: vi.fn().mockResolvedValue(undefined) } as never, { process: vi.fn().mockResolvedValue(undefined) } as never, tenantContext());
 
     const payment = await useCase.execute({ billingId: 'b1', amount: 400, idempotencyKey: 'idem-1' });
@@ -51,8 +52,8 @@ describe('RegistrarPagamentoUseCase — Teste Crítico #8 (idempotência)', () =
   });
 
   it('marca Divergente e NÃO quita a cobrança quando o valor não confere', async () => {
-    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(null), save: vi.fn().mockResolvedValue(undefined) };
-    const billingRepo = { findById: vi.fn().mockResolvedValue(fakeBilling(400)), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(null), save: vi.fn().mockResolvedValue(undefined), findByBillingId: vi.fn(), findStatesByBillingIds: vi.fn() };
+    const billingRepo = { findById: vi.fn().mockResolvedValue(fakeBilling(400)), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const sessionRepo = sessionRepoMock(['s1']);
     const useCase = new RegistrarPagamentoUseCase(paymentRepo, billingRepo, sessionRepo, { recordAll: vi.fn().mockResolvedValue(undefined) } as never, { process: vi.fn().mockResolvedValue(undefined) } as never, tenantContext());
 
@@ -69,8 +70,8 @@ describe('RegistrarPagamentoUseCase — Teste Crítico #8 (idempotência)', () =
     const primeiroPagamento = Payment.reconstitute({
       id: 'pay1', tenantId: TENANT_ID, billingId: 'b1', amount: 400, method: 'pix', idempotencyKey: 'idem-3', state: 'Confirmado',
     });
-    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(primeiroPagamento), save: vi.fn() };
-    const billingRepo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(primeiroPagamento), save: vi.fn(), findByBillingId: vi.fn(), findStatesByBillingIds: vi.fn() };
+    const billingRepo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new RegistrarPagamentoUseCase(paymentRepo, billingRepo, sessionRepoMock([]), { recordAll: vi.fn().mockResolvedValue(undefined) } as never, { process: vi.fn().mockResolvedValue(undefined) } as never, tenantContext());
 
     const result = await useCase.execute({ billingId: 'b1', amount: 400, idempotencyKey: 'idem-3' });
@@ -81,14 +82,14 @@ describe('RegistrarPagamentoUseCase — Teste Crítico #8 (idempotência)', () =
   });
 
   it('lança NotFoundException quando a cobrança não existe', async () => {
-    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(null), save: vi.fn() };
-    const billingRepo = { findById: vi.fn().mockResolvedValue(null), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(null), save: vi.fn(), findByBillingId: vi.fn(), findStatesByBillingIds: vi.fn() };
+    const billingRepo = { findById: vi.fn().mockResolvedValue(null), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), countLinkedSessions: vi.fn(), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new RegistrarPagamentoUseCase(paymentRepo, billingRepo, sessionRepoMock([]), { recordAll: vi.fn().mockResolvedValue(undefined) } as never, { process: vi.fn().mockResolvedValue(undefined) } as never, tenantContext());
     await expect(useCase.execute({ billingId: 'b-inexistente', amount: 400, idempotencyKey: 'idem-4' })).rejects.toThrow(NotFoundException);
   });
 
   it('AD-009: ao quitar a cobrança, transiciona todas as Sessions vinculadas para Recebida', async () => {
-    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(null), save: vi.fn().mockResolvedValue(undefined) };
+    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(null), save: vi.fn().mockResolvedValue(undefined), findByBillingId: vi.fn(), findStatesByBillingIds: vi.fn() };
     const billingRepo = {
       findById: vi.fn().mockResolvedValue(fakeBilling(400)),
       findAllByTenant: vi.fn(),
@@ -96,6 +97,9 @@ describe('RegistrarPagamentoUseCase — Teste Crítico #8 (idempotência)', () =
       linkSessions: vi.fn(),
       countLinkedSessions: vi.fn(),
       findSessionIdsByBillingId: vi.fn().mockResolvedValue(['s1', 's2']),
+      findOverdueByTenant: vi.fn(),
+      countOverdueByTenant: vi.fn(),
+      sumPendingByTenant: vi.fn(),
     };
     const sessionRepo = sessionRepoMock(['s1', 's2']);
     const audit = { recordAll: vi.fn().mockResolvedValue(undefined) };
@@ -114,7 +118,7 @@ describe('RegistrarPagamentoUseCase — Teste Crítico #8 (idempotência)', () =
   });
 
   it('lança NotFoundException se uma Session vinculada à cobrança quitada não existir', async () => {
-    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(null), save: vi.fn().mockResolvedValue(undefined) };
+    const paymentRepo = { findById: vi.fn(), findByIdempotencyKey: vi.fn().mockResolvedValue(null), save: vi.fn().mockResolvedValue(undefined), findByBillingId: vi.fn(), findStatesByBillingIds: vi.fn() };
     const billingRepo = {
       findById: vi.fn().mockResolvedValue(fakeBilling(400)),
       findAllByTenant: vi.fn(),
@@ -122,6 +126,9 @@ describe('RegistrarPagamentoUseCase — Teste Crítico #8 (idempotência)', () =
       linkSessions: vi.fn(),
       countLinkedSessions: vi.fn(),
       findSessionIdsByBillingId: vi.fn().mockResolvedValue(['s-inexistente']),
+      findOverdueByTenant: vi.fn(),
+      countOverdueByTenant: vi.fn(),
+      sumPendingByTenant: vi.fn(),
     };
     const useCase = new RegistrarPagamentoUseCase(paymentRepo, billingRepo, sessionRepoMock([]), { recordAll: vi.fn().mockResolvedValue(undefined) } as never, { process: vi.fn().mockResolvedValue(undefined) } as never, tenantContext());
     await expect(useCase.execute({ billingId: 'b1', amount: 400, idempotencyKey: 'idem-6' })).rejects.toThrow(/não encontrada/);
@@ -130,7 +137,7 @@ describe('RegistrarPagamentoUseCase — Teste Crítico #8 (idempotência)', () =
 
 describe('ConsultarPagamentoUseCase', () => {
   it('lança NotFoundException quando não encontrado', async () => {
-    const repo = { findById: vi.fn().mockResolvedValue(null), findByIdempotencyKey: vi.fn(), save: vi.fn() };
+    const repo = { findById: vi.fn().mockResolvedValue(null), findByIdempotencyKey: vi.fn(), save: vi.fn(), findByBillingId: vi.fn(), findStatesByBillingIds: vi.fn() };
     const useCase = new ConsultarPagamentoUseCase(repo);
     await expect(useCase.execute('inexistente')).rejects.toThrow(NotFoundException);
   });
@@ -139,7 +146,7 @@ describe('ConsultarPagamentoUseCase', () => {
 describe('EstornarPagamentoUseCase', () => {
   it('transiciona Confirmado → Estornado', async () => {
     const payment = Payment.reconstitute({ id: 'pay1', tenantId: TENANT_ID, billingId: 'b1', amount: 400, method: 'pix', idempotencyKey: 'k1', state: 'Confirmado' });
-    const repo = { findById: vi.fn().mockResolvedValue(payment), findByIdempotencyKey: vi.fn(), save: vi.fn().mockResolvedValue(undefined) };
+    const repo = { findById: vi.fn().mockResolvedValue(payment), findByIdempotencyKey: vi.fn(), save: vi.fn().mockResolvedValue(undefined), findByBillingId: vi.fn(), findStatesByBillingIds: vi.fn() };
     const useCase = new EstornarPagamentoUseCase(repo, new ConsultarPagamentoUseCase(repo), { recordAll: vi.fn().mockResolvedValue(undefined) } as never);
     const result = await useCase.execute('pay1');
     expect(result.state).toBe('Estornado');

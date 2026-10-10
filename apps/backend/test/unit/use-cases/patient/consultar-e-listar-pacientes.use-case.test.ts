@@ -22,7 +22,7 @@ describe('ConsultarPacienteUseCase', () => {
   let useCase: ConsultarPacienteUseCase;
 
   beforeEach(() => {
-    repoMock = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn() };
+    repoMock = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), findByPhone: vi.fn(), findAllByPhone: vi.fn(), findAllByName: vi.fn(), countActiveByTenant: vi.fn() };
     useCase = new ConsultarPacienteUseCase(repoMock);
   });
 
@@ -44,6 +44,10 @@ describe('ListarPacientesUseCase', () => {
       findById: vi.fn(),
       findAllByTenant: vi.fn().mockResolvedValue([fakePatient()]),
       save: vi.fn(),
+      findByPhone: vi.fn(),
+      findAllByPhone: vi.fn(),
+      findAllByName: vi.fn(),
+      countActiveByTenant: vi.fn(),
     };
     const useCase = new ListarPacientesUseCase(repoMock);
     const result = await useCase.execute({ cursor: 'abc', limit: 10 });

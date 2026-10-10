@@ -33,42 +33,43 @@ function sessionRepoMock(sessionIds: string[]) {
   return {
     findById: vi.fn((id: string) => Promise.resolve(sessions.get(id) ?? null)),
     save: vi.fn().mockResolvedValue(undefined),
+    findSummaries: vi.fn(),
   };
 }
 
 describe('GerarCobrancaUseCase — cobrança agregada (Testes Críticos #4-7)', () => {
   it('rejeita cobrança sem nenhuma sessão vinculada', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock([]), auditService(), tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await expect(useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: [] })).rejects.toThrow(/ao menos uma sessão/);
   });
 
   it('cria cobrança por sessão avulsa (1 sessionId — caso N=1)', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock(['s1']), auditService(), tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: ['s1'] });
     expect(repo.linkSessions).toHaveBeenCalledWith(expect.any(String), ['s1']);
   });
 
   it('cria cobrança agregada (N sessionIds — semanal/mensal)', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock(['s1', 's2', 's3', 's4']), auditService(), tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await useCase.execute({ patientId: 'p1', amount: 1600, dueDate: new Date(), sessionIds: ['s1', 's2', 's3', 's4'] });
     expect(repo.linkSessions).toHaveBeenCalledWith(expect.any(String), ['s1', 's2', 's3', 's4']);
   });
 
   it('nasce no estado Criada', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock(['s1']), auditService(), tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     const billing = await useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: ['s1'] });
     expect(billing.state).toBe('Criada');
   });
 
   it('AD-009: transiciona todas as Sessions vinculadas para Faturada, na mesma execução', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const sessionRepo = sessionRepoMock(['s1', 's2']);
-    const audit = auditService();
-    const useCase = new GerarCobrancaUseCase(repo, sessionRepo, audit, tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
+    const audit = { recordAll: vi.fn().mockResolvedValue(undefined) };
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepo, audit as never, tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
 
     await useCase.execute({ patientId: 'p1', amount: 800, dueDate: new Date(), sessionIds: ['s1', 's2'] });
 
@@ -83,7 +84,7 @@ describe('GerarCobrancaUseCase — cobrança agregada (Testes Críticos #4-7)', 
   });
 
   it('AD-009: lança NotFoundException se uma sessão vinculada não existir', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn().mockResolvedValue(undefined), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const useCase = new GerarCobrancaUseCase(repo, sessionRepoMock([]), auditService(), tenantContext(), { findById: vi.fn().mockResolvedValue({ id: 'p1' }) } as never);
     await expect(
       useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: ['s-inexistente'] }),
@@ -93,12 +94,12 @@ describe('GerarCobrancaUseCase — cobrança agregada (Testes Críticos #4-7)', 
 
 describe('EnviarCobrancaUseCase — Módulo 11 (envio real via fila)', () => {
   function makeUseCase(billing: Billing, patient: unknown, clinic: unknown, channelConnected = true) {
-    const billingRepo = { findById: vi.fn().mockResolvedValue(billing), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn().mockResolvedValue(1), findSessionIdsByBillingId: vi.fn() };
-    const patientRepo = { findById: vi.fn().mockResolvedValue(patient), findAllByTenant: vi.fn(), save: vi.fn() };
+    const billingRepo = { findById: vi.fn().mockResolvedValue(billing), findAllByTenant: vi.fn(), save: vi.fn().mockResolvedValue(undefined), linkSessions: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn().mockResolvedValue(1), findSessionIdsByBillingId: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
+    const patientRepo = { findById: vi.fn().mockResolvedValue(patient), findAllByTenant: vi.fn(), save: vi.fn(), findByPhone: vi.fn(), findAllByPhone: vi.fn(), findAllByName: vi.fn(), countActiveByTenant: vi.fn() };
     const clinicRepo = { findByTenantId: vi.fn().mockResolvedValue(clinic), save: vi.fn() };
     const messageQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
     const messageChannel = { isConnected: vi.fn().mockResolvedValue(channelConnected) };
-    const useCase = new EnviarCobrancaUseCase(billingRepo, patientRepo, clinicRepo, new ConsultarCobrancaUseCase(billingRepo), messageQueue, auditService(), messageChannel);
+    const useCase = new EnviarCobrancaUseCase(billingRepo, patientRepo, clinicRepo, new ConsultarCobrancaUseCase(billingRepo), messageQueue as never, auditService(), messageChannel);
     return { useCase, messageQueue, billingRepo };
   }
 
@@ -149,7 +150,7 @@ describe('EnviarCobrancaUseCase — Módulo 11 (envio real via fila)', () => {
  */
 describe('Tarefa 06 — GerarCobrancaUseCase confere o paciente', () => {
   it('paciente não encontrado: 404, e nem a cobrança nem o vínculo com a sessão são gravados', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const sessionRepo = sessionRepoMock(['s1']);
     const patientRepo = { findById: vi.fn().mockResolvedValue(null) };
     const useCase = new GerarCobrancaUseCase(repo, sessionRepo, auditService(), tenantContext(), patientRepo as never);
@@ -162,7 +163,7 @@ describe('Tarefa 06 — GerarCobrancaUseCase confere o paciente', () => {
   });
 
   it('sessão não encontrada (inexistente ou de outra clínica): 404 antes de gravar a cobrança ou o vínculo', async () => {
-    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findSessionIdsByBillingId: vi.fn() };
+    const repo = { findById: vi.fn(), findAllByTenant: vi.fn(), save: vi.fn(), linkSessions: vi.fn(), findSessionIdsByBillingId: vi.fn(), findOverdueByTenant: vi.fn(), countLinkedSessions: vi.fn(), countOverdueByTenant: vi.fn(), sumPendingByTenant: vi.fn() };
     const sessionRepo = sessionRepoMock(['s1']);
     const patientRepo = { findById: vi.fn().mockResolvedValue({ id: 'p1' }) };
     const useCase = new GerarCobrancaUseCase(repo, sessionRepo, auditService(), tenantContext(), patientRepo as never);

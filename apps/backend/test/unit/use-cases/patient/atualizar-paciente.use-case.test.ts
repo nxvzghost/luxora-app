@@ -27,6 +27,10 @@ describe('AtualizarPacienteUseCase', () => {
       findById: vi.fn().mockResolvedValue(fakePatient()),
       findAllByTenant: vi.fn(),
       save: vi.fn().mockResolvedValue(undefined),
+      findByPhone: vi.fn(),
+      findAllByPhone: vi.fn(),
+      findAllByName: vi.fn(),
+      countActiveByTenant: vi.fn(),
     };
     consultarPaciente = new ConsultarPacienteUseCase(repoMock);
     useCase = new AtualizarPacienteUseCase(repoMock, consultarPaciente, { recordAll: vi.fn().mockResolvedValue(undefined) } as never);

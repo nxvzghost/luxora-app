@@ -363,7 +363,7 @@ describe('[AD-036] Idempotência ponta-a-ponta do processamento assíncrono (ADR
         // (interpretIntent + ContactIntentClassifier + generateResponse).
         expect(calls.length).toBe(3);
         for (const [, opts] of calls) {
-          const headers = (opts as { headers: Record<string, string> }).headers;
+          const headers = (opts as { body: string; headers: Record<string, string> }).headers;
           expect(headers['X-Correlation-Id']).toBe(correlationId);
         }
       } finally {

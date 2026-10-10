@@ -165,7 +165,7 @@ describe('[CRÍTICO — AD-032] Pacientes — leitura e isolamento entre clínic
         .set(as(tokenA));
       expect(res.status).toBe(200);
       collected.push(...res.body.data.map((patient: { id: string }) => patient.id));
-      cursor = res.body.next_cursor;
+      cursor = res.body.next_cursor as string | null;
       if (!cursor) break;
     }
 

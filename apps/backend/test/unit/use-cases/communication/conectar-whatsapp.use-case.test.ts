@@ -27,7 +27,7 @@ describe('ConectarWhatsAppUseCase', () => {
     tenantContext.set(TENANT_ID, 'user-1');
     const tokenCipher = new TokenCipherService();
 
-    const useCase = new ConectarWhatsAppUseCase(prisma, tenantContext, tokenCipher);
+    const useCase = new ConectarWhatsAppUseCase(prisma as never, tenantContext, tokenCipher);
     await useCase.execute({ phoneNumberId: '123', accessToken: 'token-abc' });
 
     expect(upsert).toHaveBeenCalledWith(
