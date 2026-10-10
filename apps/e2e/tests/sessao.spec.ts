@@ -1,4 +1,4 @@
-import { deactivateUser } from '../support/database';
+import { createClinic, deactivateUser, removeClinic } from '../support/database';
 import { errorMessage, expect, openMenu, signIn, test } from '../support/fixtures';
 
 /**
@@ -78,6 +78,44 @@ test.describe('Sessão', () => {
     await page.locator('input[type="password"]').fill(clinic.therapistUser.password);
     await page.getByRole('button', { name: 'Entrar' }).click();
     await expect(errorMessage(page)).toContainText('Credenciais inválidas');
+  });
+
+  test('sessão encerrada pelo servidor: quem entra em seguida, de outra clínica, não recebe os dados da anterior', async ({ page, clinic }) => {
+    const otherClinic = await createClinic();
+    try {
+      await signIn(page, clinic.admin);
+      await openMenu(page, 'Pacientes');
+      await expect(page.getByText(clinic.patients[0].name)).toBeVisible();
+
+      // O servidor encerra a sessão com o painel aberto: o usuário é
+      // desativado (a renovação passa a ser recusada) e o token de acesso
+      // dele vence — aqui, invalidado a caminho da API, sem recarregar a
+      // página. É a mesma aba do começo ao fim: o que estiver em memória fica.
+      await deactivateUser(clinic.admin.id);
+      await page.route('**/api/v1/**', async (route) => {
+        const headers = route.request().headers();
+        if (headers.authorization) headers.authorization = `${headers.authorization.slice(0, -6)}AAAAAA`;
+        await route.continue({ headers });
+      });
+      await page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: /^Agenda/ }).click();
+      await expect(page).toHaveURL(/\/login$/);
+      await expect(page.getByRole('status')).toContainText('Sua sessão foi encerrada');
+      await page.unroute('**/api/v1/**');
+
+      // Outra pessoa, de outra clínica, entra em seguida — pelo formulário
+      // que já está na tela, sem recarregar nada.
+      await page.locator('input[type="email"]').fill(otherClinic.admin.email);
+      await page.locator('input[type="password"]').fill(otherClinic.admin.password);
+      await page.getByRole('button', { name: 'Entrar' }).click();
+      await expect(page).toHaveURL(/\/dashboard$/);
+      await openMenu(page, 'Pacientes');
+
+      await expect(page.getByText(clinic.patients[0].name)).toHaveCount(0);
+      await expect(page.getByText(clinic.patients[1].name)).toHaveCount(0);
+      await expect(page.getByText(otherClinic.patients[0].name)).toBeVisible();
+    } finally {
+      await removeClinic(otherClinic.tenantId);
+    }
   });
 
   test('token de acesso vencido com sessão válida: renova uma vez e a tela carrega', async ({ page, clinic }) => {
