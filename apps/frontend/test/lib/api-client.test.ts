@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { ApiError as ClientError } from '@/lib/api-client/client';
 
 /**
  * ADR-0056 (Fase 2 da auditoria, R12) — renovação de sessão no cliente.
@@ -28,6 +29,19 @@ function createMemoryStorage() {
     },
     key: (index: number) => Array.from(store.keys())[index] ?? null,
   };
+}
+
+/**
+ * O erro com que a requisição falhou, com o tipo que o cliente lança. A
+ * requisição tem de falhar: se ela responder, o teste para aqui.
+ */
+async function rejection(request: Promise<unknown>): Promise<ClientError> {
+  try {
+    await request;
+  } catch (error) {
+    return error as ClientError;
+  }
+  throw new Error('a requisição deveria ter falhado');
 }
 
 function jsonResponse(status: number, body: unknown = {}): Response {
@@ -131,7 +145,7 @@ describe('apiRequest — renovação de sessão (ADR-0056)', () => {
     const { apiRequest, ApiError, useAuthStore } = await loadClient({ accessToken: 'a1', refreshToken: 'r1' });
     fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(unauthorized());
 
-    const error = await apiRequest('/patients', { token: 'a1' }).catch((e) => e);
+    const error = await rejection(apiRequest('/patients', { token: 'a1' }));
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(401);
 
@@ -144,7 +158,7 @@ describe('apiRequest — renovação de sessão (ADR-0056)', () => {
     const { apiRequest, useAuthStore } = await loadClient({ accessToken: 'a1', refreshToken: 'r1' });
     fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(jsonResponse(503));
 
-    const error = await apiRequest('/patients', { token: 'a1' }).catch((e) => e);
+    const error = await rejection(apiRequest('/patients', { token: 'a1' }));
     expect(error.status).toBe(401);
     expect(calls()).toHaveLength(2);
     expect(useAuthStore.getState().accessToken).toBe('a1');
@@ -155,7 +169,7 @@ describe('apiRequest — renovação de sessão (ADR-0056)', () => {
     const { apiRequest, useAuthStore } = await loadClient({ accessToken: 'a1', refreshToken: 'r1' });
     fetchMock.mockResolvedValueOnce(unauthorized()).mockRejectedValueOnce(new TypeError('Failed to fetch'));
 
-    const error = await apiRequest('/patients', { token: 'a1' }).catch((e) => e);
+    const error = await rejection(apiRequest('/patients', { token: 'a1' }));
     expect(error.status).toBe(401);
     expect(useAuthStore.getState().refreshToken).toBe('r1');
   });
@@ -167,7 +181,7 @@ describe('apiRequest — renovação de sessão (ADR-0056)', () => {
       .mockResolvedValueOnce(jsonResponse(200, { accessToken: 'a2', refreshToken: 'r2' }))
       .mockResolvedValueOnce(unauthorized());
 
-    const error = await apiRequest('/patients', { token: 'a1' }).catch((e) => e);
+    const error = await rejection(apiRequest('/patients', { token: 'a1' }));
     expect(error.status).toBe(401);
     expect(calls()).toHaveLength(3);
     expect(refreshCalls()).toHaveLength(1);
@@ -210,7 +224,7 @@ describe('apiRequest — renovação de sessão (ADR-0056)', () => {
     const { apiRequest } = await loadClient({ accessToken: 'a1', refreshToken: 'r1' });
     fetchMock.mockResolvedValue(unauthorized());
 
-    const error = await apiRequest('/auth/login', { method: 'POST', body: { email: 'x@y.z', password: 'errada' } }).catch((e) => e);
+    const error = await rejection(apiRequest('/auth/login', { method: 'POST', body: { email: 'x@y.z', password: 'errada' } }));
     expect(error.status).toBe(401);
     expect(calls()).toHaveLength(1);
   });
@@ -228,7 +242,7 @@ describe('apiRequest — renovação de sessão (ADR-0056)', () => {
     useAuthStore.setState({ accessToken: 'a1', refreshToken: null });
     fetchMock.mockResolvedValue(unauthorized());
 
-    const error = await apiRequest('/patients', { token: 'a1' }).catch((e) => e);
+    const error = await rejection(apiRequest('/patients', { token: 'a1' }));
     expect(error.status).toBe(401);
     expect(refreshCalls()).toHaveLength(0);
     expect(useAuthStore.getState().accessToken).toBeNull();
@@ -240,7 +254,7 @@ describe('apiRequest — renovação de sessão (ADR-0056)', () => {
       jsonResponse(403, { error: { code: 'FORBIDDEN', message: 'Sem permissão.', category: 'authorization' } }),
     );
 
-    const error = await apiRequest('/users', { token: 'a1' }).catch((e) => e);
+    const error = await rejection(apiRequest('/users', { token: 'a1' }));
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(403);
     expect(error.code).toBe('FORBIDDEN');
