@@ -1,11 +1,8 @@
 import type { Metadata } from 'next';
-import { Fraunces, Inter } from 'next/font/google';
+import { fontClassNames } from './fonts';
 import './globals.css';
 import { QueryProvider } from '@/lib/query-provider';
 import { AuthGuard } from '@/components/auth-guard';
-
-const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-display', weight: ['400', '500', '600'] });
-const inter = Inter({ subsets: ['latin'], variable: '--font-body' });
 
 export const metadata: Metadata = {
   title: 'Luxora — Tecnologia que ilumina decisões',
@@ -14,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR" className={`${fraunces.variable} ${inter.variable}`}>
+    <html lang="pt-BR" className={fontClassNames}>
       <body>
         <QueryProvider>
           <AuthGuard>{children}</AuthGuard>
