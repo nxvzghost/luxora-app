@@ -1,0 +1,20 @@
+{
+  // Conferência de tipos de tudo o que é TypeScript no backend: o código, os
+  // testes, o seed e a configuração do Vitest (`pnpm typecheck`, job
+  // `typecheck` do CI). O build só confere `src` (tsconfig.build.json) e o
+  // Vitest transpila os testes sem conferir tipos — sem isto, um dublê de
+  // teste fica para trás da porta que ele imita e ninguém nota. Foi o que a
+  // Tarefa 06 da auditoria encontrou: 76 erros de tipo em 21 arquivos de teste.
+  //
+  // declaration: false — aqui nada é emitido. Com `declaration` ligado (como
+  // no tsconfig.json), o tsc exige que todo valor exportado por um arquivo de
+  // teste tenha um tipo que caiba em um .d.ts que nunca vai existir.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "declaration": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "prisma/**/*.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}
