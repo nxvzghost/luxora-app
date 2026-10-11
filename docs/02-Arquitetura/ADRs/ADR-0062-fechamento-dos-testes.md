@@ -3,7 +3,7 @@
 **Status:** ADOTADO
 **Origem:** Tarefa 06 da auditoria técnica de 04/10/2026 (Fechamento dos testes; Epic 13 — AD-012, AD-022, AD-031, AD-032, AD-035 — e os Cenários 11, 12 e 13 de Contact, do Epic 9).
 **Data:** 8 de outubro de 2026
-**Veredito da Tarefa 06: PARCIAL**, por decisão do responsável pelo produto, até ele avaliar os resultados remotos e as pendências funcionais. O que mudou desde o registro original: **(a) o CI remoto rodou** — em 09/10/2026, com push autorizado, os commits até `1aa507c` foram publicados e a execução 37977379502 do workflow `CI` passou nos seis jobs, inclusive `test-e2e` (20 de 20); **(b) a AD-037 e a AD-038 foram implementadas** em 09/10/2026 ([ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md)) e os três defeitos conhecidos de Contact estão corrigidos — em commits locais (`48837ad` (backend), `1794aa5` (painel) e `f8ec0ab` (ponta a ponta)), **ainda não enviados nem executados no CI remoto** — assim como o commit seguinte, da correção de integridade da aprovação de vínculo (concorrência e atomicidade), feita no mesmo dia. Continuam abertos: a validação remota desses commits (depende de novo push autorizado), a AD-039 (fuso, antes do piloto), as pendências listadas na ADR-0063 e a validação externa de Meta e Anthropic (Tarefa 03). Registrar a decisão ou atualizar a documentação não conclui a tarefa.
+**Veredito da Tarefa 06: PARCIAL — só pelo que falta publicar** (reconciliação final de 11/10/2026, seção própria abaixo). Os critérios da tarefa estão atendidos e confirmados no CI remoto: em 09/10/2026, com push autorizado, o commit `9ea04a6` passou nos seis jobs da execução 38014320016 do workflow `CI`, inclusive `test-e2e` (24 de 24), já com a AD-037, a AD-038 ([ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md)), a correção de integridade da aprovação de vínculo e o build do painel sem o Google Fonts. A reconciliação final encontrou e corrigiu erros de tipo nos testes e três defeitos de isolamento entre sessões no painel, em commits locais **ainda não enviados nem executados no CI remoto**; a tarefa pode ser dada como concluída quando eles forem publicados e o CI remoto passar. Fora da tarefa e ainda abertos, antes do piloto: a AD-039 (fuso), a execução das automações pelo agendador, as pendências da ADR-0063 e a validação externa de Meta e Anthropic (Tarefa 03). A marcação formal é do responsável pelo produto; registrar a decisão ou atualizar a documentação não conclui a tarefa.
 
 ## Objetivo
 
@@ -115,7 +115,7 @@ Nada disso foi alterado. A regra pretendida foi decidida em 08/10/2026 e está n
 - A IA dos testes de Contact é roteirizada. Entrada real da Meta e respostas reais da Anthropic continuam não validadas (Tarefa 03).
 - Achados dos testes dos controllers, registrados e não corrigidos: uma cobrança pode ser criada para o paciente X com a sessão do paciente Y da mesma clínica; uma cobrança recusada por `SESSION_ALREADY_BILLED` ainda pode ficar gravada sem sessão; transição de estado inválida responde 500.
 - Tela de Assinatura: se o cartão for recusado depois de a assinatura ser criada, repetir o envio responde 409 e a tela não oferece outro caminho para registrar o cartão. As mensagens de erro dessa tela são as cruas da API. Em Configurações, o perfil terapeuta vê os formulários que só o administrador pode salvar (a recusa aparece como "sem permissão").
-- `apps/frontend/test/lib/api-client.test.ts` tem 8 erros de tipo sob `tsc --noEmit` (anteriores a esta tarefa; nenhum job roda esse comando e os testes passam).
+- ~~`apps/frontend/test/lib/api-client.test.ts` tem 8 erros de tipo sob `tsc --noEmit`.~~ Corrigido na reconciliação final, junto com os 76 dos testes do backend; o CI passou a conferir os tipos dos testes (ver "Reconciliação final").
 - `test/integration` continua com um único arquivo e o comentário desatualizado em `vitest.config.ts` (AD-011, não atribuída a esta tarefa).
 - O banco local de desenvolvimento ainda tem 32 clínicas de teste de execuções interrompidas em julho, anteriores ao padrão atual. Não foram removidas.
 
@@ -162,6 +162,52 @@ Repetição e isolamento: a suíte crítica inteira rodou duas vezes seguidas (u
 Fuso do contêiner, medido na imagem do backend construída nesta tarefa: o processo roda em `UTC` e a janela "09:00" do motor de disponibilidade cai em `09:00Z`, 06:00 de Brasília.
 
 Segredos: os valores dos `.env` locais foram procurados nos 23 commits ainda não enviados, nos arquivos pendentes e nos relatórios dos testes de ponta a ponta — nenhuma ocorrência; nenhum `.env` é versionado. Um valor local (o token de verificação do webhook) apareceu nos logs de trabalho das suítes, fora do repositório: o teste da verificação do webhook manda o token na query string, como o protocolo da Meta exige, e o exportador de traces de console imprime `url.query` inteiro. Os logs foram limpos. **Fica o achado, não corrigido:** em produção, com traces por OTLP, a verificação do webhook levaria o token de verificação para o serviço de traces.
+
+## Reconciliação final (11/10/2026)
+
+**CI remoto.** Execução 38014320016, commit `9ea04a6`, seis jobs aprovados na primeira tentativa: lint; unitários (1088 no backend e 189 no painel); integração (42); críticos (505, 1 pulado e 1 `todo`); ponta a ponta (24 de 24); ensaio de deploy (68 de 68). O build do painel deixou de depender do Google Fonts (fontes no repositório); o `test-e2e` passou em um runner da mesma região em que tinha falhado. O CD nunca foi executado.
+
+**Itens da tarefa, com o teste correspondente.**
+
+| Item | Onde está o teste | Testes hoje |
+|---|---|---|
+| AD-012 | `apps/e2e/tests` (agenda, financeiro, sessão, vínculo do WhatsApp), job `test-e2e` | 27 |
+| AD-022 | `test/critical/audit-log-read.test.ts` e o unitário do caso de uso | 20 no crítico |
+| AD-031 | `apps/frontend/test` | 217, em 19 arquivos |
+| AD-032 | `patients-controller`, `appointments-controller` e `cross-clinic-references` | 41, 45 e 5 |
+| AD-035 | os quatro arquivos com a fixture dedicada (`clinic-holiday-persistence`, `recurring-block-persistence`, `-materialization`, `-management`) | 8, 3, 7 e 4; nenhuma clínica sobra no banco |
+| Contact 11, 12 e 13; AD-037 e AD-038 | `contact-scenarios-real-flow`, `contact-link-approval-integrity` e `apps/e2e/tests/vinculo-whatsapp.spec.ts` | 47, 31 e 4 |
+
+Os Cenários 11 e 12 não têm resolução dentro da conversa: o número compartilhado bloqueia as ações e a equipe atende, por decisão da ADR-0063. O Cenário 13 se resolve pela aprovação de um administrador. A IA de todos esses testes é roteirizada — nada aqui valida a Meta ou a Anthropic reais.
+
+**Erros de tipo nos testes.** A limitação registrada acima falava em 8 erros em um arquivo do painel, e o CHANGELOG em 16 nos testes unitários do backend. A conferência da árvore inteira deu 76 no backend (21 arquivos de teste; nenhum em `src`), 8 no painel (1 arquivo) e nenhum nos testes de ponta a ponta. Eram dublês desatualizados em relação às portas e dublês de classe sem a conversão padrão do projeto; foram corrigidos sem `any`, sem `@ts-ignore`, sem excluir arquivo e sem tocar em asserção. O workflow ganhou o job `typecheck` (`pnpm typecheck`: backend com `src`, `test`, seed e configuração do Vitest; painel; ponta a ponta), que gera o cliente do Prisma antes de conferir. Uma regressão plantada em cada pacote fez o comando falhar.
+
+**Isolamento entre duas sessões na mesma aba do painel.** O teste crítico de "isolamento de cache entre clínicas" segue pulado: trata de cache no servidor, que não existe (`src/infrastructure/cache` vazio; Redis só nas filas e na checagem de prontidão). O cache que existe é o do navegador, e três defeitos foram encontrados e corrigidos nele e no cliente de API:
+
+| Defeito no código publicado | Depois |
+|---|---|
+| O cache só era limpo no "Sair". Com a sessão encerrada pelo servidor, quem entrasse em seguida recebia os dados da sessão anterior (medido: a clínica B vê os pacientes da clínica A) | O cache é esvaziado sempre que a sessão deixa de ser da mesma clínica, usuário e papel; renovar o token da mesma sessão não o esvazia |
+| Uma requisição de A com 401 atrasado era refeita com o token de B | O 401 de uma requisição de outra sessão não renova nem repete nada; vai para quem chamou |
+| Uma renovação de A que terminasse depois de A sair devolvia a sessão de A, ou trocava a de B; recusada, derrubava a de B | O resultado de uma renovação só vale se a sessão que a pediu ainda for a do painel |
+
+Segunda linha de defesa: a identidade da sessão faz parte da chave interna de toda consulta do cache, definida em um lugar só (`createQueryClient`), sem alterar os hooks. A resposta de sucesso atrasada não precisou de correção — limpar o cache destrói as consultas — e passou a ter teste. Os testes usam o provider, o guard, o hook e o cliente reais e conferem o cache em si; três testes de ponta a ponta fazem o percurso com duas clínicas na mesma aba: saída pelo botão, sessão encerrada pelo servidor e resposta da primeira entregue só depois de a segunda entrar. Não foi testado: duas abas do mesmo navegador com sessões diferentes (os tokens ficam no `localStorage`, que as abas compartilham). A avaliar como reforço: a API não define `Cache-Control` nas respostas autenticadas — medido, elas levam só o `ETag` padrão do Express. Só o teste da saída pelo botão roda com o cache HTTP do navegador ligado; os outros dois interceptam a rede, e o Playwright desliga esse cache nesse caso.
+
+**O `todo` do agendador.** `automations-scheduler-contract.test.ts` registra um defeito conhecido, não um teste por escrever: com a chave certa, as quatro rotas de automação respondem 500, porque nenhuma camada inicializa a clínica da requisição. Conferido de novo nas quatro. É da Tarefa 04 (`docs/07-Infra/AUTOMACOES_AGENDADOR.md`) e depende de decidir como a chamada identifica a clínica. Não faz parte dos critérios desta tarefa; é exigido antes do piloto se as automações forem usadas.
+
+**Uma falha diagnosticada.** O primeiro teste de `disponibilidade.test.tsx` falhou uma vez em um clone frio, com a tela ainda em "Carregando..." ao fim da espera padrão de 1 s; todos os arquivos do painel levaram cerca de 1,5 vez o tempo habitual naquela execução. Trinta e três execuções seguintes passaram, nos dois commits, e a falha se reproduz fazendo a API responder em 1,5 s. A espera das consultas assíncronas dos testes do painel foi para 3 s; nenhuma asserção mudou.
+
+**Evidências (local, 11/10/2026, commit `880dd4e`, clone limpo, sem `.env`, fuso UTC, na ordem dos jobs do CI).**
+
+| Verificação | Resultado |
+|---|---|
+| Lint | limpo |
+| Tipos (`pnpm typecheck`) | sem erros nos três pacotes |
+| Backend — unitários, integração e críticos | 1088; 42; 505 (1 pulado e 1 `todo`, os descritos acima; nenhum defeito conhecido) |
+| Painel | 217, em 19 arquivos |
+| Ponta a ponta | 27 de 27; nenhum contêiner nem clínica de teste sobrou |
+| Imagens e ensaio de deploy | três imagens construídas; 68 de 68 |
+
+**Continua exigido antes do piloto:** AD-039; a execução das automações pelo agendador; as pendências da ADR-0063; a validação de Meta (entrada) e Anthropic reais; os textos de licença das fontes junto com o painel; o token de verificação do webhook nos traces; e os três achados dos controllers listados em "Limitações conhecidas".
 
 ## Documentos relacionados
 
