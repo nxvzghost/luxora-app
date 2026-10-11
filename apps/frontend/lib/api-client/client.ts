@@ -1,3 +1,4 @@
+import { sessionClaims } from '@/lib/session-identity';
 import { useAuthStore } from '@/lib/stores/auth.store';
 
 /**
@@ -14,6 +15,13 @@ import { useAuthStore } from '@/lib/stores/auth.store';
  * que falharem ao mesmo tempo) e a requisição original é repetida UMA vez.
  * Se o servidor recusar a renovação, a sessão local é encerrada e o
  * AuthGuard leva o usuário ao login.
+ *
+ * Tarefa 06 da auditoria — uma requisição pertence à sessão que a enviou.
+ * Respostas chegam atrasadas: a de uma requisição antiga pode chegar depois
+ * de a pessoa sair, de a sessão ser encerrada ou de outra pessoa entrar na
+ * mesma aba. Nesses casos nada é renovado nem repetido em nome de quem está
+ * no painel agora, e o resultado de uma renovação só vale para a sessão que
+ * a pediu (ver `fromAnotherSession` e `renewSession`).
  */
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1';
 
@@ -72,6 +80,12 @@ async function renewSession(): Promise<string | null> {
     return null;
   }
 
+  // A resposta só vale se a sessão que pediu a renovação ainda for a do
+  // painel. Se a pessoa saiu, ou outra entrou, enquanto o pedido estava a
+  // caminho, os tokens novos não entram (devolveriam a sessão a quem saiu,
+  // ou trocariam a de quem entrou) e uma recusa não derruba ninguém.
+  const stillThisSession = () => useAuthStore.getState().refreshToken === refreshToken;
+
   try {
     const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
       method: 'POST',
@@ -80,11 +94,12 @@ async function renewSession(): Promise<string | null> {
     });
 
     if (!response.ok) {
-      if (response.status === 401) expireSession();
+      if (response.status === 401 && stillThisSession()) expireSession();
       return null;
     }
 
     const tokens = (await response.json()) as { accessToken: string; refreshToken: string };
+    if (!stillThisSession()) return null;
     setTokens(tokens.accessToken, tokens.refreshToken);
     return tokens.accessToken;
   } catch {
@@ -102,12 +117,31 @@ function renewSessionOnce(): Promise<string | null> {
 }
 
 /**
+ * A requisição que partiu com `usedToken` é de uma sessão que já não é a do
+ * painel? Sem sessão nenhuma, é. Com outra sessão, é quando os dois tokens
+ * dizem de quem são (clínica, usuário e papel) e não dizem a mesma coisa.
+ * Tokens da mesma sessão, o de antes e o de depois de uma renovação, dizem.
+ */
+function fromAnotherSession(usedToken: string): boolean {
+  const current = useAuthStore.getState().accessToken;
+  if (!current) return true;
+  if (current === usedToken) return false;
+  const [now, then] = [sessionClaims(current), sessionClaims(usedToken)];
+  return now !== null && then !== null && now !== then;
+}
+
+/**
  * Token para repetir uma requisição que recebeu 401. Se outra requisição já
  * renovou a sessão enquanto esta estava em trânsito, o store já tem um
  * access token mais novo que o usado aqui — basta reaproveitá-lo, sem pedir
  * outra renovação.
+ *
+ * Requisição de uma sessão que já não é a atual não é repetida: o token de
+ * quem está no painel agora nunca é usado para refazer o pedido de outra
+ * pessoa, e a sessão atual não é renovada nem encerrada por causa dele.
  */
 function tokenForRetry(usedToken: string): Promise<string | null> {
+  if (fromAnotherSession(usedToken)) return Promise.resolve(null);
   const current = useAuthStore.getState().accessToken;
   if (current && current !== usedToken) return Promise.resolve(current);
   return renewSessionOnce();

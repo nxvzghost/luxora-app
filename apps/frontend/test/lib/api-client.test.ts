@@ -261,3 +261,157 @@ describe('apiRequest — renovação de sessão (ADR-0056)', () => {
     expect(calls()).toHaveLength(1);
   });
 });
+
+/**
+ * Tarefa 06 da auditoria (fechamento) — uma requisição pertence à sessão que
+ * a enviou. O 401 de uma requisição antiga, ou uma renovação que termina
+ * depois de a sessão acabar, não pode agir sobre quem está no painel agora.
+ */
+describe('apiRequest — entre duas sessões', () => {
+  /** Access token no formato do backend: clínica, usuário e papel no payload. `issue` só muda o texto, como em uma renovação. */
+  function sessionToken(sub: string, tenantId: string, issue = 1): string {
+    return `header.${btoa(JSON.stringify({ sub, tenantId, role: 'admin', iat: issue }))}.signature`;
+  }
+  const SESSION_A = sessionToken('user-a', 'clinica-a');
+  const SESSION_A_RENEWED = sessionToken('user-a', 'clinica-a', 2);
+  const SESSION_B = sessionToken('user-b', 'clinica-b');
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllGlobals();
+    vi.stubGlobal('localStorage', createMemoryStorage());
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  it('401 atrasado de uma requisição da sessão anterior: não é renovada nem repetida com o token de quem entrou depois', async () => {
+    const { apiRequest, useAuthStore } = await loadClient({ accessToken: SESSION_B, refreshToken: 'refresh-b' });
+    fetchMock.mockResolvedValue(unauthorized());
+
+    const error = await rejection(apiRequest('/clinic', { method: 'PATCH', body: { name: 'Clínica A' }, token: SESSION_A }));
+
+    expect(error.status).toBe(401);
+    expect(calls()).toHaveLength(1);
+    expect(calls()[0].authorization).toBe(`Bearer ${SESSION_A}`);
+    expect(useAuthStore.getState().accessToken).toBe(SESSION_B);
+    expect(useAuthStore.getState().refreshToken).toBe('refresh-b');
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
+  });
+
+  it('depois de sair, um 401 atrasado não pede renovação nem marca a sessão como encerrada pelo servidor', async () => {
+    const { apiRequest, useAuthStore } = await loadClient({ accessToken: SESSION_A, refreshToken: 'refresh-a' });
+    useAuthStore.getState().logout();
+    fetchMock.mockResolvedValue(unauthorized());
+
+    const error = await rejection(apiRequest('/patients', { token: SESSION_A }));
+
+    expect(error.status).toBe(401);
+    expect(calls()).toHaveLength(1);
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
+  });
+
+  it('renovação que termina depois de a pessoa sair não devolve a sessão', async () => {
+    const { apiRequest, useAuthStore } = await loadClient({ accessToken: SESSION_A, refreshToken: 'refresh-a' });
+    const refresh = deferred<Response>();
+    fetchMock.mockResolvedValueOnce(unauthorized()).mockReturnValueOnce(refresh.promise);
+
+    const request = rejection(apiRequest('/patients', { token: SESSION_A }));
+    await vi.waitFor(() => expect(refreshCalls()).toHaveLength(1));
+    useAuthStore.getState().logout();
+    refresh.resolve(jsonResponse(200, { accessToken: SESSION_A_RENEWED, refreshToken: 'refresh-a2' }));
+
+    expect((await request).status).toBe(401);
+    expect(useAuthStore.getState().accessToken).toBeNull();
+    expect(useAuthStore.getState().refreshToken).toBeNull();
+    expect(calls().filter((c) => c.path === '/patients')).toHaveLength(1);
+  });
+
+  it('renovação de A que termina depois de B entrar não troca a sessão de B pela de A', async () => {
+    const { apiRequest, useAuthStore } = await loadClient({ accessToken: SESSION_A, refreshToken: 'refresh-a' });
+    const refresh = deferred<Response>();
+    fetchMock.mockResolvedValueOnce(unauthorized()).mockReturnValueOnce(refresh.promise);
+
+    const request = rejection(apiRequest('/patients', { token: SESSION_A }));
+    await vi.waitFor(() => expect(refreshCalls()).toHaveLength(1));
+    useAuthStore.getState().logout();
+    useAuthStore.getState().setTokens(SESSION_B, 'refresh-b');
+    refresh.resolve(jsonResponse(200, { accessToken: SESSION_A_RENEWED, refreshToken: 'refresh-a2' }));
+
+    expect((await request).status).toBe(401);
+    expect(useAuthStore.getState().accessToken).toBe(SESSION_B);
+    expect(useAuthStore.getState().refreshToken).toBe('refresh-b');
+    expect(calls().some((c) => c.authorization === `Bearer ${SESSION_A_RENEWED}`)).toBe(false);
+  });
+
+  it('renovação de A recusada depois de B entrar não derruba a sessão de B', async () => {
+    const { apiRequest, useAuthStore } = await loadClient({ accessToken: SESSION_A, refreshToken: 'refresh-a' });
+    const refresh = deferred<Response>();
+    fetchMock.mockResolvedValueOnce(unauthorized()).mockReturnValueOnce(refresh.promise);
+
+    const request = rejection(apiRequest('/patients', { token: SESSION_A }));
+    await vi.waitFor(() => expect(refreshCalls()).toHaveLength(1));
+    useAuthStore.getState().logout();
+    useAuthStore.getState().setTokens(SESSION_B, 'refresh-b');
+    refresh.resolve(unauthorized());
+
+    expect((await request).status).toBe(401);
+    expect(useAuthStore.getState().accessToken).toBe(SESSION_B);
+    expect(useAuthStore.getState().refreshToken).toBe('refresh-b');
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
+  });
+
+  it('requisição de B que pega a renovação de A em andamento nunca é repetida com o token de A', async () => {
+    const { apiRequest, useAuthStore } = await loadClient({ accessToken: SESSION_A, refreshToken: 'refresh-a' });
+    const refresh = deferred<Response>();
+    fetchMock
+      .mockResolvedValueOnce(unauthorized()) // a requisição de A
+      .mockReturnValueOnce(refresh.promise) // a renovação de A, a caminho
+      .mockResolvedValueOnce(unauthorized()) // a requisição de B
+      .mockResolvedValue(jsonResponse(200, { data: ['dados de quem estiver no token'] }));
+
+    const requestOfA = rejection(apiRequest('/patients', { token: SESSION_A }));
+    await vi.waitFor(() => expect(refreshCalls()).toHaveLength(1));
+    useAuthStore.getState().logout();
+    useAuthStore.getState().setTokens(SESSION_B, 'refresh-b');
+    const requestOfB = apiRequest('/billings', { token: SESSION_B }).catch((e: unknown) => e);
+    await vi.waitFor(() => expect(calls().filter((c) => c.path === '/billings')).toHaveLength(1));
+    refresh.resolve(jsonResponse(200, { accessToken: SESSION_A_RENEWED, refreshToken: 'refresh-a2' }));
+    await requestOfA;
+    await requestOfB;
+
+    expect(calls().some((c) => c.authorization === `Bearer ${SESSION_A_RENEWED}`)).toBe(false);
+    expect(calls().filter((c) => c.path === '/billings').every((c) => c.authorization === `Bearer ${SESSION_B}`)).toBe(true);
+    expect(useAuthStore.getState().accessToken).toBe(SESSION_B);
+  });
+
+  it('renovação da mesma sessão continua valendo: o token de antes e o de depois são da mesma pessoa', async () => {
+    const { apiRequest, useAuthStore } = await loadClient({ accessToken: SESSION_A, refreshToken: 'refresh-a' });
+    fetchMock
+      .mockResolvedValueOnce(unauthorized())
+      .mockResolvedValueOnce(jsonResponse(200, { accessToken: SESSION_A_RENEWED, refreshToken: 'refresh-a2' }))
+      .mockResolvedValueOnce(jsonResponse(200, { data: ['ok'] }));
+
+    await expect(apiRequest('/patients', { token: SESSION_A })).resolves.toEqual({ data: ['ok'] });
+
+    expect(useAuthStore.getState().accessToken).toBe(SESSION_A_RENEWED);
+    expect(calls()[2].authorization).toBe(`Bearer ${SESSION_A_RENEWED}`);
+  });
+
+  it('requisição que partiu com o token antigo da mesma sessão reaproveita o token já renovado', async () => {
+    const { apiRequest } = await loadClient({ accessToken: SESSION_A_RENEWED, refreshToken: 'refresh-a2' });
+    fetchMock.mockResolvedValueOnce(unauthorized()).mockResolvedValueOnce(jsonResponse(200, { data: [] }));
+
+    await expect(apiRequest('/patients', { token: SESSION_A })).resolves.toEqual({ data: [] });
+
+    expect(refreshCalls()).toHaveLength(0);
+    expect(calls()[1].authorization).toBe(`Bearer ${SESSION_A_RENEWED}`);
+  });
+});

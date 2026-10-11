@@ -1,3 +1,4 @@
+import type { Route } from '@playwright/test';
 import { createClinic, deactivateUser, removeClinic } from '../support/database';
 import { errorMessage, expect, openMenu, signIn, test } from '../support/fixtures';
 
@@ -114,6 +115,65 @@ test.describe('Sessão', () => {
       await expect(page.getByText(clinic.patients[1].name)).toHaveCount(0);
       await expect(page.getByText(otherClinic.patients[0].name)).toBeVisible();
     } finally {
+      await removeClinic(otherClinic.tenantId);
+    }
+  });
+
+  test('resposta atrasada da sessão anterior: chega depois de outra clínica entrar e não aparece para ela', async ({ page, clinic }) => {
+    const otherClinic = await createClinic();
+    try {
+      // A primeira busca de pacientes — a da clínica que entra primeiro; o
+      // painel já a faz na tela inicial — fica a caminho: a requisição sai, a
+      // resposta não volta. As outras chamadas dessa sessão seguem normais até
+      // o servidor encerrá-la; daí em diante chegam com o token vencido.
+      const held: Route[] = [];
+      let firstSession: string | undefined;
+      let sessionEnded = false;
+      await page.route('**/api/v1/**', async (route) => {
+        const request = route.request();
+        const headers = request.headers();
+        if (held.length === 0 && request.method() === 'GET' && new URL(request.url()).pathname.endsWith('/patients')) {
+          firstSession = headers.authorization;
+          held.push(route);
+          return;
+        }
+        if (sessionEnded && headers.authorization === firstSession) headers.authorization = `${headers.authorization.slice(0, -6)}AAAAAA`;
+        await route.continue({ headers });
+      });
+      await signIn(page, clinic.admin);
+      await openMenu(page, 'Pacientes');
+      await expect.poll(() => held.length).toBe(1);
+
+      await deactivateUser(clinic.admin.id);
+      sessionEnded = true;
+      await page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: /^Agenda/ }).click();
+      await expect(page).toHaveURL(/\/login$/);
+      await expect(page.getByRole('status')).toContainText('Sua sessão foi encerrada');
+
+      // A outra clínica entra na mesma aba e vê os pacientes dela.
+      await page.locator('input[type="email"]').fill(otherClinic.admin.email);
+      await page.locator('input[type="password"]').fill(otherClinic.admin.password);
+      await page.getByRole('button', { name: 'Entrar' }).click();
+      await expect(page).toHaveURL(/\/dashboard$/);
+      await openMenu(page, 'Pacientes');
+      await expect(page.getByText(otherClinic.patients[0].name)).toBeVisible();
+
+      // Só agora a resposta retida chega — e é a de verdade, com os pacientes
+      // da primeira clínica: o token de acesso dela ainda vale no servidor.
+      const lateResponse = await held[0].fetch();
+      expect(lateResponse.status()).toBe(200);
+      expect(await lateResponse.text()).toContain(clinic.patients[0].name);
+      await held[0].fulfill({ response: lateResponse });
+
+      // Sair da tela e voltar remonta a lista a partir do cache: se a resposta
+      // atrasada tivesse entrado nele, apareceria aqui.
+      await openMenu(page, 'Agenda');
+      await openMenu(page, 'Pacientes');
+      await expect(page.getByText(otherClinic.patients[0].name)).toBeVisible();
+      await expect(page.getByText(clinic.patients[0].name)).toHaveCount(0);
+      await expect(page.getByText(clinic.patients[1].name)).toHaveCount(0);
+    } finally {
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
       await removeClinic(otherClinic.tenantId);
     }
   });

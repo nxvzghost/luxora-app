@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { ApiError, apiRequest } from '@/lib/api-client/client';
-import { QueryProvider } from '@/lib/query-provider';
-import { sessionIdentity } from '@/lib/session';
+import { createQueryClient, QueryProvider } from '@/lib/query-provider';
+import { sessionIdentity } from '@/lib/session-identity';
 import { useAuthStore } from '@/lib/stores/auth.store';
 import { apiError, mockApi } from '../support/mock-api';
 
@@ -129,7 +129,62 @@ describe('QueryProvider — o cache não passa de uma sessão para a outra', () 
     unmount();
     useAuthStore.getState().logout();
 
-    expect(client?.getQueryData(['patients'])).toEqual(CACHED);
+    // Olha o cache em si, não uma busca pela chave: sem sessão a chave já é
+    // outra (segunda linha, abaixo). O que se prova é que ninguém o esvaziou.
+    expect(client?.getQueryCache().getAll().map((query) => query.state.data)).toEqual([CACHED]);
+  });
+});
+
+describe('createQueryClient — segunda linha: cada sessão tem as suas próprias chaves', () => {
+  // Sem provider montado: ninguém limpa o cache aqui. É a chave que separa.
+  const OTHER = { data: [{ id: 'p2', name: 'Paciente de outra sessão' }] };
+
+  it('o que uma sessão guardou não é encontrado pela seguinte, mesmo que ninguém limpe o cache', () => {
+    const client = createQueryClient();
+    useAuthStore.getState().setTokens(token('user-a', 'clinica-a'), 'refresh-a');
+    client.setQueryData(['patients'], CACHED);
+
+    useAuthStore.getState().setTokens(token('user-b', 'clinica-b'), 'refresh-b');
+
+    expect(client.getQueryData(['patients'])).toBeUndefined();
+    client.setQueryData(['patients'], OTHER);
+    expect(client.getQueryData(['patients'])).toEqual(OTHER);
+
+    // De volta à primeira identidade, o dado dela está onde foi deixado: nada foi apagado, a chave é que é outra.
+    useAuthStore.getState().setTokens(token('user-a', 'clinica-a'), 'refresh-a');
+    expect(client.getQueryData(['patients'])).toEqual(CACHED);
+  });
+
+  it('sem sessão, nada do que uma sessão guardou é encontrado', () => {
+    const client = createQueryClient();
+    useAuthStore.getState().setTokens(token('user-a', 'clinica-a'), 'refresh-a');
+    client.setQueryData(['patients'], CACHED);
+
+    useAuthStore.setState({ accessToken: null, refreshToken: null });
+
+    expect(client.getQueryData(['patients'])).toBeUndefined();
+  });
+
+  it('renovar o token da mesma sessão não muda a chave', () => {
+    const client = createQueryClient();
+    useAuthStore.getState().setTokens(token('user-a', 'clinica-a', 'admin', 1), 'refresh-a');
+    client.setQueryData(['patients'], CACHED);
+
+    useAuthStore.getState().setTokens(token('user-a', 'clinica-a', 'admin', 2), 'refresh-a2');
+
+    expect(client.getQueryData(['patients'])).toEqual(CACHED);
+  });
+
+  it('invalidar pela chave do código continua alcançando as consultas da sessão atual', async () => {
+    const client = createQueryClient();
+    useAuthStore.getState().setTokens(token('user-a', 'clinica-a'), 'refresh-a');
+    client.setQueryData(['patients'], CACHED);
+    client.setQueryData(['appointments', '2031-01-01'], CACHED);
+
+    await client.invalidateQueries({ queryKey: ['patients'] });
+
+    expect(client.getQueryState(['patients'])?.isInvalidated).toBe(true);
+    expect(client.getQueryState(['appointments', '2031-01-01'])?.isInvalidated).toBe(false);
   });
 });
 

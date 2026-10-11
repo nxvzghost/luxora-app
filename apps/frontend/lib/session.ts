@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/api-client/client';
+import { tokenPayload } from '@/lib/session-identity';
 import { useAuthStore } from '@/lib/stores/auth.store';
 
 export type Role = 'admin' | 'therapist';
@@ -13,16 +14,6 @@ export type Role = 'admin' | 'therapist';
  * perfil não pode usar não precisa aparecer. Quem autoriza de verdade é o
  * backend, em toda rota; adulterar este valor no navegador não dá acesso a nada.
  */
-function tokenPayload(token: string | null): { role?: unknown; sub?: unknown; tenantId?: unknown } | null {
-  if (!token) return null;
-  try {
-    const payload = token.split('.')[1];
-    return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/'))) as { role?: unknown; sub?: unknown; tenantId?: unknown };
-  } catch {
-    return null;
-  }
-}
-
 export function roleFromToken(token: string | null): Role | null {
   const role = tokenPayload(token)?.role;
   return role === 'admin' || role === 'therapist' ? role : null;
@@ -40,24 +31,6 @@ export function useCurrentUserId(): string | null {
     const sub = tokenPayload(token)?.sub;
     return typeof sub === 'string' ? sub : null;
   }, [token]);
-}
-
-/**
- * De quem é a sessão: clínica, usuário e papel, lidos do access token. Dois
- * tokens da mesma sessão (o de antes e o de depois de uma renovação) têm a
- * mesma identidade; qualquer outra troca é outra sessão.
- *
- * Serve para o cache de dados saber quando deixou de ser de quem o encheu
- * (`lib/query-provider.tsx`). Não autoriza nada: quem autoriza é o backend.
- *
- * Token que não dá para ler, ou sem usuário e clínica, é a sua própria
- * identidade: na dúvida, dois tokens diferentes são duas sessões.
- */
-export function sessionIdentity(token: string | null): string | null {
-  if (!token) return null;
-  const payload = tokenPayload(token);
-  if (typeof payload?.sub !== 'string' || typeof payload.tenantId !== 'string') return token;
-  return JSON.stringify([payload.tenantId, payload.sub, payload.role ?? null]);
 }
 
 /**
