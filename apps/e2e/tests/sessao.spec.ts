@@ -81,6 +81,33 @@ test.describe('Sessão', () => {
     await expect(errorMessage(page)).toContainText('Credenciais inválidas');
   });
 
+  test('sair e outra clínica entrar na mesma aba: nada da primeira aparece', async ({ page, clinic }) => {
+    // Sem interceptar a rede, de propósito: é o único dos três testes de duas
+    // clínicas em que o cache HTTP do navegador fica ligado (o Playwright o
+    // desliga quando há interceptação), e as duas pedem o mesmo endereço.
+    const otherClinic = await createClinic();
+    try {
+      await signIn(page, clinic.admin);
+      await openMenu(page, 'Pacientes');
+      await expect(page.getByText(clinic.patients[0].name)).toBeVisible();
+
+      await page.getByRole('button', { name: 'Sair' }).click();
+      await expect(page).toHaveURL(/\/login$/);
+
+      await page.locator('input[type="email"]').fill(otherClinic.admin.email);
+      await page.locator('input[type="password"]').fill(otherClinic.admin.password);
+      await page.getByRole('button', { name: 'Entrar' }).click();
+      await expect(page).toHaveURL(/\/dashboard$/);
+      await openMenu(page, 'Pacientes');
+
+      await expect(page.getByText(otherClinic.patients[0].name)).toBeVisible();
+      await expect(page.getByText(clinic.patients[0].name)).toHaveCount(0);
+      await expect(page.getByText(clinic.patients[1].name)).toHaveCount(0);
+    } finally {
+      await removeClinic(otherClinic.tenantId);
+    }
+  });
+
   test('sessão encerrada pelo servidor: quem entra em seguida, de outra clínica, não recebe os dados da anterior', async ({ page, clinic }) => {
     const otherClinic = await createClinic();
     try {
