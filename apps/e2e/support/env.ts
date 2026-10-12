@@ -17,7 +17,15 @@ export const APP_DATABASE_URL = process.env.E2E_DATABASE_URL ?? 'postgresql://lu
 export const ADMIN_DATABASE_URL = process.env.E2E_ADMIN_DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:55432/luxora_e2e';
 export const REDIS_URL = process.env.E2E_REDIS_URL ?? 'redis://localhost:56379';
 
-/** A clínica dos testes fica em Brasília; navegador e backend usam o mesmo fuso, seja qual for o da máquina. */
+/**
+ * A clínica dos testes fica em Brasília — o padrão do sistema, que é o que
+ * `clinic_settings` recebe. O NAVEGADOR usa esse fuso, seja qual for o da
+ * máquina (o painel mostra os horários no fuso de quem o usa).
+ *
+ * O BACKEND não é fixado em fuso nenhum (AD-039, ADR-0064): roda no da
+ * máquina — UTC no CI — e tem de dar os mesmos horários, porque lê o fuso da
+ * clínica. Antes, `TZ` era imposto aqui para a agenda fechar.
+ */
 export const CLINIC_TIMEZONE = 'America/Sao_Paulo';
 
 /**
@@ -36,7 +44,6 @@ export function backendEnv(): Record<string, string> {
   assertDisposableDatabase(APP_DATABASE_URL);
   return {
     NODE_ENV: 'test',
-    TZ: CLINIC_TIMEZONE,
     PORT: String(API_PORT),
     DATABASE_URL: APP_DATABASE_URL,
     REDIS_URL,

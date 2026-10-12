@@ -3,6 +3,8 @@ import { ObterResumoDashboardUseCase } from '@use-cases/dashboard/obter-resumo-d
 import { PatientRepository } from '@domain-services/patient-ops/patient.repository';
 import { BillingRepository } from '@domain-services/financial/billing.repository';
 
+const clinicTimeZone = { current: vi.fn().mockResolvedValue('America/Sao_Paulo') };
+
 function buildPatientRepositoryMock(overrides: Partial<PatientRepository> = {}): PatientRepository {
   return {
     findById: vi.fn(),
@@ -35,7 +37,7 @@ describe('ObterResumoDashboardUseCase', () => {
   it('chama countActiveByTenant, countOverdueByTenant e sumPendingByTenant', async () => {
     const patientRepository = buildPatientRepositoryMock();
     const billingRepository = buildBillingRepositoryMock();
-    const useCase = new ObterResumoDashboardUseCase(patientRepository, billingRepository);
+    const useCase = new ObterResumoDashboardUseCase(patientRepository, billingRepository, clinicTimeZone);
 
     await useCase.execute();
 
@@ -50,7 +52,7 @@ describe('ObterResumoDashboardUseCase', () => {
       countOverdueByTenant: vi.fn().mockResolvedValue(3),
       sumPendingByTenant: vi.fn().mockResolvedValue(1600),
     });
-    const useCase = new ObterResumoDashboardUseCase(patientRepository, billingRepository);
+    const useCase = new ObterResumoDashboardUseCase(patientRepository, billingRepository, clinicTimeZone);
 
     const result = await useCase.execute();
 
@@ -77,7 +79,7 @@ describe('ObterResumoDashboardUseCase', () => {
         return 3;
       }),
     });
-    const useCase = new ObterResumoDashboardUseCase(patientRepository, billingRepository);
+    const useCase = new ObterResumoDashboardUseCase(patientRepository, billingRepository, clinicTimeZone);
 
     await useCase.execute();
 

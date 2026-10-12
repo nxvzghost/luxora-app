@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AvailabilityCalendar as PrismaAvailabilityCalendar, Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { readClinicTimeZone } from '@infrastructure/database/prisma-clinic-time-zone.reader';
 import {
   AvailabilityCalendar,
   AvailabilityException,
@@ -12,11 +13,15 @@ import { AvailabilityRepository } from '@domain-services/availability/availabili
 export class PrismaAvailabilityRepository implements AvailabilityRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * AD-039 — o calendário é montado com o fuso da clínica, lido na mesma
+   * transação: as janelas ("09:00") só viram instantes dentro dele.
+   */
   async findByTherapistId(therapistId: string): Promise<AvailabilityCalendar | null> {
-    const record = await this.prisma.forTenant((tx) =>
-      tx.availabilityCalendar.findUnique({ where: { therapistId } }),
-    );
-    return record ? this.toDomain(record) : null;
+    return this.prisma.forTenant(async (tx) => {
+      const record = await tx.availabilityCalendar.findUnique({ where: { therapistId } });
+      return record ? this.toDomain(record, await readClinicTimeZone(tx)) : null;
+    });
   }
 
   async save(calendar: AvailabilityCalendar): Promise<void> {
@@ -38,11 +43,12 @@ export class PrismaAvailabilityRepository implements AvailabilityRepository {
     );
   }
 
-  private toDomain(record: PrismaAvailabilityCalendar): AvailabilityCalendar {
+  private toDomain(record: PrismaAvailabilityCalendar, timeZone: string): AvailabilityCalendar {
     return AvailabilityCalendar.reconstitute({
       id: record.id,
       tenantId: record.tenantId,
       therapistId: record.therapistId,
+      timeZone,
       windows: (record.windows as unknown as AvailabilityWindow[]) ?? [],
       exceptions: this.parseExceptions(record.exceptions),
     });

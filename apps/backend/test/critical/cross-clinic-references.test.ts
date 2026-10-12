@@ -4,6 +4,7 @@ import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
+import { clinicTimeAt } from '../support/clinic-time';
 
 /**
  * [CRÍTICO — Tarefa 06 da auditoria] Nenhum registro de uma clínica pode
@@ -33,9 +34,8 @@ function toSuperuserUrl(databaseUrl: string): string {
 const api = () => request(app.getHttpServer());
 const auth = () => ({ Authorization: `Bearer ${tokenA}` });
 
-const FIRST = new Date();
-FIRST.setDate(FIRST.getDate() + 60);
-FIRST.setHours(10, 0, 0, 0);
+// 10:00 na clínica (AD-039), 60 dias à frente.
+const FIRST = clinicTimeAt(60, 10);
 
 const blockBody = (overrides: Record<string, unknown> = {}) => ({
   patientId: clinicA.patientId,

@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { IntentResult } from '@domain-services/ai/ai-provider';
+import { CLINIC_TIME_ZONE_READER, ClinicTimeZoneReader } from '@domain-services/platform/clinic-time-zone.reader';
 import { AgendarConsultaUseCase } from '@use-cases/appointment/agendar-consulta.use-case';
 import {
   CancelarConsultaUseCase,
@@ -83,7 +84,17 @@ export class IntentActionRouter {
     private readonly consultarCobranca: ConsultarCobrancaUseCase,
     private readonly remarcarConsulta: RemarcarConsultaUseCase,
     private readonly consultarDisponibilidade: ConsultarDisponibilidadeUseCase,
+    @Inject(CLINIC_TIME_ZONE_READER) private readonly clinicTimeZone: ClinicTimeZoneReader,
   ) {}
+
+  /**
+   * AD-039 — data e hora como a clínica as lê. O texto vai para a resposta
+   * ao paciente: escrito no fuso do processo (UTC, no contêiner), dizia
+   * "12:00" para uma consulta das 09:00 de São Paulo.
+   */
+  private async inClinicTime(instant: Date): Promise<string> {
+    return instant.toLocaleString('pt-BR', { timeZone: await this.clinicTimeZone.current() });
+  }
 
   async route(intent: IntentResult, context: IntentActionContext): Promise<IntentActionResult> {
     if (IDENTITY_DEPENDENT_INTENTS.has(intent.intent) && (context.identityResolved === false || !context.patientId)) {
@@ -134,7 +145,7 @@ export class IntentActionRouter {
 
     return {
       actionTaken: true,
-      actionSummary: `Consulta agendada para ${appointment.scheduledAt.toLocaleString('pt-BR')}.`,
+      actionSummary: `Consulta agendada para ${await this.inClinicTime(appointment.scheduledAt)}.`,
     };
   }
 
@@ -180,7 +191,7 @@ export class IntentActionRouter {
     });
     return {
       actionTaken: true,
-      actionSummary: `Consulta reagendada para ${appointment.scheduledAt.toLocaleString('pt-BR')}.`,
+      actionSummary: `Consulta reagendada para ${await this.inClinicTime(appointment.scheduledAt)}.`,
     };
   }
 
@@ -205,10 +216,7 @@ export class IntentActionRouter {
       return { actionTaken: true, actionSummary: 'Nenhum horário disponível no período consultado.' };
     }
 
-    const preview = slots
-      .slice(0, 3)
-      .map((s) => s.startsAt.toLocaleString('pt-BR'))
-      .join(', ');
+    const preview = (await Promise.all(slots.slice(0, 3).map((s) => this.inClinicTime(s.startsAt)))).join(', ');
     return { actionTaken: true, actionSummary: `Horários disponíveis: ${preview}${slots.length > 3 ? '...' : ''}.` };
   }
 }

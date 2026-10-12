@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { BillingRepository, BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
+import { CLINIC_TIME_ZONE_READER, ClinicTimeZoneReader } from '@domain-services/platform/clinic-time-zone.reader';
 
 export type FinancialSegment = 'em_atraso' | 'inadimplente';
 
@@ -20,12 +21,17 @@ export interface SegmentedBilling {
  */
 @Injectable()
 export class ConsultarSegmentacaoFinanceiraUseCase {
-  constructor(@Inject(BILLING_REPOSITORY) private readonly repo: BillingRepository) {}
+  constructor(
+    @Inject(BILLING_REPOSITORY) private readonly repo: BillingRepository,
+    @Inject(CLINIC_TIME_ZONE_READER) private readonly clinicTimeZone: ClinicTimeZoneReader,
+  ) {}
 
   async execute(): Promise<SegmentedBilling[]> {
     const overdue = await this.repo.findOverdueByTenant();
+    // AD-039 — os dias de atraso são dias do calendário da clínica.
+    const timeZone = await this.clinicTimeZone.current();
     return overdue.map((billing) => {
-      const daysOverdue = billing.daysOverdue();
+      const daysOverdue = billing.daysOverdue(timeZone);
       return {
         billingId: billing.id,
         patientId: billing.patientId,

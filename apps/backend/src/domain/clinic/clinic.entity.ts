@@ -32,6 +32,13 @@ export interface ClinicProps {
   defaultSessionDurationMinutes: number;
   pixKey?: string;
   payeeName?: string;
+  /**
+   * AD-039 (ADR-0064) — fuso da clínica, nome da base IANA. Só leitura nesta
+   * entidade: quem pode alterá-lo, e o que acontece com as consultas já
+   * marcadas quando ele muda, ainda não foi decidido (ADR-0064, "Pontos a
+   * confirmar").
+   */
+  timeZone: string;
 }
 
 export class Clinic {
@@ -69,6 +76,10 @@ export class Clinic {
 
   get payeeName(): string | undefined {
     return this.props.payeeName;
+  }
+
+  get timeZone(): string {
+    return this.props.timeZone;
   }
 
   rename(newName: string): void {

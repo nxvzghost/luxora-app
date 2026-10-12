@@ -5,6 +5,7 @@ import { PrismaClientProvider } from '@infrastructure/database/prisma-client.pro
 import { PrismaClinicHolidayRepository } from '@infrastructure/database/repositories/prisma-clinic-holiday.repository';
 import { ClinicHoliday } from '@domain/availability/clinic-holiday.entity';
 import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
+import { clinicTimeAt } from '../support/clinic-time';
 
 /**
  * PD-001 Fase 2, itens B3 (persistência) e B5 (findById/delete, gerenciamento)
@@ -46,10 +47,7 @@ const fixturePrisma = new PrismaClient({
 const ANCHOR_DAYS_AHEAD = 60;
 
 function dateAt(daysFromAnchor: number): Date {
-  const date = new Date();
-  date.setDate(date.getDate() + ANCHOR_DAYS_AHEAD + daysFromAnchor);
-  date.setHours(0, 0, 0, 0);
-  return date;
+  return clinicTimeAt(ANCHOR_DAYS_AHEAD + daysFromAnchor);
 }
 
 function newHoliday(tenantId: string, from: Date, to: Date, reason?: string) {

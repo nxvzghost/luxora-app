@@ -15,6 +15,8 @@ import { PrismaTherapistRepository } from '@infrastructure/database/repositories
 import { PrismaPatientRepository } from '@infrastructure/database/repositories/prisma-patient.repository';
 import { PrismaBillingRepository } from '@infrastructure/database/repositories/prisma-billing.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { CLINIC_TIME_ZONE_READER } from '@domain-services/platform/clinic-time-zone.reader';
+import { PrismaClinicTimeZoneReader } from '@infrastructure/database/prisma-clinic-time-zone.reader';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { CommunicationModule } from '../communication/communication.module';
 
@@ -33,6 +35,8 @@ import { CommunicationModule } from '../communication/communication.module';
     { provide: PATIENT_REPOSITORY, useClass: PrismaPatientRepository },
     { provide: BILLING_REPOSITORY, useClass: PrismaBillingRepository },
     PrismaService,
+    // AD-039 — fuso da clínica, lido de clinic_settings.
+    { provide: CLINIC_TIME_ZONE_READER, useClass: PrismaClinicTimeZoneReader },
     PrismaClientProvider,
   ],
 })

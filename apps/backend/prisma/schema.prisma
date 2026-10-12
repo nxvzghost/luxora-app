@@ -72,6 +72,11 @@ model ClinicSettings {
   // precisar montar a mensagem de verdade.
   pixKey                String?       @map("pix_key")
   payeeName             String?       @map("payee_name")
+  // AD-039 (ADR-0064) — fuso da clínica, nome da base IANA. As janelas de
+  // disponibilidade ("09:00") e o dia do vencimento valem neste fuso, com o
+  // processo rodando em qualquer outro (o contêiner roda em UTC). O padrão
+  // cobre as clínicas que já existiam.
+  timeZone              String        @default("America/Sao_Paulo") @map("time_zone")
   createdAt             DateTime      @default(now()) @map("created_at")
   updatedAt             DateTime      @updatedAt @map("updated_at")
 

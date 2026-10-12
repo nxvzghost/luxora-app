@@ -1,4 +1,5 @@
 import { randomInt } from 'node:crypto';
+import { clinicTimeAt } from '../../support/clinic-time';
 
 /**
  * Gera um horário de agendamento sempre único — entre chamadas na mesma
@@ -28,8 +29,6 @@ export function uniqueSlot(): string {
 
   const hour = randomInt(8, 18);
   const minute = randomInt(0, 60);
-  const date = new Date();
-  date.setDate(date.getDate() + daysAhead);
-  date.setHours(hour, minute, 0, 0);
-  return date.toISOString();
+  // AD-039 — hora de parede na clínica de teste, não no fuso do processo.
+  return clinicTimeAt(daysAhead, hour, minute).toISOString();
 }

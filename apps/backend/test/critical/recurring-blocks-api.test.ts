@@ -6,6 +6,7 @@ import request from 'supertest';
 import { bootstrapTestApp } from './support/bootstrap-app';
 import { loginAs, TENANT_A_ADMIN_EMAIL } from './support/login-helper';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
+import { clinicTimeAt } from '../support/clinic-time';
 
 /**
  * PD-001 Fase 2, C5 — API HTTP de RecurringBlock (Criar + Listar), ponta a
@@ -51,10 +52,7 @@ function toSuperuserUrl(databaseUrl: string): string {
 // candidata o suficiente para não colidir com nenhuma outra suíte.
 const ANCHOR_DAYS_AHEAD = randomInt(30, 9970);
 function dateAt(daysFromAnchor: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + ANCHOR_DAYS_AHEAD + daysFromAnchor);
-  date.setHours(14, 0, 0, 0);
-  return date.toISOString();
+  return clinicTimeAt(ANCHOR_DAYS_AHEAD + daysFromAnchor, 14).toISOString();
 }
 
 beforeAll(async () => {

@@ -30,6 +30,8 @@ import { PrismaTherapistRepository } from '@infrastructure/database/repositories
 import { PrismaAvailabilityRepository } from '@infrastructure/database/repositories/prisma-availability.repository';
 import { PrismaClinicHolidayRepository } from '@infrastructure/database/repositories/prisma-clinic-holiday.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { CLINIC_TIME_ZONE_READER } from '@domain-services/platform/clinic-time-zone.reader';
+import { PrismaClinicTimeZoneReader } from '@infrastructure/database/prisma-clinic-time-zone.reader';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { WhatsAppInboundQueueWorker } from '@infrastructure/messaging/whatsapp-inbound-queue.worker';
 import { CommunicationModule } from '../communication/communication.module';
@@ -85,6 +87,8 @@ import { ContactModule } from '../patient-ops/contact.module';
     { provide: AVAILABILITY_REPOSITORY, useClass: PrismaAvailabilityRepository },
     { provide: CLINIC_HOLIDAY_REPOSITORY, useClass: PrismaClinicHolidayRepository },
     PrismaService,
+    // AD-039 — fuso da clínica, lido de clinic_settings.
+    { provide: CLINIC_TIME_ZONE_READER, useClass: PrismaClinicTimeZoneReader },
     PrismaClientProvider,
   ],
   exports: [ProcessarMensagemUseCase],

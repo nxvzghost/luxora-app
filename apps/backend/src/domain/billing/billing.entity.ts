@@ -1,5 +1,6 @@
 import { StateMachine } from '../shared/state-machine';
 import { DomainEvent } from '../shared/domain-event';
+import { civilDateIn, civilDateOfDateOnly, civilDayNumber } from '../shared/time-zone';
 
 /**
  * Estados da Cobrança.
@@ -58,16 +59,26 @@ const billingStateMachine = new StateMachine<BillingState>('Cobrança', billingT
  */
 export const AWAITING_PAYMENT_STATES: readonly BillingState[] = ['Criada', 'Enviada', 'Visualizada', 'Pendente'];
 
-const DAY_IN_MS = 24 * 60 * 60 * 1000;
-
 /**
- * Vencimento mais recente que já conta como atraso em `referenceDate`: um
- * dia inteiro depois do vencimento, a mesma régua de daysOverdue() (D+1 é o
- * primeiro dia de atraso). Exportado para a contagem no banco usar
- * exatamente o mesmo corte que isOverdue().
+ * Vencimento e atraso — AD-039 (ADR-0064).
+ *
+ * O vencimento é uma DATA, sem hora: o dia do calendário escrito na cobrança
+ * (a API o recebe como `AAAA-MM-DD` e o guarda como a meia-noite UTC desse
+ * dia — ver civilDateOfDateOnly). A cobrança continua em dia durante todo o
+ * dia do vencimento, no fuso da clínica, e passa a estar em atraso à
+ * meia-noite do dia seguinte, também no fuso da clínica. Nada aqui depende
+ * do fuso do processo.
+ *
+ * `overdueDueDateLimit` é o corte em forma de instante, para a contagem no
+ * banco usar exatamente a regra de isOverdue(): está em atraso a cobrança
+ * cujo vencimento gravado é ANTERIOR à meia-noite UTC do dia que é "hoje" na
+ * clínica. Com a clínica em São Paulo às 23:59 do dia 12, "hoje" é 12 e só
+ * os vencimentos até o dia 11 contam; um minuto depois, "hoje" é 13 e o dia
+ * 12 passa a contar.
  */
-export function overdueDueDateCutoff(referenceDate: Date): Date {
-  return new Date(referenceDate.getTime() - DAY_IN_MS);
+export function overdueDueDateLimit(timeZone: string, referenceDate: Date): Date {
+  const today = civilDateIn(referenceDate, timeZone);
+  return new Date(Date.UTC(today.year, today.month - 1, today.day));
 }
 
 export class BillingStateChangedEvent extends DomainEvent {
@@ -135,10 +146,15 @@ export class Billing {
    * Dias em atraso a partir do vencimento — base para a classificação
    * em_atraso (≤7 dias) / inadimplente (>40 dias), ver
    * docs/05-IA/03-Gestao-de-Inadimplencia.md.
+   *
+   * AD-039 — dias do calendário da clínica (`timeZone`), não blocos de 24 h
+   * a partir da meia-noite UTC: 0 até o fim do dia do vencimento, 1 a partir
+   * da meia-noite seguinte na clínica, e assim por diante.
    */
-  daysOverdue(referenceDate: Date = new Date()): number {
-    const diffMs = referenceDate.getTime() - this.props.dueDate.getTime();
-    return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  daysOverdue(timeZone: string, referenceDate: Date = new Date()): number {
+    const dueDay = civilDayNumber(civilDateOfDateOnly(this.props.dueDate));
+    const today = civilDayNumber(civilDateIn(referenceDate, timeZone));
+    return Math.max(0, today - dueDay);
   }
 
   /**
@@ -150,20 +166,22 @@ export class Billing {
    *
    * A regra passa a ser calculada, sem transição nova:
    * - `Atrasada` continua em atraso, como já era;
-   * - `Criada`, `Enviada`, `Visualizada` e `Pendente` estão em atraso quando
-   *   o vencimento passou há um dia inteiro ou mais (daysOverdue() >= 1);
+   * - `Criada`, `Enviada`, `Visualizada` e `Pendente` estão em atraso a
+   *   partir da meia-noite do dia seguinte ao vencimento, no fuso da clínica
+   *   (daysOverdue() >= 1) — AD-039: antes o corte era em UTC, e a cobrança
+   *   constava em atraso às 21h de Brasília do próprio dia do vencimento;
    * - `Quitada` e `Cancelada` nunca estão; `Negociada` e `Escalada` seguem
    *   fora da contagem, como já estavam.
    *
    * O estado gravado não muda: uma cobrança `Enviada` e vencida continua
    * `Enviada`. Sem vencimento válido, não há atraso por data.
    */
-  isOverdue(referenceDate: Date = new Date()): boolean {
+  isOverdue(timeZone: string, referenceDate: Date = new Date()): boolean {
     if (this._state === 'Atrasada') return true;
     if (!AWAITING_PAYMENT_STATES.includes(this._state)) return false;
     const dueTime = this.props.dueDate instanceof Date ? this.props.dueDate.getTime() : Number.NaN;
     if (Number.isNaN(dueTime)) return false;
-    return dueTime <= overdueDueDateCutoff(referenceDate).getTime();
+    return dueTime < overdueDueDateLimit(timeZone, referenceDate).getTime();
   }
 
   transitionTo(newState: BillingState): void {

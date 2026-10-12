@@ -8,6 +8,7 @@ import {
 import { AVAILABILITY_REPOSITORY, AvailabilityRepository } from '@domain-services/availability/availability.repository';
 import { THERAPIST_REPOSITORY, TherapistRepository } from '@domain-services/platform/therapist.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
+import { CLINIC_TIME_ZONE_READER, ClinicTimeZoneReader } from '@domain-services/platform/clinic-time-zone.reader';
 import { TenantContext } from '@shared/tenant-context';
 
 /**
@@ -36,6 +37,7 @@ export class DefinirDisponibilidadeUseCase {
     @Inject(THERAPIST_REPOSITORY) private readonly therapistRepo: TherapistRepository,
     private readonly tenantContext: TenantContext,
     private readonly auditService: AuditService,
+    @Inject(CLINIC_TIME_ZONE_READER) private readonly clinicTimeZone: ClinicTimeZoneReader,
   ) {}
 
   async execute(therapistId: string, windows: AvailabilityWindow[]): Promise<AvailabilityCalendar> {
@@ -50,6 +52,7 @@ export class DefinirDisponibilidadeUseCase {
         id: randomUUID(),
         tenantId: this.tenantContext.tenantId,
         therapistId,
+        timeZone: await this.clinicTimeZone.current(),
       });
     }
 
@@ -74,6 +77,7 @@ export class DefinirExcecoesDisponibilidadeUseCase {
     @Inject(THERAPIST_REPOSITORY) private readonly therapistRepo: TherapistRepository,
     private readonly tenantContext: TenantContext,
     private readonly auditService: AuditService,
+    @Inject(CLINIC_TIME_ZONE_READER) private readonly clinicTimeZone: ClinicTimeZoneReader,
   ) {}
 
   async execute(therapistId: string, exceptions: AvailabilityException[]): Promise<AvailabilityCalendar> {
@@ -88,6 +92,7 @@ export class DefinirExcecoesDisponibilidadeUseCase {
         id: randomUUID(),
         tenantId: this.tenantContext.tenantId,
         therapistId,
+        timeZone: await this.clinicTimeZone.current(),
       });
     }
 

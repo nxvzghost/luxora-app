@@ -11,7 +11,7 @@ describe('ReenviarAgendaAtualizadaUseCase', () => {
     const therapistRepo = { findById: vi.fn().mockResolvedValue(therapist), findAllByTenant: vi.fn(), save: vi.fn() };
     const messageQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
 
-    const useCase = new ReenviarAgendaAtualizadaUseCase(appointmentRepo, therapistRepo, messageQueue as never);
+    const useCase = new ReenviarAgendaAtualizadaUseCase(appointmentRepo, therapistRepo, messageQueue as never, { current: vi.fn().mockResolvedValue('America/Sao_Paulo') });
     await useCase.execute(TENANT_ID, 't1', '+5541900000000');
 
     const call = messageQueue.enqueue.mock.calls[0][0];

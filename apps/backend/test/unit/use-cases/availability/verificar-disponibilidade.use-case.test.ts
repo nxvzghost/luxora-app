@@ -8,7 +8,7 @@ const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
 // 2026-08-03 é uma segunda-feira
 function calendarWithMondayMorning(sessionDurationMinutes = 50) {
-  const cal = AvailabilityCalendar.create({ id: 'cal1', tenantId: TENANT_ID, therapistId: 't1' });
+  const cal = AvailabilityCalendar.create({ id: 'cal1', tenantId: TENANT_ID, therapistId: 't1', timeZone: 'America/Sao_Paulo' });
   cal.setWindows([{ dayOfWeek: 1, startTime: '09:00', endTime: '11:00', sessionDurationMinutes }]);
   return cal;
 }
@@ -48,42 +48,42 @@ function makeUseCase(
 describe('VerificarDisponibilidadeUseCase — o gate central do Motor (ADR-0040)', () => {
   it('false quando o Terapeuta não tem AvailabilityCalendar configurado', async () => {
     const { useCase } = makeUseCase(null);
-    const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00') });
+    const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00-03:00') });
     expect(result).toBe(false);
   });
 
   it('NÃO consulta ClinicHolidayRepository quando o AvailabilityCalendar sequer existe', async () => {
     const { useCase, clinicHolidayRepo } = makeUseCase(null);
-    await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00') });
+    await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00-03:00') });
     expect(clinicHolidayRepo.findByTenantAndRange).not.toHaveBeenCalled();
   });
 
   it('true quando o horário está dentro da janela e sem conflito', async () => {
     const { useCase } = makeUseCase(calendarWithMondayMorning());
-    const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00') });
+    const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00-03:00') });
     expect(result).toBe(true);
   });
 
   it('false quando o horário está fora da janela do Terapeuta', async () => {
     const { useCase } = makeUseCase(calendarWithMondayMorning());
     // terça-feira, sem janela configurada
-    const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-04T09:00:00') });
+    const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-04T09:00:00-03:00') });
     expect(result).toBe(false);
   });
 
   it('false quando colide com um Appointment ativo já existente', async () => {
-    const existing = fakeAppointment('a1', new Date('2026-08-03T09:00:00'));
+    const existing = fakeAppointment('a1', new Date('2026-08-03T09:00:00-03:00'));
     const { useCase } = makeUseCase(calendarWithMondayMorning(), [existing]);
-    const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00') });
+    const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00-03:00') });
     expect(result).toBe(false);
   });
 
   it('true quando o único Appointment em conflito é o próprio (excludeAppointmentId) — caso de reagendamento', async () => {
-    const existing = fakeAppointment('a1', new Date('2026-08-03T09:00:00'));
+    const existing = fakeAppointment('a1', new Date('2026-08-03T09:00:00-03:00'));
     const { useCase } = makeUseCase(calendarWithMondayMorning(), [existing]);
     const result = await useCase.execute({
       therapistId: 't1',
-      scheduledAt: new Date('2026-08-03T09:00:00'),
+      scheduledAt: new Date('2026-08-03T09:00:00-03:00'),
       excludeAppointmentId: 'a1',
     });
     expect(result).toBe(true);
@@ -92,7 +92,7 @@ describe('VerificarDisponibilidadeUseCase — o gate central do Motor (ADR-0040)
   it('usa a duração real da janela (50min) para calcular o fim do slot consultado', async () => {
     const { useCase } = makeUseCase(calendarWithMondayMorning(50));
     // 09:50-10:40 cabe dentro de 09:00-11:00 com passo de 50min
-    const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:50:00') });
+    const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:50:00-03:00') });
     expect(result).toBe(true);
   });
 
@@ -101,17 +101,17 @@ describe('VerificarDisponibilidadeUseCase — o gate central do Motor (ADR-0040)
       const holiday = ClinicHoliday.create({
         id: 'h1',
         tenantId: TENANT_ID,
-        from: new Date('2026-08-03T00:00:00'),
-        to: new Date('2026-08-04T00:00:00'),
+        from: new Date('2026-08-03T00:00:00-03:00'),
+        to: new Date('2026-08-04T00:00:00-03:00'),
       });
       const { useCase } = makeUseCase(calendarWithMondayMorning(), [], [holiday]);
-      const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00') });
+      const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00-03:00') });
       expect(result).toBe(false);
     });
 
     it('consulta ClinicHolidayRepository com o tenantId vindo do AvailabilityCalendar, não de um valor arbitrário', async () => {
       const { useCase, clinicHolidayRepo } = makeUseCase(calendarWithMondayMorning());
-      await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00') });
+      await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00-03:00') });
       expect(clinicHolidayRepo.findByTenantAndRange).toHaveBeenCalledWith(
         TENANT_ID,
         expect.any(Date),
@@ -121,7 +121,7 @@ describe('VerificarDisponibilidadeUseCase — o gate central do Motor (ADR-0040)
 
     it('sem nenhum ClinicHoliday, comportamento idêntico ao de antes desta tarefa (sem regressão)', async () => {
       const { useCase } = makeUseCase(calendarWithMondayMorning(), [], []);
-      const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00') });
+      const result = await useCase.execute({ therapistId: 't1', scheduledAt: new Date('2026-08-03T09:00:00-03:00') });
       expect(result).toBe(true);
     });
   });

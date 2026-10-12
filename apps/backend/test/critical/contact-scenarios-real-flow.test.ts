@@ -29,6 +29,7 @@ import {
   ContactIntentDecision,
 } from '@domain-services/ai/contact-intent-classifier';
 import { ASK_FULL_NAME, CLINIC_WILL_CONTINUE, askNameConfirmation } from '@use-cases/contact/contact-intent-action-router';
+import { clinicTimeAt } from '../support/clinic-time';
 
 /**
  * Identidade no WhatsApp, no FLUXO QUE DE FATO RODA — ADR-0063 (AD-037 e
@@ -241,10 +242,7 @@ async function registerPatient(name: string, phone: string, createdDaysAgo = 1, 
 
 /** Horários fixos, em uma clínica que só este arquivo usa: nunca colidem. */
 function slotAt(hour: number): Date {
-  const slot = new Date();
-  slot.setDate(slot.getDate() + 60);
-  slot.setHours(hour, 0, 0, 0);
-  return slot;
+  return clinicTimeAt(60, hour);
 }
 
 function bookingRequest(slot: Date, extraEntities: Record<string, unknown> = {}): Script['intent'] {

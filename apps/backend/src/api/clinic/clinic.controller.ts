@@ -62,6 +62,8 @@ export class ClinicController {
       defaultSessionDurationMinutes: clinic.defaultSessionDurationMinutes,
       pixKey: clinic.pixKey ?? null,
       payeeName: clinic.payeeName ?? null,
+      // AD-039 (aditivo, só leitura): o fuso em que a agenda e os vencimentos da clínica valem.
+      timeZone: clinic.timeZone,
     };
   }
 }

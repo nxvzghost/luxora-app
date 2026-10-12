@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Inject, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
@@ -21,6 +21,7 @@ import {
 } from '@use-cases/payment/payment.use-cases';
 import { Billing } from '@domain/billing/billing.entity';
 import { Payment } from '@domain/payment/payment.entity';
+import { CLINIC_TIME_ZONE_READER, ClinicTimeZoneReader } from '@domain-services/platform/clinic-time-zone.reader';
 
 /**
  * BillingController — política de papel por rota: docs/02-Arquitetura/16-Politica-RBAC.md (AD-003).
@@ -37,6 +38,7 @@ export class BillingController {
     private readonly enviarCobranca: EnviarCobrancaUseCase,
     private readonly listarPagamentos: ListarPagamentosDaCobrancaUseCase,
     private readonly consultarEstadosDePagamento: ConsultarEstadosDePagamentoUseCase,
+    @Inject(CLINIC_TIME_ZONE_READER) private readonly clinicTimeZone: ClinicTimeZoneReader,
   ) {}
 
   // Tarefa 05 — `paymentState` (aditivo): estado do pagamento da cobrança,
@@ -46,8 +48,9 @@ export class BillingController {
   async list(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
     const billings = await this.listarCobrancas.execute({ cursor, limit: parsePageLimit(limit) });
     const paymentStates = await this.consultarEstadosDePagamento.execute(billings.map((billing) => billing.id));
+    const timeZone = await this.clinicTimeZone.current();
     return {
-      data: billings.map((billing) => ({ ...this.toResponse(billing), paymentState: paymentStates.get(billing.id) ?? null })),
+      data: billings.map((billing) => ({ ...this.toResponse(billing, timeZone), paymentState: paymentStates.get(billing.id) ?? null })),
     };
   }
 
@@ -55,18 +58,18 @@ export class BillingController {
   @Roles('admin')
   async create(@Body() dto: CreateBillingDto) {
     const billing = await this.gerarCobranca.execute({ ...dto, dueDate: new Date(dto.dueDate) });
-    return this.toResponse(billing);
+    return this.toResponse(billing, await this.clinicTimeZone.current());
   }
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
-    return this.toResponse(await this.consultarCobranca.execute(id));
+    return this.toResponse(await this.consultarCobranca.execute(id), await this.clinicTimeZone.current());
   }
 
   @Post(':id/send')
   @Roles('admin')
   async send(@Param('id') id: string) {
-    return this.toResponse(await this.enviarCobranca.execute(id));
+    return this.toResponse(await this.enviarCobranca.execute(id), await this.clinicTimeZone.current());
   }
 
   // Tarefa 05 da auditoria — só leitura: é por aqui que o painel chega ao id
@@ -82,14 +85,15 @@ export class BillingController {
   // Tarefa 05 — `overdue` (aditivo): a cobrança está em atraso pela regra de
   // Billing.isOverdue(), a mesma que GET /dashboard/summary conta. O painel
   // lê este campo em vez de refazer a conta, para as duas telas concordarem.
-  private toResponse(billing: Billing) {
+  // AD-039 — o dia do vencimento é o da clínica: `timeZone` é o fuso dela.
+  private toResponse(billing: Billing, timeZone: string) {
     return {
       id: billing.id,
       patientId: billing.patientId,
       amount: billing.amount,
       dueDate: billing.dueDate,
       state: billing.state,
-      overdue: billing.isOverdue(),
+      overdue: billing.isOverdue(timeZone),
     };
   }
 }

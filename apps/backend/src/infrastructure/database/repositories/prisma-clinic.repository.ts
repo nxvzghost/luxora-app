@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { Clinic, BillingPolicy } from '@domain/clinic/clinic.entity';
+import { assertTimeZone } from '@domain/shared/time-zone';
 import { ClinicRepository } from '@domain-services/platform/clinic.repository';
 
 @Injectable()
@@ -24,6 +25,7 @@ export class PrismaClinicRepository implements ClinicRepository {
       defaultSessionDurationMinutes: settings.defaultSessionDurationMinutes,
       pixKey: settings.pixKey ?? undefined,
       payeeName: settings.payeeName ?? undefined,
+      timeZone: assertTimeZone(settings.timeZone),
     });
   }
 

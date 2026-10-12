@@ -17,6 +17,8 @@ import { AVAILABILITY_REPOSITORY } from '@domain-services/availability/availabil
 import { PrismaTherapistRepository } from '@infrastructure/database/repositories/prisma-therapist.repository';
 import { PrismaAvailabilityRepository } from '@infrastructure/database/repositories/prisma-availability.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { CLINIC_TIME_ZONE_READER } from '@domain-services/platform/clinic-time-zone.reader';
+import { PrismaClinicTimeZoneReader } from '@infrastructure/database/prisma-clinic-time-zone.reader';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { AUDIT_LOG_REPOSITORY } from '@domain-services/platform/audit-log.repository';
@@ -43,6 +45,8 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     { provide: THERAPIST_REPOSITORY, useClass: PrismaTherapistRepository },
     { provide: AVAILABILITY_REPOSITORY, useClass: PrismaAvailabilityRepository },
     PrismaService,
+    // AD-039 — fuso da clínica, lido de clinic_settings.
+    { provide: CLINIC_TIME_ZONE_READER, useClass: PrismaClinicTimeZoneReader },
     PrismaClientProvider,
     AuditService,
     { provide: AUDIT_LOG_REPOSITORY, useClass: PrismaAuditLogRepository },

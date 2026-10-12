@@ -17,6 +17,7 @@ import { ClinicHoliday } from '@domain/availability/clinic-holiday.entity';
 import { Appointment } from '@domain/appointment/appointment.entity';
 import { TenantContext } from '@shared/tenant-context';
 import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
+import { clinicTimeAt } from '../support/clinic-time';
 
 /**
  * PD-001 Fase 2, C3 — materialização de ocorrências de RecurringBlock, de
@@ -51,10 +52,7 @@ const fixturePrisma = new PrismaClient({
 const ANCHOR_DAYS_AHEAD = 60;
 const ANCHOR_HOUR = 14;
 function dateAt(daysFromAnchor: number, hour = ANCHOR_HOUR): Date {
-  const date = new Date();
-  date.setDate(date.getDate() + ANCHOR_DAYS_AHEAD + daysFromAnchor);
-  date.setHours(hour, 0, 0, 0);
-  return date;
+  return clinicTimeAt(ANCHOR_DAYS_AHEAD + daysFromAnchor, hour);
 }
 
 beforeAll(async () => {

@@ -16,6 +16,7 @@ function makeRouter() {
     consultarCobranca as never,
     remarcarConsulta as never,
     consultarDisponibilidade as never,
+    { current: vi.fn().mockResolvedValue('America/Sao_Paulo') } as never,
   );
   return { router, agendarConsulta, cancelarConsulta, confirmarConsulta, consultarCobranca, remarcarConsulta, consultarDisponibilidade };
 }

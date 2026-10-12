@@ -5,6 +5,7 @@ import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
+import { clinicTimeAt } from '../support/clinic-time';
 
 /**
  * [CRÍTICO — Tarefa 06 da auditoria, AD-032] AppointmentsController.
@@ -37,10 +38,11 @@ function toSuperuserUrl(databaseUrl: string): string {
 const api = () => request(app.getHttpServer());
 const as = (token: string) => ({ Authorization: `Bearer ${token}` });
 
-/** Hora cheia `n` horas depois de uma base 60 dias à frente — cada teste usa números próprios. */
-const BASE = new Date();
-BASE.setDate(BASE.getDate() + 60);
-BASE.setHours(0, 0, 0, 0);
+/**
+ * Hora cheia `n` horas depois de uma base 60 dias à frente — cada teste usa números próprios.
+ * A base é a meia-noite da clínica (AD-039), não a do processo.
+ */
+const BASE = clinicTimeAt(60);
 const slot = (n: number) => new Date(BASE.getTime() + n * 60 * 60 * 1000).toISOString();
 
 const body = (n: number, overrides: Record<string, unknown> = {}) => ({

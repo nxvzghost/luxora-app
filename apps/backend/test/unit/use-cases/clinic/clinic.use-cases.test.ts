@@ -18,6 +18,7 @@ function fakeClinic() {
     name: 'Clínica Teste',
     defaultBillingPolicy: 'per_session',
     defaultSessionDurationMinutes: 50,
+    timeZone: 'America/Sao_Paulo',
   });
 }
 

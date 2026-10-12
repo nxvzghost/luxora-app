@@ -1,5 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { BillingRepository, BILLING_REPOSITORY } from '@domain-services/financial/billing.repository';
+import { CLINIC_TIME_ZONE_READER, ClinicTimeZoneReader } from '@domain-services/platform/clinic-time-zone.reader';
 
 export interface FechamentoMensalPatientBreakdown {
   patientId: string;
@@ -30,10 +31,15 @@ export interface FechamentoMensalResult {
  */
 @Injectable()
 export class GerarFechamentoMensalUseCase {
-  constructor(@Inject(BILLING_REPOSITORY) private readonly repo: BillingRepository) {}
+  constructor(
+    @Inject(BILLING_REPOSITORY) private readonly repo: BillingRepository,
+    @Inject(CLINIC_TIME_ZONE_READER) private readonly clinicTimeZone: ClinicTimeZoneReader,
+  ) {}
 
   async execute(): Promise<FechamentoMensalResult> {
     const allBillings = await this.repo.findAllByTenant({ limit: 1000 }); // TODO: paginação real se volume crescer
+    // AD-039 — os dias de atraso são dias do calendário da clínica.
+    const timeZone = await this.clinicTimeZone.current();
 
     const totalAppointmentsValue = allBillings.reduce((sum, b) => sum + b.amount, 0);
     const received = allBillings.filter((b) => b.state === 'Quitada').reduce((sum, b) => sum + b.amount, 0);
@@ -44,7 +50,7 @@ export class GerarFechamentoMensalUseCase {
     const pendingByPatient: FechamentoMensalPatientBreakdown[] = pendingBillings.map((b) => ({
       patientId: b.patientId,
       amount: b.amount,
-      status: b.daysOverdue() > 40 ? 'inadimplente' : b.daysOverdue() > 0 ? 'em_atraso' : 'pendente',
+      status: b.daysOverdue(timeZone) > 40 ? 'inadimplente' : b.daysOverdue(timeZone) > 0 ? 'em_atraso' : 'pendente',
     }));
 
     const conclusion = this.buildConclusion(totalAppointmentsValue, received, pending, pendingPercentage);

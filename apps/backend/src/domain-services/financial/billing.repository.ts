@@ -24,10 +24,11 @@ export interface BillingRepository {
   /**
    * Epic 11 — contagem agregada no banco, para GET /dashboard/summary.
    * Tarefa 05: conta as cobranças em atraso pela mesma regra de
-   * Billing.isOverdue(referenceDate) — estado `Atrasada`, ou cobrança ainda
-   * aguardando pagamento com o vencimento passado há um dia ou mais.
+   * Billing.isOverdue(timeZone, referenceDate) — estado `Atrasada`, ou
+   * cobrança ainda aguardando pagamento com o dia do vencimento já encerrado
+   * no fuso da clínica (AD-039).
    */
-  countOverdueByTenant(referenceDate?: Date): Promise<number>;
+  countOverdueByTenant(timeZone: string, referenceDate?: Date): Promise<number>;
   /** Epic 11 — soma agregada no banco (exclui quitada/cancelada), para GET /dashboard/summary. */
   sumPendingByTenant(): Promise<number>;
 }

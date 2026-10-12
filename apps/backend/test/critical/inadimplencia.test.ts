@@ -9,6 +9,7 @@ import { buildBillingMessage } from '@use-cases/communication/templates/billing-
 import { bootstrapTestApp } from './support/bootstrap-app';
 import { uniqueSlot } from './support/unique-slot';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
+import { addCivilDays, civilDateIn } from '@domain/shared/time-zone';
 
 /**
  * [CRÍTICO #14-16] Gestão de Inadimplência — Módulo 13.
@@ -120,7 +121,9 @@ describe('[CRÍTICO #15] Paciente com cobrança Atrasada continua agendável nor
 
 describe('[CRÍTICO #16] Segmentação financeira classifica corretamente nos limiares exatos', () => {
   function billingWithDaysOverdue(days: number): Billing {
-    const dueDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    // AD-039 — vencimento como data do calendário, N dias antes de hoje na clínica (São Paulo).
+    const due = addCivilDays(civilDateIn(new Date(), 'America/Sao_Paulo'), -days);
+    const dueDate = new Date(Date.UTC(due.year, due.month - 1, due.day));
     return Billing.reconstitute({
       id: `b-${days}`,
       tenantId: 't1',
@@ -138,7 +141,7 @@ describe('[CRÍTICO #16] Segmentação financeira classifica corretamente nos li
     [41, 'inadimplente'],
   ] as const)('billing com %i dias de atraso classifica como %s', async (days, expectedSegment) => {
     const repo = { findOverdueByTenant: async () => [billingWithDaysOverdue(days)] } as never;
-    const useCase = new ConsultarSegmentacaoFinanceiraUseCase(repo);
+    const useCase = new ConsultarSegmentacaoFinanceiraUseCase(repo, { current: async () => 'America/Sao_Paulo' });
     const [segmented] = await useCase.execute();
     expect(segmented.segment).toBe(expectedSegment);
   });

@@ -1,4 +1,5 @@
 import { DomainEvent } from '../shared/domain-event';
+import { addCivilDays, civilDateIn, civilDayNumber, type CivilDate, dayOfWeekOf, instantAt, isSameLocalDay } from '../shared/time-zone';
 import { ScheduleSlot } from './schedule-slot.value-object';
 
 /**
@@ -50,6 +51,13 @@ export interface AvailabilityCalendarProps {
   id: string;
   tenantId: string;
   therapistId: string; // referência, nunca posse — ADR-0040
+  /**
+   * Fuso da clínica (AD-039, ADR-0064). As janelas são horas de parede
+   * ("09:00"), e uma hora de parede só é um instante dentro de um fuso: o da
+   * clínica, com o processo rodando em qualquer outro. Obrigatório — um
+   * calendário sem fuso voltaria a ler o da máquina.
+   */
+  timeZone: string;
   windows: AvailabilityWindow[];
   /**
    * Opcional nesta etapa (PD-001 Fase 2, B1) — persistência de exceções
@@ -88,6 +96,10 @@ export class AvailabilityCalendar {
 
   get therapistId(): string {
     return this.props.therapistId;
+  }
+
+  get timeZone(): string {
+    return this.props.timeZone;
   }
 
   get windows(): readonly AvailabilityWindow[] {
@@ -180,32 +192,46 @@ export class AvailabilityCalendar {
     return (this.props.exceptions ?? []).some((exception) => from < exception.to && exception.from < to);
   }
 
+  /**
+   * O intervalo cabe em uma janela do dia em que começa? "Dia", "dia da
+   * semana" e as horas da janela são os da clínica (AD-039): às 22:00 de
+   * domingo em São Paulo já é segunda-feira em UTC, e a janela que vale é a
+   * de domingo.
+   */
   isWithinWindow(from: Date, to: Date): boolean {
-    if (from.toDateString() !== to.toDateString()) return false;
-    const dayOfWeek = from.getDay();
+    const { timeZone } = this.props;
+    if (!isSameLocalDay(from, to, timeZone)) return false;
+    const day = civilDateIn(from, timeZone);
+    const dayOfWeek = dayOfWeekOf(day);
     return this.props.windows.some((window) => {
       if (window.dayOfWeek !== dayOfWeek) return false;
-      const { start, end } = this.windowBounds(window, from);
+      const { start, end } = this.windowBounds(window, day);
       return from >= start && to <= end;
     });
   }
 
-  /** Duração configurada para a janela do dia de `date`, ou o default (60min) se o dia não tem janela própria. */
+  /** Duração configurada para a janela do dia de `date` (no fuso da clínica), ou o default (60min) se o dia não tem janela própria. */
   durationMinutesFor(date: Date): number {
-    const window = this.props.windows.find((w) => w.dayOfWeek === date.getDay());
+    const dayOfWeek = dayOfWeekOf(civilDateIn(date, this.props.timeZone));
+    const window = this.props.windows.find((w) => w.dayOfWeek === dayOfWeek);
     return window?.sessionDurationMinutes ?? DEFAULT_SESSION_DURATION_MINUTES;
   }
 
-  /** Gera os slots candidatos livres entre `from` e `to`, com a duração real de cada janela. */
+  /**
+   * Gera os slots candidatos livres entre `from` e `to`, com a duração real
+   * de cada janela. Percorre os dias do calendário da clínica, do dia em que
+   * `from` cai ao dia em que `to` cai, nos dois casos no fuso dela.
+   */
   generateCandidateSlots(from: Date, to: Date): ScheduleSlot[] {
     const slots: ScheduleSlot[] = [];
-    const cursor = new Date(from);
-    cursor.setHours(0, 0, 0, 0);
+    const { timeZone } = this.props;
+    const lastDay = civilDayNumber(civilDateIn(to, timeZone));
 
-    while (cursor <= to) {
-      const dayWindows = this.props.windows.filter((w) => w.dayOfWeek === cursor.getDay());
+    for (let day = civilDateIn(from, timeZone); civilDayNumber(day) <= lastDay; day = addCivilDays(day, 1)) {
+      const dayOfWeek = dayOfWeekOf(day);
+      const dayWindows = this.props.windows.filter((w) => w.dayOfWeek === dayOfWeek);
       for (const window of dayWindows) {
-        const { start: windowStart, end: windowEnd } = this.windowBounds(window, cursor);
+        const { start: windowStart, end: windowEnd } = this.windowBounds(window, day);
         const durationMs = window.sessionDurationMinutes * 60_000;
 
         let slotStart = new Date(windowStart);
@@ -217,20 +243,19 @@ export class AvailabilityCalendar {
           slotStart = slotEnd;
         }
       }
-      cursor.setDate(cursor.getDate() + 1);
     }
 
     return slots;
   }
 
-  private windowBounds(window: AvailabilityWindow, referenceDate: Date): { start: Date; end: Date } {
+  /** Os instantes em que a janela abre e fecha naquele dia do calendário da clínica. */
+  private windowBounds(window: AvailabilityWindow, day: CivilDate): { start: Date; end: Date } {
     const [startH, startM] = window.startTime.split(':').map(Number);
     const [endH, endM] = window.endTime.split(':').map(Number);
-    const start = new Date(referenceDate);
-    start.setHours(startH, startM, 0, 0);
-    const end = new Date(referenceDate);
-    end.setHours(endH, endM, 0, 0);
-    return { start, end };
+    return {
+      start: instantAt(this.props.timeZone, day, { hour: startH, minute: startM }),
+      end: instantAt(this.props.timeZone, day, { hour: endH, minute: endM }),
+    };
   }
 
   private minutesBetween(startTime: string, endTime: string): number {
