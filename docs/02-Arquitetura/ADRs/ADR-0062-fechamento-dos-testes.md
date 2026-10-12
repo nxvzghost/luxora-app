@@ -3,7 +3,7 @@
 **Status:** ADOTADO
 **Origem:** Tarefa 06 da auditoria técnica de 04/10/2026 (Fechamento dos testes; Epic 13 — AD-012, AD-022, AD-031, AD-032, AD-035 — e os Cenários 11, 12 e 13 de Contact, do Epic 9).
 **Data:** 8 de outubro de 2026
-**Veredito da Tarefa 06: PARCIAL — só pelo que falta publicar** (reconciliação final de 11/10/2026, seção própria abaixo). Os critérios da tarefa estão atendidos e confirmados no CI remoto: em 09/10/2026, com push autorizado, o commit `9ea04a6` passou nos seis jobs da execução 38014320016 do workflow `CI`, inclusive `test-e2e` (24 de 24), já com a AD-037, a AD-038 ([ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md)), a correção de integridade da aprovação de vínculo e o build do painel sem o Google Fonts. A reconciliação final encontrou e corrigiu erros de tipo nos testes e três defeitos de isolamento entre sessões no painel, em commits locais **ainda não enviados nem executados no CI remoto**; a tarefa pode ser dada como concluída quando eles forem publicados e o CI remoto passar. Fora da tarefa e ainda abertos, antes do piloto: a AD-039 (fuso), a execução das automações pelo agendador, as pendências da ADR-0063 e a validação externa de Meta e Anthropic (Tarefa 03). A marcação formal é do responsável pelo produto; registrar a decisão ou atualizar a documentação não conclui a tarefa.
+**Veredito da Tarefa 06: CONCLUÍDA** (12/10/2026, seção "Fechamento" abaixo), por decisão do responsável pelo produto depois de avaliar o resultado remoto. Os critérios da tarefa estão atendidos e confirmados no CI remoto com o código final: em 12/10/2026, com push autorizado, o commit `ad05a87` passou nos sete jobs da execução 38249354910 do workflow `CI`, inclusive `typecheck` (primeira execução no GitHub) e `test-e2e` (27 de 27), já com a AD-037, a AD-038 ([ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md)), a correção de integridade da aprovação de vínculo, o build do painel sem o Google Fonts, os tipos dos testes e o isolamento entre sessões no painel. **A conclusão da tarefa não significa que o produto esteja pronto para produção.** Fora da tarefa e ainda abertos, antes do piloto: a AD-039 (fuso), a execução das automações pelo agendador, as pendências da ADR-0063 e a validação externa de Meta e Anthropic (Tarefa 03); a lista completa está em "Fechamento". A Tarefa 07 (piloto e produção) não foi iniciada.
 
 ## Objetivo
 
@@ -111,12 +111,12 @@ Nada disso foi alterado. A regra pretendida foi decidida em 08/10/2026 e está n
 
 ## Limitações conhecidas
 
-- **O CI remoto rodou em 09/10/2026.** Com push autorizado, a execução 37977379502 do workflow `CI` executou o commit `1aa507c` no GitHub e passou nos seis jobs: lint, unitários (950 no backend e 180 no frontend), integração (23), críticos (440 aprovados, 4 pulados e 1 `todo`), ponta a ponta (20 de 20) e ensaio de deploy (68 de 68). Os commits da AD-037 e da AD-038, posteriores, **ainda não foram enviados**: para eles vale só a execução local, abaixo.
+- **O CI remoto rodou em 09/10/2026.** Com push autorizado, a execução 37977379502 do workflow `CI` executou o commit `1aa507c` no GitHub e passou nos seis jobs: lint, unitários (950 no backend e 180 no frontend), integração (23), críticos (440 aprovados, 4 pulados e 1 `todo`), ponta a ponta (20 de 20) e ensaio de deploy (68 de 68). Os commits da AD-037 e da AD-038, posteriores, **ainda não foram enviados**: para eles vale só a execução local, abaixo. **Atualização de 12/10/2026:** todos os commits da tarefa estão publicados; a execução remota do código final é a 38249354910, no commit `ad05a87` (ver "Fechamento").
 - A IA dos testes de Contact é roteirizada. Entrada real da Meta e respostas reais da Anthropic continuam não validadas (Tarefa 03).
 - Achados dos testes dos controllers, registrados e não corrigidos: uma cobrança pode ser criada para o paciente X com a sessão do paciente Y da mesma clínica; uma cobrança recusada por `SESSION_ALREADY_BILLED` ainda pode ficar gravada sem sessão; transição de estado inválida responde 500.
 - Tela de Assinatura: se o cartão for recusado depois de a assinatura ser criada, repetir o envio responde 409 e a tela não oferece outro caminho para registrar o cartão. As mensagens de erro dessa tela são as cruas da API. Em Configurações, o perfil terapeuta vê os formulários que só o administrador pode salvar (a recusa aparece como "sem permissão").
 - ~~`apps/frontend/test/lib/api-client.test.ts` tem 8 erros de tipo sob `tsc --noEmit`.~~ Corrigido na reconciliação final, junto com os 76 dos testes do backend; o CI passou a conferir os tipos dos testes (ver "Reconciliação final").
-- `test/integration` continua com um único arquivo e o comentário desatualizado em `vitest.config.ts` (AD-011, não atribuída a esta tarefa).
+- `test/integration` continua com um único arquivo e o comentário desatualizado em `vitest.config.ts` (AD-011, não atribuída a esta tarefa). **Atualização de 12/10/2026:** hoje são três arquivos e 42 testes, executados no CI; o comentário desatualizado e o `passWithNoTests` continuam, e a AD-011 segue parcial só por essa formalização.
 - O banco local de desenvolvimento ainda tem 32 clínicas de teste de execuções interrompidas em julho, anteriores ao padrão atual. Não foram removidas.
 
 ## Decisões tomadas depois desta tarefa (08/10/2026)
@@ -208,6 +208,46 @@ Segunda linha de defesa: a identidade da sessão faz parte da chave interna de t
 | Imagens e ensaio de deploy | três imagens construídas; 68 de 68 |
 
 **Continua exigido antes do piloto:** AD-039; a execução das automações pelo agendador; as pendências da ADR-0063; a validação de Meta (entrada) e Anthropic reais; os textos de licença das fontes junto com o painel; o token de verificação do webhook nos traces; e os três achados dos controllers listados em "Limitações conhecidas".
+
+## Fechamento (12/10/2026)
+
+**Publicação.** Com push autorizado, os oito commits da reconciliação final foram enviados em 12/10/2026, em um push simples (`9ea04a6..ad05a87`), sem alterar o histórico publicado. A revisão de pré-publicação, só de leitura e sobre esse mesmo commit:
+- não encontrou segredo nos oito commits — os valores dos `.env` locais foram comparados com os 46 objetos a enviar e com as mensagens, e gitleaks e trufflehog rodaram sem rede (o que eles apontam no histórico inteiro são valores de teste, já publicados antes);
+- repetiu o CI em clone limpo, sem `.env` e em UTC, com as contagens da tabela abaixo;
+- conferiu que um erro de tipo plantado em um teste de cada pacote faz o `pnpm typecheck` falhar, no pacote e pela raiz.
+
+**CI remoto.** [Execução 38249354910](https://github.com/nxvzghost/luxora-app/actions/runs/38249354910) do workflow `CI`, commit `ad05a87`, sete jobs aprovados na primeira tentativa, 243 s no total.
+
+| Job | Duração | Resultado |
+|---|---|---|
+| `lint` | 33 s | limpo |
+| `typecheck` | 42 s | sem erros nos três pacotes (primeira execução do job no GitHub) |
+| `test-unit` | 84 s | 1088 no backend e 217 no painel |
+| `test-integration` | 80 s | 42 |
+| `test-critical` | 156 s | 505 aprovados, 1 pulado e 1 `todo` |
+| `test-e2e` | 132 s | 27 de 27 |
+| `deploy-rehearsal` | 185 s | 68 de 68 |
+
+As contagens são as mesmas da execução local. O CD nunca foi executado e o repositório não tem nenhum deployment. A branch `master` não tem proteção: o CI informa o resultado, não impede a publicação.
+
+**Critérios da tarefa.** Os itens com teste correspondente são os da tabela de "Reconciliação final" e não mudaram: AD-012, AD-022, AD-031, AD-032, AD-035 e os Cenários 11, 12 e 13 de Contact, com a AD-037 e a AD-038. "Pelo menos 1 fluxo E2E real passando em CI": 27 de 27 no GitHub. Os erros de tipo dos testes e os três defeitos de isolamento entre sessões, encontrados na reconciliação, estão corrigidos e agora também executados no CI remoto. `test:known-defects` não encontra nenhum defeito conhecido.
+
+**Pulado e `todo` que continuam abertos.**
+- `cache-tenant-isolation.test.ts` (pulado): trata de cache no servidor, que não existe. Tirar o `skip` seria um sucesso artificial; o teste volta a valer se o backend ganhar cache.
+- O `todo` de `automations-scheduler-contract.test.ts`: defeito registrado (as quatro rotas de automação respondem 500 com a chave certa), da Tarefa 04, à espera da decisão de como a chamada identifica a clínica.
+
+**Observações da revisão de pré-publicação (registradas, sem mudança de código).**
+- `fromAnotherSession`, no cliente de API, trata como a mesma sessão dois tokens diferentes quando algum deles não pode ser lido; o cache, na mesma dúvida, trata como sessões diferentes. Com tokens emitidos pelo backend, que sempre trazem usuário, clínica e papel, o caso não ocorre. Alinhar os dois é um reforço a avaliar.
+- Uma requisição da sessão nova que receba 401 enquanto a renovação da sessão anterior ainda está a caminho compartilha essa renovação, que não vale para ela: recebe o 401, sem repetição. Nada de uma sessão chega à outra (há teste para isso); o custo é um erro pontual na tela.
+- Duas abas do mesmo navegador com sessões diferentes continuam sem teste. Pela leitura do código, cada aba tem o seu cache em memória e o estado da sessão não é sincronizado entre abas; isso é leitura, não evidência de teste.
+
+**O que a conclusão não significa.** A Tarefa 06 fecha as lacunas de teste que a auditoria listou. Ela não torna o produto pronto para produção, e nenhum dos pontos abaixo fica resolvido por teste com IA roteirizada ou provider simulado:
+- **Antes do piloto:** AD-039 (fuso por clínica, ADR-0064); as automações que respondem 500 e a decisão de que dependem; o token de verificação do webhook nos traces; as pendências da ADR-0063 (desfazer um vínculo aprovado; número compartilhado só com atendimento humano; variações de nome e a inferência de que um cadastro existe; estado do paciente — inativo ou com alta — sem efeito sobre o vínculo; classificador de confirmação não exercitado com a Anthropic real); os textos de licença das fontes (`OFL.txt`) junto com o painel e a imagem, antes do primeiro deploy; os três achados dos controllers listados em "Limitações conhecidas".
+- **Tarefa 03 (integrações externas), parcial:** entrada da Meta sem validação real; respostas reais da Anthropic não validadas; falha de envio do WhatsApp depois do enfileiramento, que não é tratada nem aparece no painel.
+- **Tarefa 04 (deploy e operação), parcial:** sem homologação real nem provedor contratado; CD nunca executado; backup externo e alertas por fazer; branch `master` sem proteção.
+- **Segurança, registrado:** tokens no `localStorage` (AD-028) e access token válido por até 15 minutos depois da saída ou da desativação (ADR-0056), riscos aceitos por decisão registrada; `Cache-Control` ausente nas respostas autenticadas, a avaliar; `pnpm audit --prod` com 1 alerta crítico (`proxy-addr`) e 1 alto (`source-map-js`), anteriores a esta tarefa e não corrigidos.
+
+A Tarefa 07 (piloto e produção) não foi iniciada.
 
 ## Documentos relacionados
 
