@@ -1,9 +1,7 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
-import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
-import { ExpressInstrumentation } from '@opentelemetry/instrumentation-express';
-import { IORedisInstrumentation } from '@opentelemetry/instrumentation-ioredis';
 import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
-import { isProbeRequest, resolveTelemetryEnv } from './shared/observability/telemetry-env';
+import { createInstrumentations } from './shared/observability/instrumentations';
+import { resolveTelemetryEnv } from './shared/observability/telemetry-env';
 
 /**
  * tracing.ts — AD-016.
@@ -14,14 +12,8 @@ import { isProbeRequest, resolveTelemetryEnv } from './shared/observability/tele
  * antes deste arquivo rodar, a instrumentação correspondente não tem efeito
  * nenhum. Por isso é um arquivo próprio, nunca um trecho dentro de main.ts.
  *
- * Deliberadamente SEM @opentelemetry/auto-instrumentations-node — decisão
- * explícita do usuário na aprovação da auditoria da AD-016: instrumentações
- * registradas uma a uma, para nunca instrumentar módulos irrelevantes (ex:
- * fs, dns, net) por padrão, reduzindo overhead e ruído. Cobre exatamente
- * HTTP, Express e ioredis — BullMQ usa ioredis por baixo (ver
- * infrastructure/messaging/*.ts), então esta instrumentação também cobre a
- * fila; não existe (nem é necessário) um pacote de instrumentação BullMQ
- * dedicado para isso.
+ * Quais instrumentações, e o que cada uma deixa de gravar (query string,
+ * argumentos de comando Redis): shared/observability/instrumentations.ts.
  *
  * Instrumentação de queries do Prisma foi deliberadamente ADIADA nesta AD —
  * ver ADR-0051, seção "Limitações conhecidas": exigiria
@@ -36,8 +28,7 @@ import { isProbeRequest, resolveTelemetryEnv } from './shared/observability/tele
  * vão para ele; em produção sem endpoint, nada é exportado; fora de produção
  * sem endpoint, continuam saindo no console, como antes. O SDK monta o
  * exportador sozinho a partir dessas variáveis — por isso nenhum
- * `spanProcessors` é passado abaixo. As sondas de saúde e a coleta de
- * métricas não geram trace.
+ * `spanProcessors` é passado abaixo.
  *
  * Exportação de métricas: Prometheus, real — ver api/metrics/metrics.controller.ts,
  * que expõe `prometheusExporter.getMetricsRequestHandler` atrás de um guard.
@@ -51,11 +42,7 @@ Object.assign(process.env, resolveTelemetryEnv(process.env));
 const sdk = new NodeSDK({
   serviceName: 'luxora-backend',
   metricReaders: [prometheusExporter],
-  instrumentations: [
-    new HttpInstrumentation({ ignoreIncomingRequestHook: (request) => isProbeRequest(request.url) }),
-    new ExpressInstrumentation(),
-    new IORedisInstrumentation(),
-  ],
+  instrumentations: createInstrumentations(),
 });
 
 sdk.start();
