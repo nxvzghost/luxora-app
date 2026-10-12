@@ -210,6 +210,27 @@ else
   ok "as sondas de saúde não geram trace"
 fi
 
+# Tarefa 07 da auditoria — a verificação do webhook da Meta manda o token de
+# verificação na query string (o protocolo exige). A requisição é feita aqui,
+# do jeito que a Meta a faz, contra a imagem de verdade: o token deste
+# ambiente chega à aplicação e não pode chegar ao coletor. Nenhuma chamada à Meta.
+VERIFY_TOKEN="$(sed -n 's/^WHATSAPP_WEBHOOK_VERIFY_TOKEN=//p' "$ENV_FILE")"
+WRONG_TOKEN="token-errado-do-ensaio-7731"
+CHALLENGE="desafio-do-ensaio-4412"
+equal "a verificação do webhook aceita o token do ambiente e devolve o desafio" "$CHALLENGE" \
+  "$(body "$API/api/v1/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=$VERIFY_TOKEN&hub.challenge=$CHALLENGE")"
+equal "a verificação do webhook recusa um token errado" "403" \
+  "$(status "$API/api/v1/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=$WRONG_TOKEN&hub.challenge=$CHALLENGE")"
+check "a verificação virou um span com os nomes dos parâmetros e sem os valores" \
+  wait_for webhook-span 30 collector_has 'url.query: Str(hub.mode=subscribe&hub.verify_token=REDACTED&hub.challenge=REDACTED)'
+# Espera o span da segunda requisição (a recusada) também ter sido exportado.
+wait_for webhook-403 30 collector_has 'http.response.status_code: Int(403)'
+if [ -z "$VERIFY_TOKEN" ] || collector_has "$VERIFY_TOKEN" || collector_has "$WRONG_TOKEN" || collector_has "$CHALLENGE"; then
+  ko "nem o token de verificação, nem o token errado, nem o desafio chegam ao coletor"
+else
+  ok "nem o token de verificação, nem o token errado, nem o desafio chegam ao coletor"
+fi
+
 # ----------------------------------------------------- encerramento gracioso
 section "encerramento gracioso"
 BACKEND_CONTAINER="$(compose ps -q backend)"
@@ -240,6 +261,25 @@ if [ -n "$FRONTEND" ]; then
   front_is_up() { [ "$(status "http://127.0.0.1:$FRONTEND_PORT/login")" = "200" ]; }
   check "a tela de login responde 200" wait_for front 60 front_is_up
   check "a página servida é a do painel" sh -c "curl -s --max-time 5 'http://127.0.0.1:$FRONTEND_PORT/login' | grep -qi 'luxora'"
+
+  # Tarefa 07 da auditoria — a imagem distribui as fontes Fraunces e Inter; o
+  # aviso de direitos autorais e o texto da licença (SIL OFL 1.1) têm de ir
+  # junto: servidos pelo painel e guardados na imagem, um por família,
+  # idênticos aos OFL.txt do repositório.
+  FRONT="http://127.0.0.1:$FRONTEND_PORT"
+  REPO_FONTS="$TESTS_DIR/../../apps/frontend/app/fonts"
+  sha() { sha256sum | cut -d' ' -f1; }
+  check "o índice das licenças das fontes é servido e identifica as duas famílias" sh -c \
+    "curl -s --max-time 5 '$FRONT/licencas/fontes.txt' > '$WORK/fontes.txt' && grep -q '^Fraunces (títulos)' '$WORK/fontes.txt' && grep -q '^Inter (texto)' '$WORK/fontes.txt' && grep -q '/licencas/fraunces-OFL.txt' '$WORK/fontes.txt' && grep -q '/licencas/inter-OFL.txt' '$WORK/fontes.txt'"
+  for family in fraunces inter; do
+    REPO_SHA="$(sha < "$REPO_FONTS/$family/OFL.txt")"
+    equal "licença da $family servida pelo painel é o OFL.txt do repositório" "$REPO_SHA" "$(body "$FRONT/licencas/$family-OFL.txt" | sha)"
+    equal "licença da $family guardada na imagem é o OFL.txt do repositório" "$REPO_SHA" \
+      "$(docker run --rm --entrypoint cat "luxora-frontend:$FRONTEND" "/app/licenses/fonts/$family/OFL.txt" 2>/dev/null | sha)"
+  done
+  FONT_PATH="$(body "$FRONT/login" | grep -o '/_next/static/media/[^"]*\.woff2' | head -n 1)"
+  check "o arquivo de fonte servido aponta para a licença (cabeçalho Link)" sh -c \
+    "test -n '$FONT_PATH' && curl -s -D - -o /dev/null --max-time 5 '$FRONT$FONT_PATH' | grep -qi '^link: </licencas/fontes.txt>; rel=\"license\"'"
 fi
 
 echo
