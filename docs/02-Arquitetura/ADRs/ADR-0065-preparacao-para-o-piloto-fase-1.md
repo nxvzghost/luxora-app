@@ -2,7 +2,7 @@
 
 **Status:** ADOTADO (decisões 1 e 2). Executado localmente em 12 de outubro de 2026; **sem push, sem deploy, sem execução no CI remoto**.
 **Origem:** Tarefa 07 da auditoria técnica de 04/10/2026 (piloto e produção), fase 1 — os bloqueadores que podiam ser resolvidos na máquina, com requisito definido e sem serviço externo.
-**Veredito da fase: PARCIAL** — os três blocos de código (traces, fuso por clínica, licenças) estão implementados e validados localmente; o que falta para a fase ser dada como concluída é a execução no CI remoto, que depende de publicação autorizada, e as decisões pedidas nos itens 4 e 5. **Nada aqui torna o produto pronto para produção nem autoriza iniciar o piloto.**
+**Veredito da fase: PARCIAL** — os três blocos de código (traces, fuso por clínica, licenças) estão implementados e validados localmente; o que falta para a fase ser dada como concluída é a execução no CI remoto, que depende de publicação autorizada, e as decisões pedidas nos itens 4 e 5. **Atualização de 12/10/2026, à noite:** o escopo local foi fechado — o fuso passou a ser alterável pelo painel, o painel mostra os horários no fuso da clínica e as decisões das automações foram registradas (seção "Fechamento do escopo local"). A fase continua PARCIAL pelo que não é local: publicação autorizada, CI remoto e a repetição do ensaio de deploy com as imagens. **Nada aqui torna o produto pronto para produção nem autoriza iniciar o piloto.**
 
 ## Objetivo
 
@@ -11,9 +11,9 @@ Tirar do caminho do piloto o que era resolvível sem custo e sem decisão nova, 
 | Bloco | O que era | O que ficou | Onde está o detalhe |
 |---|---|---|---|
 | 1 | O token de verificação do webhook da Meta ia para os traces | Corrigido na origem, com um segundo vazamento encontrado e corrigido | Decisão 1, abaixo |
-| 2 | Agenda e vencimento dependiam do fuso do contêiner (AD-039) | Implementado: fuso por clínica | [ADR-0064](./ADR-0064-fuso-horario-por-clinica.md), "Implementação" |
+| 2 | Agenda e vencimento dependiam do fuso do contêiner (AD-039) | Implementado: fuso por clínica; depois, alterável pelo administrador no painel, que passou a mostrar os horários no fuso da clínica | [ADR-0064](./ADR-0064-fuso-horario-por-clinica.md), "Implementação" e "Alteração do fuso pelo painel" |
 | 3 | As licenças das fontes só existiam no repositório | Servidas pelo painel e guardadas na imagem | Decisão 2, abaixo |
-| 4 | As quatro rotas de automação respondem 500 | **Só diagnóstico**, com opções e recomendação — aguarda decisão | [`docs/07-Infra/AUTOMACOES_AGENDADOR.md`](../../07-Infra/AUTOMACOES_AGENDADOR.md), "Diagnóstico de 12/10/2026" |
+| 4 | As quatro rotas de automação respondem 500 | **Só diagnóstico e registro das decisões** — as sete decisões foram tomadas e registradas; a implementação é etapa própria e as rotas continuam em 500 | [`docs/07-Infra/AUTOMACOES_AGENDADOR.md`](../../07-Infra/AUTOMACOES_AGENDADOR.md), "Diagnóstico de 12/10/2026" e "Decisões registradas em 12/10/2026" |
 | 5 | Demais pendências antes do piloto | Classificadas, sem execução | "Bloqueadores antes do piloto", abaixo |
 
 ## Decisão 1 — Nada sensível sai em um trace
@@ -85,9 +85,9 @@ Classificação pedida na fase, item por item. **Nenhum foi executado aqui.**
 | Dependências com alerta de segurança | Sim — `overrides` do pnpm, como os nove que já existem (`proxy-addr`, crítico; `source-map-js`, alto), com a regressão completa | Não | Não | **Sim** para o crítico. A exposição real não foi analisada: a aplicação usa `trust proxy = 1`, por contagem de saltos |
 | Armazenamento e validade dos tokens de sessão | Sim, mas é mudança de contrato (cookie `httpOnly` e proteção de rota no servidor); reduzir a validade é só configuração | **Sim** — a AD-028 está aberta por decisão (ADR-0056, ADR-0061) | Não | A decisão registrada basta para o piloto; rever antes de abrir para mais clínicas |
 | Teste com mais de uma aba | Sim — Playwright, duas páginas no mesmo navegador | Só se o teste mostrar um comportamento a escolher | Não | Recomendado: é barato e fecha a lacuna registrada na ADR-0062 |
-| Automações que respondem 500 | Sim, depois da decisão | **Sim** — sete decisões, em `AUTOMACOES_AGENDADOR.md` | Não, no caminho recomendado | Só se o piloto usar resumo de agenda, régua ou fechamento por agendador |
+| Automações que respondem 500 | Sim — as sete decisões foram registradas em 12/10/2026 | Ainda: doze itens de especificação (horas de cada rotina, critério da enumeração, chave de ativação e outros), em `AUTOMACOES_AGENDADOR.md` | Não, no caminho decidido | Não bloqueia o piloto: pela decisão 7, as rotinas de comunicação nascem desligadas. Precisa estar implementado antes de uma clínica real ligá-las |
 
-Pontos da ADR-0064 que a implementação deixou abertos também pedem decisão antes do piloto ou logo depois: o painel mostrar os horários no fuso da clínica (hoje, o do navegador) e quem pode alterar o fuso.
+Os dois pontos da ADR-0064 que a implementação tinha deixado abertos — o painel mostrar os horários no fuso da clínica e quem pode alterar o fuso — foram decididos e implementados no fechamento do escopo local (abaixo).
 
 ## Evidências de validação
 
@@ -127,9 +127,62 @@ Tudo local, em 12/10/2026. Nenhuma chamada a Meta, Anthropic ou Asaas, nenhum cu
 
 **Fontes:** os dez `.woff2` emitidos pelo build têm o mesmo conjunto de SHA-256 dos dez do repositório; nenhuma menção ao Google Fonts no HTML nem no CSS servidos.
 
+## Fechamento do escopo local (12/10/2026)
+
+Segunda rodada da fase, no mesmo dia, a pedido do responsável pelo produto: terminar o que ainda era local. **Sem push, sem deploy, sem CD, sem chamada a Meta, Anthropic ou Asaas, sem custo.** Os commits da fase — nove, com o desta documentação — continuam só na máquina.
+
+### O que entrou
+
+| Bloco | O que foi feito | Detalhe |
+|---|---|---|
+| Fuso pelo painel | O administrador altera o fuso da clínica em Configurações (`PUT /clinic/time-zone`, com validação IANA e registro na auditoria, na mesma transação), e o painel passou a mostrar e a ler horários no fuso da clínica | [ADR-0064](./ADR-0064-fuso-horario-por-clinica.md), "Alteração do fuso pelo painel" |
+| Automações | As sete decisões do responsável pelo produto foram **registradas**, com o mapa das quatro rotinas e doze itens que ainda exigem especificação. **Nada foi implementado:** as quatro rotas continuam respondendo 500 e o `todo` da suíte crítica continua | [`AUTOMACOES_AGENDADOR.md`](../../07-Infra/AUTOMACOES_AGENDADOR.md), "Decisões registradas em 12/10/2026" |
+| Licenças | Só conferência, abaixo | — |
+| Traces | Só conferência, abaixo | — |
+
+### Conferência das licenças das fontes
+
+Sem reconstruir imagem. Os dois `OFL.txt` e os dez `.woff2` não mudaram desde o commit publicado (`b00fa17`) nem na árvore de trabalho; os dez `.woff2` batem com os SHA-256 registrados em `apps/frontend/app/fonts/README.md`; nenhum arquivo do painel importa `next/font/google` (a única menção é um comentário). Na saída do build de produção feito para os testes de ponta a ponta, `/licencas/fraunces-OFL.txt` e `/licencas/inter-OFL.txt` têm o mesmo SHA-256 dos arquivos do repositório, e os três testes de ponta a ponta das licenças passaram contra o painel servido (`next start`).
+
+**Não repetido nesta rodada: a licença dentro da imagem Docker** (`/app/licenses/fonts/<família>/OFL.txt`). As imagens da rodada anterior foram removidas na limpeza que se seguiu ao disco cheio, e construir outra com cerca de 5,5 GB livres no disco da máquina repetiria o risco. A evidência desse caminho continua sendo o ensaio de deploy da rodada anterior (78 de 78, a partir da árvore de trabalho). O `Dockerfile` e os arquivos de infraestrutura não foram tocados desde então.
+
+### Conferência dos traces
+
+Os testes da redação rodaram de novo, dentro das suítes, com o processo em UTC, em `Asia/Tokyo` e em `America/Sao_Paulo`, e passaram nos três:
+
+- **O token não aparece no que é exportado:** verificação do webhook aceita, recusada e com erro 500 (log de erro e resposta incluídos), e a requisição de saída (`test/critical/trace-no-secrets.test.ts`, `test/unit/shared/observability/trace-export.test.ts`).
+- **Telefone, texto e id do job não aparecem no span do Redis:** um job enfileirado pelo BullMQ grava o comando e o hash do script, e só (`trace-no-secrets.test.ts`; as regras, em `trace-redaction.test.ts`).
+- **O que serve para operar continua lá:** caminho, rota, status, nomes dos parâmetros e paginação; nome do comando e quantidade de argumentos; e as sondas de saúde continuam sem trace.
+
+Nenhuma chamada à Meta: a verificação é feita localmente, do jeito que ela a faz. **A conferência nas imagens de verdade, com o coletor OTLP (ensaio de deploy), também não foi repetida**, pela mesma razão das licenças.
+
+### Regressão desta rodada
+
+No commit `9e5bdce` (o último que altera código ou teste), **na árvore de trabalho** do repositório — não em clone limpo — e sem construir imagem:
+
+| Verificação | Resultado | Antes desta rodada |
+|---|---|---|
+| Lint (backend e painel) | limpo | — |
+| Tipos (`pnpm typecheck`) | sem erros nos três pacotes | — |
+| Backend — unitários | 1190, em 98 arquivos | 1178 |
+| Backend — integração | 56, em 4 arquivos | 56 |
+| Backend — críticos | 567 aprovados, 1 pulado e 1 `todo` (os mesmos de antes), em 47 arquivos | 524 |
+| Painel | 274, em 22 arquivos | 229 |
+| Ponta a ponta | 32 de 32, com o backend em UTC e o navegador em `America/Sao_Paulo` (e, antes, 32 de 32 com o backend no fuso da máquina) | 30 |
+| Imagens e ensaio de deploy | **não executados** | 78 de 78 |
+
+As três suítes do backend e a do painel deram as mesmas contagens com o processo em UTC, em `Asia/Tokyo` e em `America/Sao_Paulo`. Quinze mutações do fuso pelo painel, todas detectadas (lista na ADR-0064).
+
+**O que não foi repetido, e por quê.** (1) Imagens Docker e ensaio de deploy: risco de encher o disco de novo. (2) Clone limpo, sem `.env`: a réplica do CI em clone limpo pede a instalação das dependências em outra pasta e, para valer como a anterior, as imagens. As suítes rodaram na árvore de trabalho, com o `.env` local de desenvolvimento. (3) Varredura de segredos antes de publicar: é o gate de pré-publicação, que não foi pedido nesta rodada. **Os três ficam para o gate, quando houver espaço em disco.**
+
+### Estado do disco
+
+No começo desta rodada: 6,2 GB livres no disco da máquina; 24 GB usados dentro do disco virtual do WSL; cache de build do Docker com 16,1 GB. Ao fim dos testes: cerca de 5,4 GB livres — a diferença são os builds do backend e do painel para os testes de ponta a ponta e os logs das suítes; nenhuma imagem foi construída. Nada foi apagado, podado ou compactado. O disco virtual do WSL não foi compactado: é decisão do responsável.
+
 ## Limitações conhecidas
 
 - Tudo foi validado na máquina, em clone limpo e em contêineres locais. **O CI remoto não rodou com estes commits.**
+- **Os três commits do fechamento do escopo local não passaram por clone limpo nem por imagem Docker**: foram validados na árvore de trabalho, sem ensaio de deploy (seção acima).
 - Nenhuma integração real foi exercitada: a verificação do webhook foi feita localmente, do jeito que a Meta a faz. Entrada real da Meta e respostas reais da Anthropic continuam não validadas.
 - A lista de parâmetros cujo valor continua visível nos traces é uma escolha desta implementação; acrescentar um nome a ela é decisão consciente, com teste.
 - A ligação entre arquivo de fonte e licença depende de o servidor do painel aplicar o cabeçalho `Link`; atrás de uma CDN que reescreva cabeçalhos, conferir de novo.
@@ -139,6 +192,6 @@ Tudo local, em 12/10/2026. Nenhuma chamada a Meta, Anthropic ou Asaas, nenhum cu
 - [ADR-0064](./ADR-0064-fuso-horario-por-clinica.md) — fuso por clínica (AD-039), com a seção "Implementação"
 - [ADR-0051](./ADR-0051-observabilidade-correlation-id-otel-prometheus.md) — observabilidade de base; [ADR-0060](./ADR-0060-deploy-e-operacao.md) — imagens e deploy
 - [ADR-0062](./ADR-0062-fechamento-dos-testes.md) e [ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md) — de onde vêm as pendências classificadas aqui
-- `docs/07-Infra/AUTOMACOES_AGENDADOR.md` — diagnóstico das automações
+- `docs/07-Infra/AUTOMACOES_AGENDADOR.md` — diagnóstico das automações, decisões registradas e o que falta especificar
 - `apps/frontend/app/fonts/README.md` — origem das fontes e onde a licença as acompanha
 - `CHANGELOG.md` — Tarefa 07, fase 1

@@ -26,6 +26,7 @@ Toda rota desta tabela tem `RolesGuard` na cadeia de `@UseGuards()` do seu Contr
 | `ClinicController` | PATCH | `/clinic` | `admin` | Configuração administrativa da clínica. | **AD-003** |
 | `ClinicController` | PUT | `/clinic/policies` | `admin` | Política operacional — decisão administrativa. | **AD-003** |
 | `ClinicController` | PUT | `/clinic/payment-info` | `admin` | Dado financeiro (chave PIX/beneficiário). | **AD-003** |
+| `ClinicController` | PUT | `/clinic/time-zone` | `admin` | O fuso muda a hora de toda a agenda e o dia dos vencimentos da clínica — decisão administrativa, com registro na auditoria. | **AD-039** (12/10/2026) |
 | `TherapistsController` | POST | `/therapists` | `admin` | Cadastro de outro membro da equipe — gestão de pessoal, nunca um terapeuta cadastrando/editando outro. | **AD-003** |
 | `TherapistsController` | PATCH | `/therapists/:id` | `admin` | Idem. | **AD-003** |
 | `TherapistsController` | PUT | `/therapists/:id/availability` | `admin` | Idem — disponibilidade de outro terapeuta é gestão, não autoatendimento. | **AD-003** |

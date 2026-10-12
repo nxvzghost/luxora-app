@@ -1,13 +1,13 @@
 # AUTOMACOES_AGENDADOR — Como as automações deverão ser executadas
 
-**Status:** Revisão — Tarefa 04 da auditoria de 04/10/2026. Registra o que existe, o que o agendador precisa e o que impede a execução hoje. **Nenhuma funcionalidade foi criada nem alterada.** Em 12/10/2026 (Tarefa 07, fase 1) o diagnóstico foi refeito com medições novas e ganhou opções e uma recomendação — seção "Diagnóstico de 12/10/2026", no fim. **Continua sem implementação: aguarda a decisão do responsável pelo produto.**
+**Status:** Revisão — Tarefa 04 da auditoria de 04/10/2026. Registra o que existe, o que o agendador precisa e o que impede a execução hoje. **Nenhuma funcionalidade foi criada nem alterada.** Em 12/10/2026 (Tarefa 07, fase 1) o diagnóstico foi refeito com medições novas e ganhou opções e uma recomendação — seção "Diagnóstico de 12/10/2026", no fim. Ainda em 12/10/2026, no fechamento da fase, as decisões do responsável pelo produto foram registradas — seção "Decisões registradas em 12/10/2026", no fim, com o mapa das quatro rotinas e o que ainda exige especificação. **Continua sem implementação: as quatro rotas respondem 500, e o agendador será feito em etapa própria, depois da auditoria.**
 **Decisão de arquitetura em vigor:** [ADR-0021](../02-Arquitetura/ADRs/ADR-0021.md) — o Motor Operacional decide, o n8n só executa.
 
 ## Conclusão
 
 Nenhum agendador — n8n, cron ou qualquer outro — consegue executar as automações hoje. O bloqueio está na aplicação, não na infraestrutura: com a chave correta, as quatro rotas respondem **500**. Subir um n8n antes de resolver isso não entrega nada.
 
-Há três decisões abertas, todas de produto ou de segurança, e por isso fora desta tarefa. Estão no fim do documento.
+Havia três decisões abertas, todas de produto ou de segurança. Foram tomadas em 12/10/2026 e estão registradas no fim do documento, com o que ainda falta especificar.
 
 ## O que existe
 
@@ -170,10 +170,67 @@ O caminho 1 **não é recomendado nem para o piloto**: é o que resolve mais rá
 | D6 | O telefone do terapeuta vem do cadastro? E o terapeuta sem telefone? | Regra de produto |
 | D7 | O piloto usa resumo de agenda, régua e fechamento por agendador? Se não usar, este item deixa de ser bloqueador do piloto | Escopo do piloto |
 
-Enquanto essas decisões não vierem, as quatro rotas continuam respondendo 500 e o `todo` de `automations-scheduler-contract.test.ts` continua registrado.
+As decisões vieram em 12/10/2026 e estão na seção seguinte. As quatro rotas continuam respondendo 500 e o `todo` de `automations-scheduler-contract.test.ts` continua registrado até a implementação.
+
+## Decisões registradas em 12/10/2026 (fechamento da fase 1 da Tarefa 07)
+
+Decisões do responsável pelo produto, registradas aqui. **É registro, não implementação: nenhuma linha das automações mudou.** As quatro rotas continuam respondendo 500, o `todo` de `automations-scheduler-contract.test.ts` continua, e nenhum agendador foi criado. A implementação é uma etapa própria, depois da auditoria.
+
+### As quatro rotinas, como estão no código
+
+Mapeadas no código atual (commit `3020409`), antes de registrar qualquer decisão. O nome da rotina é o do Caso de Uso.
+
+| Rotina | Rota de hoje | Entrada de hoje | O que faz, exatamente | Saída | Fala com alguém de fora? |
+|---|---|---|---|---|---|
+| `EnviarResumoAgendaDoDiaUseCase` | `POST agenda-summary/send` | `tenantId`, `therapistId`, `therapistPhone`, `correlationId?` | Confere que o terapeuta existe (404 se não). Lê o fuso da clínica. Busca as consultas ativas do terapeuta **de amanhã**, no calendário da clínica — apesar do "do dia" no nome. Monta o texto, sem nome de paciente (`09:00 — paciente (confirmado)`), e enfileira **uma** mensagem para o telefone recebido. Sem consulta amanhã, envia mesmo assim ("Amanhã você não tem nenhuma consulta agendada"). Chave da mensagem: `agenda-summary-{terapeuta}-{data de amanhã}` — uma por terapeuta e dia | `{ "status": "enqueued" }` | **Sim** — WhatsApp ao terapeuta |
+| `ReenviarAgendaAtualizadaUseCase` | `POST agenda-summary/resend` | os mesmos | O mesmo, com o texto "foi atualizada". A chave leva o instante da chamada: cada chamada é uma mensagem nova. **Nada a chama:** nenhum ponto do código percebe que a agenda mudou depois do envio | `{ "status": "enqueued" }` | **Sim** — WhatsApp ao terapeuta |
+| `ExecutarReguaInadimplenciaUseCase` | `POST inadimplencia/execute` | `tenantId`, `correlationId?` | Lê as cobranças **no estado `Atrasada`** e conta os dias de atraso pelo calendário da clínica. Exatamente 1 dia: lembrete ao paciente. Exatamente 7: segundo lembrete. Exatamente 40: **uma linha de log** — não há aviso ao terapeuta nem notificação no painel. Qualquer outro dia: nada. Chaves: `billing-overdue-{cobrança}-d1` e `-d7` | `{ d1, d7, d40Signaled }` | **Sim** — WhatsApp ao paciente |
+| `GerarFechamentoMensalUseCase` | `POST fechamento-mensal/generate` | nenhuma | Lê até 1.000 cobranças da clínica — **todas, sem filtro de mês** — e devolve os totais (faturado, recebido, pendente, percentual), a situação de cada cobrança pendente e uma frase de conclusão. **Não grava e não envia nada:** o resultado só existe na resposta da chamada | o relatório | Não |
+
+Três fatos do mapeamento que pesam nas decisões, e que os documentos anteriores não diziam:
+
+- **A régua, ligada como está, não envia nada.** Ela lê só o estado `Atrasada`, e nenhum fluxo leva uma cobrança a ele ([ADR-0061](../02-Arquitetura/ADRs/ADR-0061-painel-operavel.md)); o atraso que o painel mostra é calculado pelo vencimento. Ligar a régua a essa regra é decisão que continua aberta.
+- **O fechamento mensal não tem destinatário.** O documento de produto fala em relatório enviado à clínica e disponível em uma tela de Relatórios; o código só devolve os números a quem chamou, e não há essa tela.
+- **O reenvio não é uma rotina de horário.** É por evento, e o evento não existe.
+
+### As decisões
+
+| # | Decisão | O que ela resolve | O que ela exige na implementação (fatos do código) |
+|---|---|---|---|
+| 1 | **A execução é coordenada por dentro do backend, com BullMQ. Nenhum agendador externo é contratado nesta fase.** | D3: agendador interno | O Redis, as filas e os workers já existem. Diverge do "o n8n executa" da ADR-0021: a implementação registra a mudança em ADR própria (a ADR-0021 ganhou uma nota). Falta o alerta para job que falha de vez |
+| 2 | **A identidade da clínica nunca é confiada ao corpo da requisição como autorização.** O orquestrador interno enumera os ids e as configurações necessárias e executa cada rotina no contexto isolado da respectiva clínica | D1: opção C | O mecanismo de abrir um contexto por clínica fora de uma requisição já roda nos workers das filas (`ContextIdFactory` + `tenantContext.set`). As rotas de hoje, que recebem `tenantId` no corpo, deixam de ser caminho de produção |
+| 3 | **A enumeração entre clínicas é operação de sistema, restrita.** Nenhum endpoint global acessível a usuários comuns | D2, no princípio | Hoje não existe leitura entre clínicas: a RLS tem duas exceções, estreitas e nomeadas. Listar clínicas pede uma terceira, igualmente estreita, com teste crítico de isolamento próprio. O critério de quais clínicas entram ainda não foi definido (E5) |
+| 4 | **Horários de execução e dias de calendário respeitam o fuso de cada clínica** | D4, na parte do fuso | Os dias já respeitam (AD-039): "amanhã" do resumo e os dias de atraso da régua são os do calendário da clínica. Falta existir a hora de cada rotina (E1 a E3) — hoje não há essa configuração |
+| 5 | **A recuperação de execuções administrativas perdidas é idempotente. Mensagens antigas a pacientes não são reproduzidas em lote** | D5 | Repetir o resumo e a régua já é seguro (chave por terapeuta e dia; por cobrança e estágio). A régua não recupera dia perdido — o gatilho é por igualdade — e, por esta decisão, não passa a reenviar em lote. O que acontece com o lembrete que deixou de sair ainda precisa ser dito (E6) |
+| 6 | **O telefone de destino de uma rotina para terapeuta vem de um cadastro válido da própria clínica. Ausente, a rotina registra a pendência e não envia** | D6 | `therapist.phone` existe e é opcional; hoje o telefone vem no corpo da chamada. Falta dizer onde a pendência fica registrada e quem a vê (E7) |
+| 7 | **Rotinas de comunicação externa ficam desativadas até a validação das integrações e a ativação explícita pelo administrador da clínica** | D7 | Três das quatro rotinas mandam mensagem para fora (resumo, reenvio, régua). Não existe chave de ligar e desligar, nem por clínica nem por rotina: é campo novo (com migration), tela e registro na auditoria (E8) |
+
+Com isso, D1, D2 (no princípio), D3, D5, D6 e D7 da tabela anterior estão decididas; D4 está decidida quanto ao fuso e aberta quanto às horas.
+
+### O que ainda exige especificação
+
+Nada abaixo foi decidido, e nenhum horário ou regra foi inventado aqui. A coluna do meio é o que os documentos de produto e o código dizem hoje.
+
+| # | Item | O que se sabe | O que falta decidir |
+|---|---|---|---|
+| E1 | Hora do resumo de agenda | `05-IA/02-Rotina-de-Controle-de-Agenda.md`: "horário fixo configurável por clínica (padrão sugerido: fim do expediente, ex: 20h)". Não existe essa configuração | A hora padrão; se é por clínica ou por terapeuta; se sai em véspera de dia sem atendimento (hoje a rotina envia "nenhuma consulta agendada") |
+| E2 | Hora da régua de inadimplência | `05-IA/03-Gestao-de-Inadimplencia.md`: diária, sem falhar um dia. Nenhuma hora definida | A hora, no fuso da clínica; se roda em fim de semana e feriado |
+| E3 | Fechamento mensal | `06-UX/05-Fluxo-Fechamento-Mensal.md`: último dia do mês ou primeiro dia útil do seguinte, configurável por clínica; relatório enviado à clínica e disponível em Relatórios. O código não filtra período, não grava e não envia | O dia e a hora; o período coberto; para onde vai o resultado; se o envio conta como comunicação externa (decisão 7) |
+| E4 | Reenvio da agenda | O documento de produto pede reenvio quando a agenda muda depois do envio do dia, e diz que nem toda mudança justifica | Quais mudanças disparam; limite de reenvios por dia; quem dispara, já que não é rotina de horário |
+| E5 | Critério da enumeração | A decisão 3 restringe quem enumera; não diz o que é enumerado | Quais clínicas entram: assinatura ativa, canal de WhatsApp conectado, rotina ativada (decisão 7) — e em que combinação |
+| E6 | Dia perdido da régua | Pela decisão 5, o lembrete que não saiu no dia não é reenviado em lote | Se existe alguma tolerância (rodar mais tarde no mesmo dia já é coberto pela idempotência); se a clínica é avisada do que deixou de sair |
+| E7 | "Registrar a pendência" do terapeuta sem telefone | A decisão 6 manda registrar e não enviar. O sistema tem notificações internas e log | Onde fica registrado, para quem aparece e se repete a cada execução |
+| E8 | Chave de ativação | A decisão 7 exige ativação explícita pelo administrador | Se é uma chave por clínica ou uma por rotina; o que conta como "integração validada" e quem atesta; o padrão é desligado |
+| E9 | Falha definitiva de um job | Não há alerta hoje; a falha fica em uma linha de log | Quem é avisado, e por onde |
+| E10 | Destino das quatro rotas HTTP e da `AUTOMATION_API_KEY` | Pela decisão 2, deixam de ser caminho de produção | Remover, ou manter como gatilho manual de operação, sem clínica no corpo |
+| E11 | Régua e o estado `Atrasada` | A régua lê só esse estado, a que nenhum fluxo chega; pendência anterior (ADR-0061) | Se a régua passa a usar o atraso calculado pelo vencimento — é isso que define quando o paciente recebe mensagem |
+| E12 | Sinalização de D+40 | "Sinaliza ao terapeuta" é hoje uma linha de log | Como o terapeuta fica sabendo |
+
+**Efeito sobre o piloto.** Com a decisão 7, o piloto não depende das rotinas de comunicação: elas nascem desligadas. O que precisa estar implementado antes de uma clínica real ligá-las é o conjunto das decisões 1 a 7 mais E1, E2, E5, E7, E8 e E11; o fechamento mensal (E3) e o reenvio (E4) podem ficar para depois.
 
 ## Documentos relacionados
 
-- [ADR-0021](../02-Arquitetura/ADRs/ADR-0021.md) — fronteira Motor Operacional ↔ n8n.
+- [ADR-0021](../02-Arquitetura/ADRs/ADR-0021.md) — fronteira Motor Operacional ↔ n8n (com a nota de 12/10/2026).
+- [ADR-0064](../02-Arquitetura/ADRs/ADR-0064-fuso-horario-por-clinica.md) — fuso por clínica, que as rotinas têm de respeitar; [ADR-0065](../02-Arquitetura/ADRs/ADR-0065-preparacao-para-o-piloto-fase-1.md) — fase 1 da Tarefa 07.
 - `docs/ARCHITECTURE_AUDIT_REPORT.md` (F2) e `docs/SPRINT_4_EXECUTION_PLAN.md` (item 2.2).
 - [DEPLOY_RUNBOOK.md](DEPLOY_RUNBOOK.md).

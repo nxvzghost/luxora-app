@@ -53,8 +53,11 @@ Recurso singular por Tenant — cada Clínica só acessa os próprios dados via 
 | GET | `/api/v1/clinic` | ConsultarClinica | RF-001 |
 | PATCH | `/api/v1/clinic` | AtualizarClinica | RF-002 a RF-009 |
 | PUT | `/api/v1/clinic/policies` | AtualizarPoliticasClinica | RF-010 a RF-012 (Princípio 11 — Configuração acima de Programação) |
+| PUT | `/api/v1/clinic/time-zone` | AlterarFusoClinica | AD-039 ([ADR-0064](../02-Arquitetura/ADRs/ADR-0064-fuso-horario-por-clinica.md)) |
 
-**Campo `timeZone` (AD-039, [ADR-0064](../02-Arquitetura/ADRs/ADR-0064-fuso-horario-por-clinica.md), aditivo e só de leitura):** toda resposta deste recurso traz o fuso da clínica, um nome da base IANA (padrão `America/Sao_Paulo`). É o fuso em que as janelas de disponibilidade e o dia do vencimento das cobranças valem. Nenhuma rota o altera: `PATCH /clinic` e `PUT /clinic/policies` recusam o campo com 400. Quem pode alterá-lo ainda não foi decidido.
+**Campo `timeZone` (AD-039, [ADR-0064](../02-Arquitetura/ADRs/ADR-0064-fuso-horario-por-clinica.md), aditivo):** toda resposta deste recurso traz o fuso da clínica, um nome da base IANA (padrão `America/Sao_Paulo`). É o fuso em que as janelas de disponibilidade e o dia do vencimento das cobranças valem. Só `PUT /clinic/time-zone` o altera; `PATCH /clinic` e `PUT /clinic/policies` recusam o campo com 400.
+
+**`PUT /clinic/time-zone` (12/10/2026, implementado localmente):** só `admin` (terapeuta recebe 403). Corpo: `{ "timeZone": "America/Manaus" }` — o campo é obrigatório, e nenhum outro é aceito. Vale só o nome exato de uma zona da base IANA; nome inexistente, maiúsculas trocadas (`america/sao_paulo`), apelidos (`UTC`, `GMT`) e deslocamentos fixos (`-03:00`) respondem 400 `VALIDATION_ERROR`. Resposta 200 com o recurso da clínica, já com o fuso novo. A clínica é a da sessão, nunca a do corpo. A alteração e o registro na trilha de auditoria (`ClinicaAtualizada`, com `action: "fuso_alterado"`, `fromTimeZone` e `toTimeZone`) são gravados na mesma transação; pedir o fuso que já está em vigor responde 200 sem gravar nem registrar. **Nada já gravado é reescrito:** consultas, exceções e horários fixos continuam no mesmo instante, e as janelas de atendimento e os vencimentos passam a valer no fuso novo.
 
 ---
 
