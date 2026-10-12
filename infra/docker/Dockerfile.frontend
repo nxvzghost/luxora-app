@@ -37,6 +37,12 @@ WORKDIR /app
 # A saída standalone espelha o monorepo: o servidor fica em apps/frontend/server.js.
 COPY --from=build --chown=node:node /app/apps/frontend/.next/standalone ./
 COPY --from=build --chown=node:node /app/apps/frontend/.next/static ./apps/frontend/.next/static
+# Tarefa 07 da auditoria — a imagem distribui as fontes Fraunces e Inter
+# (.next/static/media). A SIL Open Font License pede que o aviso de direitos
+# autorais e o texto da licença as acompanhem: ficam aqui, um por família, e
+# o painel os serve em /licencas/ (apps/frontend/lib/font-licenses.ts).
+COPY --from=build --chown=node:node /app/apps/frontend/app/fonts/fraunces/OFL.txt ./licenses/fonts/fraunces/OFL.txt
+COPY --from=build --chown=node:node /app/apps/frontend/app/fonts/inter/OFL.txt ./licenses/fonts/inter/OFL.txt
 
 ARG APP_VERSION=dev
 ARG BUILD_DATE=unknown

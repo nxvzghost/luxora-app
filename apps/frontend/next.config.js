@@ -8,6 +8,17 @@ const standalone = process.env.NEXT_OUTPUT === 'standalone';
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Tarefa 07 da auditoria — todo arquivo de fonte servido pelo painel aponta
+  // para a sua licença (lib/font-licenses.ts). Em /_next/static/media ficam
+  // só as fontes; o cabeçalho não muda nada do que o navegador desenha.
+  async headers() {
+    return [
+      {
+        source: '/_next/static/media/:arquivo*',
+        headers: [{ key: 'Link', value: '</licencas/fontes.txt>; rel="license"' }],
+      },
+    ];
+  },
   ...(standalone
     ? {
         output: 'standalone',

@@ -65,6 +65,16 @@ Cada arquivo de fonte também traz, nos próprios metadados, o aviso de direitos
 
 O ano do aviso gravado nas fontes difere do ano no cabeçalho do `OFL.txt` do repositório do Google (2018 para a Fraunces, 2020 para a Inter). Os dois foram mantidos como vieram.
 
+### Onde a licença acompanha as fontes
+
+Ter os dois `OFL.txt` nesta pasta cobre o repositório, não o que é publicado: ao navegador chegam só os `.woff2`. Por isso o aviso de direitos autorais e o texto integral de cada licença seguem junto com o painel, em três lugares:
+
+- **Servidos pelo painel**, sem login: `/licencas/fontes.txt` (o índice — qual família está sob qual licença e onde está o texto), `/licencas/fraunces-OFL.txt` e `/licencas/inter-OFL.txt`. São gerados no build a partir destes mesmos `OFL.txt`, byte a byte (`lib/font-licenses.ts`, `app/licencas/[arquivo]/route.ts`) — nada é copiado à mão e nenhuma rede é consultada.
+- **Em cada arquivo de fonte servido**, pelo cabeçalho `Link: </licencas/fontes.txt>; rel="license"` (`next.config.js`).
+- **Na imagem Docker**, em `/app/licenses/fonts/fraunces/OFL.txt` e `/app/licenses/fonts/inter/OFL.txt` (`infra/docker/Dockerfile.frontend`).
+
+Ao acrescentar uma família, inclua-a em `FONT_LICENSES` (`lib/font-licenses.ts`) e no `Dockerfile.frontend`. `test/lib/font-licenses.test.ts` falha se uma pasta de fontes ficar sem licença, e o ensaio de deploy (`infra/tests/rehearsal.sh`) confere a imagem construída.
+
 ## Como conferir
 
 ```bash
