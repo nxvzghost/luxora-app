@@ -117,7 +117,8 @@ As ADRs foram organizadas em uma sequência lógica.
 | ADR-0061 | Painel operável: proteção de rota sem middleware, leitura aditiva na API e estado financeiro fiel ao pagamento (Tarefa 05 da auditoria) — **ADOTADA E IMPLEMENTADA** |
 | ADR-0062 | Fechamento dos testes: ponta a ponta em pilha descartável, referências entre clínicas recusadas e defeitos conhecidos presos por teste que falha (Tarefa 06 da auditoria) — **ADOTADA E IMPLEMENTADA; Tarefa 06 concluída em 12/10/2026 (não equivale a produto pronto para produção; pendências na própria ADR)** |
 | ADR-0063 | Identidade pelo WhatsApp: cadastro novo só com nome completo e confirmação; número novo só vinculado com aprovação de um administrador pelo painel; número compartilhado nunca resolvido por suposição (AD-037, AD-038) — **APROVADA E IMPLEMENTADA em 09/10/2026; pendências listadas na própria ADR** |
-| ADR-0064 | Fuso horário por clínica e vencimento pelo dia civil da clínica (AD-039) — **APROVADA, implementação pendente; pré-requisito do piloto de produção** |
+| ADR-0064 | Fuso horário por clínica e vencimento pelo dia civil da clínica (AD-039) — **APROVADA E IMPLEMENTADA em 12/10/2026, localmente (sem push); dois pontos ainda pedem decisão: o que o painel mostra e quem pode alterar o fuso** |
+| ADR-0065 | Preparação para o piloto, fase 1: nada sensível nos traces, licenças das fontes junto do painel e situação dos bloqueadores (Tarefa 07 da auditoria) — **ADOTADA; fase PARCIAL: validada localmente, sem push nem CI remoto; não autoriza o piloto** |
 
 
 

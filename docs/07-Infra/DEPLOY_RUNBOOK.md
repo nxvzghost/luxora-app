@@ -9,13 +9,13 @@
 | Peça | Onde | Provado |
 |---|---|---|
 | Imagem do backend (runtime) | `infra/docker/Dockerfile.backend` | Build a partir de um checkout limpo, sem cache; container sobe, responde e encerra com SIGTERM |
-| Imagem do job de migrations | mesmo Dockerfile, `--target migrate` | Aplica as 19 migrations num banco vazio, com a credencial admin |
-| Imagem do painel | `infra/docker/Dockerfile.frontend` | Build limpo; a tela de login responde |
+| Imagem do job de migrations | mesmo Dockerfile, `--target migrate` | Aplica as 20 migrations num banco vazio, com a credencial admin |
+| Imagem do painel | `infra/docker/Dockerfile.frontend` | Build limpo; a tela de login responde; as licenças das fontes são servidas em `/licencas/` e guardadas em `/app/licenses/fonts/` |
 | Pilha de homologação | `infra/staging/docker-compose.yml` | Sobe inteira nesta máquina e no runner do CI |
 | Deploy com rollback automático | `infra/scripts/deploy.sh` | Versão quebrada implantada de propósito: a anterior volta sozinha |
 | Rollback manual | `infra/scripts/rollback.sh` | Volta para a versão anterior, banco intacto |
 | Ensaio de restauração | `infra/scripts/restore-drill.sh` | Backup restaurado num banco descartável, com a RLS conferida |
-| Ensaio completo | `infra/tests/rehearsal.sh` | 68 verificações, executado localmente |
+| Ensaio completo | `infra/tests/rehearsal.sh` | 78 verificações, executado localmente (68 até 12/10/2026; as 10 novas conferem, nas imagens de verdade, que o token de verificação do webhook não chega ao coletor de traces e que as licenças das fontes acompanham o painel) |
 
 **Não provado:** nada disso rodou em um host de homologação de verdade, porque ele não existe. O job `deploy-rehearsal` do CI e o workflow de CD foram validados na sintaxe (`actionlint`) e pelos mesmos scripts executados localmente, mas ainda não rodaram no GitHub (não houve push).
 

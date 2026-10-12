@@ -54,6 +54,8 @@ Recurso singular por Tenant — cada Clínica só acessa os próprios dados via 
 | PATCH | `/api/v1/clinic` | AtualizarClinica | RF-002 a RF-009 |
 | PUT | `/api/v1/clinic/policies` | AtualizarPoliticasClinica | RF-010 a RF-012 (Princípio 11 — Configuração acima de Programação) |
 
+**Campo `timeZone` (AD-039, [ADR-0064](../02-Arquitetura/ADRs/ADR-0064-fuso-horario-por-clinica.md), aditivo e só de leitura):** toda resposta deste recurso traz o fuso da clínica, um nome da base IANA (padrão `America/Sao_Paulo`). É o fuso em que as janelas de disponibilidade e o dia do vencimento das cobranças valem. Nenhuma rota o altera: `PATCH /clinic` e `PUT /clinic/policies` recusam o campo com 400. Quem pode alterá-lo ainda não foi decidido.
+
 ---
 
 # Terapeutas (`/api/v1/therapists`)
@@ -153,7 +155,7 @@ Acrescentado na Tarefa 05 da auditoria (ADR-0061), sem mudar o que já existia:
 - **`GET /billings/{id}/payments`:** devolve `{ data: [...] }` com o pagamento da cobrança — no máximo um, porque `payment.billing_id` é único — ou lista vazia. Cada item: `id`, `billingId`, `amount`, `state`. 404 para cobrança inexistente ou de outra clínica.
 - **`POST /billings/{id}/send` — erro novo:** `WHATSAPP_NOT_CONNECTED` (409) quando a clínica não tem WhatsApp conectado e ativo. Nada é enfileirado e a cobrança continua em `Criada`. Com canal conectado, a resposta 201 significa que a mensagem entrou na fila de envio, não que foi entregue.
 - **Cobrança `Enviada` pode ir direto a `Quitada`:** registrar o pagamento de uma cobrança já enviada respondia 500.
-- **Campo `overdue` em toda cobrança devolvida** (`GET /billings`, `GET /billings/{id}`, `POST /billings`, `POST /billings/{id}/send`): `true` quando a cobrança está em atraso. Regra: estado `Atrasada`; ou estado `Criada`, `Enviada`, `Visualizada` ou `Pendente` com o vencimento passado há um dia inteiro ou mais (o dia do vencimento ainda está em dia; o corte é em UTC). `Quitada` e `Cancelada` nunca; `Negociada` e `Escalada` não entram. É a mesma regra de `overdueBillings` em `GET /dashboard/summary`. O estado gravado não muda. **O corte em UTC é o comportamento vigente, não o pretendido:** a decisão de 08/10/2026 ([ADR-0064](../02-Arquitetura/ADRs/ADR-0064-fuso-horario-por-clinica.md)) é que o atraso comece à meia-noite do dia seguinte ao vencimento, no fuso da clínica. Ainda não implementada (AD-039).
+- **Campo `overdue` em toda cobrança devolvida** (`GET /billings`, `GET /billings/{id}`, `POST /billings`, `POST /billings/{id}/send`): `true` quando a cobrança está em atraso. Regra: estado `Atrasada`; ou estado `Criada`, `Enviada`, `Visualizada` ou `Pendente` com o dia do vencimento já encerrado **no fuso da clínica**: a cobrança está em dia durante todo o dia do vencimento e passa a estar em atraso à meia-noite do dia seguinte, na hora da clínica (AD-039, [ADR-0064](../02-Arquitetura/ADRs/ADR-0064-fuso-horario-por-clinica.md), implementada em 12/10/2026). O vencimento é uma data sem hora: vale o dia escrito em `dueDate`, que a API recebe como `AAAA-MM-DD` e guarda como a meia-noite UTC desse dia. `Quitada` e `Cancelada` nunca; `Negociada` e `Escalada` não entram. É a mesma regra de `overdueBillings` em `GET /dashboard/summary`. O estado gravado não muda. Até 12/10/2026 o corte era em UTC: a cobrança constava em atraso às 21h de Brasília do próprio dia do vencimento.
 
 Tarefa 06 da auditoria (08/10/2026, ADR-0062):
 
@@ -197,7 +199,7 @@ Somente leitura — nunca altera dados (mesmo princípio já definido em `02-Arq
 | GET | `/api/v1/dashboard/financial` | RF-083 a RF-085, RF-090 |
 | GET | `/api/v1/dashboard/occupancy` | RF-088, RF-089 |
 
-`GET /dashboard/summary` devolve `{ activePatients, overdueBillings, totalPending }`. Desde a Tarefa 05 da auditoria (ADR-0061), **`overdueBillings` conta as cobranças em atraso pelo vencimento**: estado `Atrasada`, ou estado que ainda aguarda pagamento (`Criada`, `Enviada`, `Visualizada`, `Pendente`) com o vencimento passado há um dia inteiro ou mais. Antes contava só o estado `Atrasada`, a que nenhum fluxo chega, e ficava sempre em zero. É a mesma regra do campo `overdue` das cobranças. `totalPending` não mudou: soma tudo que não está `Quitada` nem `Cancelada`.
+`GET /dashboard/summary` devolve `{ activePatients, overdueBillings, totalPending }`. Desde a Tarefa 05 da auditoria (ADR-0061), **`overdueBillings` conta as cobranças em atraso pelo vencimento**: estado `Atrasada`, ou estado que ainda aguarda pagamento (`Criada`, `Enviada`, `Visualizada`, `Pendente`) com o dia do vencimento já encerrado no fuso da clínica (AD-039: em atraso a partir da meia-noite do dia seguinte ao vencimento, na hora da clínica — ver o campo `overdue`). Antes contava só o estado `Atrasada`, a que nenhum fluxo chega, e ficava sempre em zero. É a mesma regra do campo `overdue` das cobranças. `totalPending` não mudou: soma tudo que não está `Quitada` nem `Cancelada`.
 
 ---
 
