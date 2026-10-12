@@ -10,6 +10,7 @@ import {
   formatCivilDate,
   instantAt,
   isSameLocalDay,
+  isIanaTimeZoneName,
   isValidTimeZone,
   localDateTime,
   localDayRange,
@@ -43,6 +44,26 @@ describe('fuso padrão e validação', () => {
     expect(assertTimeZone('America/Manaus')).toBe('America/Manaus');
     expect(() => assertTimeZone('Brasilia')).toThrow(/Fuso horário inválido: "Brasilia"/);
     expect(() => assertTimeZone(undefined)).toThrow(/Fuso horário inválido/);
+  });
+
+  it('isIanaTimeZoneName — para GRAVAR, só o nome exato de uma zona da base IANA', () => {
+    for (const valid of ['America/Sao_Paulo', 'America/Manaus', 'America/Rio_Branco', 'America/Noronha', 'Europe/Lisbon', 'Asia/Tokyo', 'Pacific/Kiritimati']) {
+      expect(isIanaTimeZoneName(valid), valid).toBe(true);
+    }
+    // O `Intl` calcula com vários destes (por isso `isValidTimeZone` os aceita, onde existem); nenhum é o nome de uma zona.
+    for (const loose of ['america/sao_paulo', 'AMERICA/SAO_PAULO', 'UTC', 'GMT', 'Etc/UTC', '+03:00', '-03:00', ' America/Sao_Paulo', 'America/Sao_Paulo ']) {
+      expect(isIanaTimeZoneName(loose), loose).toBe(false);
+    }
+    for (const invalid of ['', '   ', 'Brasilia', 'America/Sao Paulo', 'Marte/Olimpo', null, undefined, 3, {}, ['America/Sao_Paulo']]) {
+      expect(isIanaTimeZoneName(invalid), String(invalid)).toBe(false);
+    }
+  });
+
+  it('todo nome que pode ser gravado é um fuso com que o sistema sabe calcular', () => {
+    for (const zone of Intl.supportedValuesOf('timeZone')) {
+      expect(isIanaTimeZoneName(zone), zone).toBe(true);
+      expect(isValidTimeZone(zone), zone).toBe(true);
+    }
   });
 });
 

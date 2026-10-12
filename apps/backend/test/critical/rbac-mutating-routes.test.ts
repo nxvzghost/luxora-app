@@ -255,6 +255,33 @@ describe('AD-003 — ClinicController RBAC (admin only)', () => {
       .send({ pixKey: 'rbac-superadmin@luxora.dev' });
     expect(res.status).toBe(200);
   });
+
+  // AD-039 (ADR-0064) — alterar o fuso da clínica. O comportamento da rota está em clinic-time-zone-change.test.ts.
+  it('PUT /clinic/time-zone — therapist: 403', async () => {
+    const res = await request(app.getHttpServer())
+      .put('/api/v1/clinic/time-zone')
+      .set('Authorization', `Bearer ${therapistToken}`)
+      .send({ timeZone: 'America/Manaus' });
+    expect(res.status).toBe(403);
+  });
+
+  it('PUT /clinic/time-zone — admin: sucesso', async () => {
+    const res = await request(app.getHttpServer())
+      .put('/api/v1/clinic/time-zone')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ timeZone: 'America/Manaus' });
+    expect(res.status).toBe(200);
+    expect(res.body.timeZone).toBe('America/Manaus');
+  });
+
+  it('PUT /clinic/time-zone — super_admin: sucesso', async () => {
+    const res = await request(app.getHttpServer())
+      .put('/api/v1/clinic/time-zone')
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ timeZone: 'America/Sao_Paulo' });
+    expect(res.status).toBe(200);
+    expect(res.body.timeZone).toBe('America/Sao_Paulo');
+  });
 });
 
 describe('AD-003 — TherapistsController RBAC (admin only)', () => {

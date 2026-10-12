@@ -1,4 +1,5 @@
 import { DomainEvent } from '../shared/domain-event';
+import { isIanaTimeZoneName } from '../shared/time-zone';
 
 /**
  * Clínica — representa o Tenant do ponto de vista de negócio (nome,
@@ -14,8 +15,8 @@ import { DomainEvent } from '../shared/domain-event';
 export class ClinicUpdatedEvent extends DomainEvent {
   declare readonly action: string;
 
-  constructor(entityId: string, tenantId: string, action: string) {
-    super('ClinicaAtualizada', entityId, tenantId, { action });
+  constructor(entityId: string, tenantId: string, action: string, details: Record<string, unknown> = {}) {
+    super('ClinicaAtualizada', entityId, tenantId, { ...details, action });
   }
 }
 
@@ -33,10 +34,8 @@ export interface ClinicProps {
   pixKey?: string;
   payeeName?: string;
   /**
-   * AD-039 (ADR-0064) — fuso da clínica, nome da base IANA. Só leitura nesta
-   * entidade: quem pode alterá-lo, e o que acontece com as consultas já
-   * marcadas quando ele muda, ainda não foi decidido (ADR-0064, "Pontos a
-   * confirmar").
+   * AD-039 (ADR-0064) — fuso da clínica, nome da base IANA. Muda só por
+   * `changeTimeZone()`.
    */
   timeZone: string;
 }
@@ -122,6 +121,29 @@ export class Clinic {
     if (info.pixKey !== undefined) this.props.pixKey = info.pixKey;
     if (info.payeeName !== undefined) this.props.payeeName = info.payeeName;
     this._pendingEvents.push(new ClinicUpdatedEvent(this.props.tenantId, this.props.tenantId, 'dados_pagamento_alterados'));
+  }
+
+  /**
+   * AD-039 (ADR-0064) — troca o fuso da clínica. Devolve `false`, sem evento,
+   * quando o fuso informado já é o atual.
+   *
+   * Nada do que já está gravado é reescrito: consultas, exceções e horários
+   * fixos são instantes e continuam os mesmos — o que muda é a hora de parede
+   * em que passam a ser lidos. As janelas de atendimento ("09:00–18:00") e os
+   * vencimentos são horas e datas de parede, e passam a valer no fuso novo.
+   * O registro de auditoria leva o fuso anterior e o novo.
+   */
+  changeTimeZone(timeZone: string): boolean {
+    if (!isIanaTimeZoneName(timeZone)) {
+      throw new Error(`Fuso horário inválido: "${String(timeZone)}". Use o nome de uma zona da base IANA, como "America/Sao_Paulo".`);
+    }
+    if (timeZone === this.props.timeZone) return false;
+    const previous = this.props.timeZone;
+    this.props.timeZone = timeZone;
+    this._pendingEvents.push(
+      new ClinicUpdatedEvent(this.props.tenantId, this.props.tenantId, 'fuso_alterado', { fromTimeZone: previous, toTimeZone: timeZone }),
+    );
+    return true;
   }
 
   pullDomainEvents(): DomainEvent[] {

@@ -29,6 +29,21 @@ export class PrismaClinicRepository implements ClinicRepository {
     });
   }
 
+  async findByTenantIdForUpdate(tenantId: string): Promise<Clinic | null> {
+    if (!this.prisma.isInUnitOfWork) {
+      throw new Error('findByTenantIdForUpdate() só pode ser chamado dentro de uma unidade de trabalho.');
+    }
+    // A RLS vale também aqui: só a linha da clínica da requisição é vista e travada.
+    await this.prisma.forTenant((tx) => tx.$queryRaw`SELECT id FROM "clinic_settings" WHERE tenant_id = ${tenantId} FOR UPDATE`);
+    return this.findByTenantId(tenantId);
+  }
+
+  async saveTimeZone(clinic: Clinic): Promise<void> {
+    await this.prisma.forTenant((tx) =>
+      tx.clinicSettings.update({ where: { tenantId: clinic.tenantId }, data: { timeZone: clinic.timeZone } }),
+    );
+  }
+
   async save(clinic: Clinic): Promise<void> {
     await this.prisma.forTenant(async (tx) => {
       await tx.tenant.update({ where: { id: clinic.tenantId }, data: { name: clinic.name } });

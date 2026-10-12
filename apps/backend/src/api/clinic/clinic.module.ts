@@ -6,7 +6,10 @@ import {
   AtualizarClinicaUseCase,
   AtualizarPoliticasClinicaUseCase,
   AtualizarDadosPagamentoUseCase,
+  AlterarFusoClinicaUseCase,
 } from '@use-cases/clinic/clinic.use-cases';
+import { UNIT_OF_WORK } from '@domain-services/platform/unit-of-work';
+import { PrismaUnitOfWork } from '@infrastructure/database/prisma-unit-of-work';
 import { CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { PrismaClinicRepository } from '@infrastructure/database/repositories/prisma-clinic.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
@@ -30,6 +33,8 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     AtualizarClinicaUseCase,
     AtualizarPoliticasClinicaUseCase,
     AtualizarDadosPagamentoUseCase,
+    AlterarFusoClinicaUseCase,
+    { provide: UNIT_OF_WORK, useClass: PrismaUnitOfWork },
     { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
     PrismaService,
     PrismaClientProvider,

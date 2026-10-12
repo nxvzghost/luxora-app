@@ -106,6 +106,71 @@ describe('Clinic', () => {
     });
   });
 
+  describe('changeTimeZone — AD-039 (ADR-0064)', () => {
+    it('troca o fuso e registra o anterior e o novo no evento', () => {
+      const c = newClinic();
+
+      expect(c.changeTimeZone('America/Manaus')).toBe(true);
+
+      expect(c.timeZone).toBe('America/Manaus');
+      const events = c.pullDomainEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        eventName: 'ClinicaAtualizada',
+        entityId: TENANT_ID,
+        tenantId: TENANT_ID,
+        action: 'fuso_alterado',
+        fromTimeZone: 'America/Sao_Paulo',
+        toTimeZone: 'America/Manaus',
+      });
+    });
+
+    it('o mesmo fuso que já está em vigor não muda nada e não gera evento', () => {
+      const c = newClinic();
+
+      expect(c.changeTimeZone('America/Sao_Paulo')).toBe(false);
+
+      expect(c.timeZone).toBe('America/Sao_Paulo');
+      expect(c.pullDomainEvents()).toHaveLength(0);
+    });
+
+    it('recusa o que não é o nome exato de uma zona IANA, sem alterar o fuso nem gerar evento', () => {
+      const c = newClinic();
+
+      for (const invalid of ['Brasilia', 'america/manaus', 'UTC', '+03:00', '', '  ', undefined, null, 3]) {
+        expect(() => c.changeTimeZone(invalid as string), String(invalid)).toThrow(/Fuso horário inválido/);
+      }
+
+      expect(c.timeZone).toBe('America/Sao_Paulo');
+      expect(c.pullDomainEvents()).toHaveLength(0);
+    });
+
+    it('não mexe em mais nada da clínica', () => {
+      const c = newClinic();
+      c.updatePolicies({ cancellationHoursLimit: 24 });
+      c.updatePaymentInfo({ pixKey: '41999999999' });
+      c.pullDomainEvents();
+
+      c.changeTimeZone('America/Noronha');
+
+      expect(c.name).toBe('Clínica Teste');
+      expect(c.defaultBillingPolicy).toBe('per_session');
+      expect(c.cancellationHoursLimit).toBe(24);
+      expect(c.defaultSessionDurationMinutes).toBe(50);
+      expect(c.pixKey).toBe('41999999999');
+    });
+
+    it('os eventos das outras edições continuam com a forma de antes', () => {
+      const c = newClinic();
+      c.rename('Novo Nome');
+
+      const [event] = c.pullDomainEvents() as unknown as Array<Record<string, unknown>>;
+      expect(event.action).toBe('nome_alterado');
+      expect(event).not.toHaveProperty('fromTimeZone');
+      expect(event).not.toHaveProperty('toTimeZone');
+    });
+  });
+
   it('expõe tenantId e defaultSessionDurationMinutes', () => {
     const c = newClinic();
     expect(c.tenantId).toBe(TENANT_ID);

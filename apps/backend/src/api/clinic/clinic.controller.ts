@@ -4,8 +4,9 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
-import { UpdateClinicDto, UpdateClinicPoliciesDto, UpdatePaymentInfoDto } from './dto/clinic.dto';
+import { UpdateClinicDto, UpdateClinicPoliciesDto, UpdateClinicTimeZoneDto, UpdatePaymentInfoDto } from './dto/clinic.dto';
 import {
+  AlterarFusoClinicaUseCase,
   ConsultarClinicaUseCase,
   AtualizarClinicaUseCase,
   AtualizarPoliticasClinicaUseCase,
@@ -29,6 +30,7 @@ export class ClinicController {
     private readonly atualizarClinica: AtualizarClinicaUseCase,
     private readonly atualizarPoliticas: AtualizarPoliticasClinicaUseCase,
     private readonly atualizarDadosPagamento: AtualizarDadosPagamentoUseCase,
+    private readonly alterarFuso: AlterarFusoClinicaUseCase,
   ) {}
 
   @Get()
@@ -48,6 +50,17 @@ export class ClinicController {
     return this.toResponse(await this.atualizarPoliticas.execute(dto));
   }
 
+  /**
+   * AD-039 (ADR-0064) — só admin. Rota própria, e não um campo de
+   * `PATCH /clinic`: trocar o fuso desloca a hora de parede de tudo o que já
+   * está marcado, e não deve acontecer de carona em outra edição.
+   */
+  @Put('time-zone')
+  @Roles('admin')
+  async updateTimeZone(@Body() dto: UpdateClinicTimeZoneDto) {
+    return this.toResponse(await this.alterarFuso.execute(dto));
+  }
+
   @Put('payment-info')
   @Roles('admin')
   async updatePaymentInfo(@Body() dto: UpdatePaymentInfoDto) {
@@ -62,7 +75,7 @@ export class ClinicController {
       defaultSessionDurationMinutes: clinic.defaultSessionDurationMinutes,
       pixKey: clinic.pixKey ?? null,
       payeeName: clinic.payeeName ?? null,
-      // AD-039 (aditivo, só leitura): o fuso em que a agenda e os vencimentos da clínica valem.
+      // AD-039: o fuso em que a agenda e os vencimentos da clínica valem. Muda só por PUT /clinic/time-zone.
       timeZone: clinic.timeZone,
     };
   }

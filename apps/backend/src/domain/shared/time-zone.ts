@@ -63,6 +63,25 @@ export function isValidTimeZone(timeZone: unknown): timeZone is string {
   }
 }
 
+let ianaNames: Set<string> | undefined;
+
+/**
+ * O nome pode ser GRAVADO como fuso de uma clínica?
+ *
+ * Mais estrito que `isValidTimeZone`, de propósito. O `Intl` aceita, para
+ * calcular, formas que não são o nome de um lugar — maiúsculas trocadas
+ * (`america/sao_paulo`), apelidos (`UTC`, `GMT`) e, em versões novas do Node,
+ * deslocamentos fixos (`+03:00`). Gravar uma delas deixaria a clínica com um
+ * valor que outra parte do sistema (ou outra versão do Node) pode não
+ * reconhecer, e um deslocamento fixo ignora mudanças de regra do lugar. Só
+ * entra o nome exato de uma zona da base IANA, como o `Intl` a lista.
+ */
+export function isIanaTimeZoneName(timeZone: unknown): timeZone is string {
+  if (typeof timeZone !== 'string') return false;
+  ianaNames ??= new Set(Intl.supportedValuesOf('timeZone'));
+  return ianaNames.has(timeZone);
+}
+
 /** Devolve o fuso, ou lança se o nome não for de um fuso conhecido — nunca troca por outro em silêncio. */
 export function assertTimeZone(timeZone: unknown): string {
   if (!isValidTimeZone(timeZone)) {

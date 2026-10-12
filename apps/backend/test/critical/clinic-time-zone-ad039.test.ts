@@ -138,7 +138,7 @@ describe('[AD-039] GET /clinic — o fuso da clínica', () => {
     expect((await api().get('/api/v1/clinic').set(as(kiritimati))).body.timeZone).toBe('Pacific/Kiritimati');
   });
 
-  it('as rotas de edição da clínica não aceitam o fuso: quem pode alterá-lo ainda não foi decidido (ADR-0064)', async () => {
+  it('as outras rotas de edição da clínica não aceitam o fuso: ele só muda por PUT /clinic/time-zone (clinic-time-zone-change.test.ts)', async () => {
     const patch = await api().patch('/api/v1/clinic').set(as(saoPaulo)).send({ timeZone: 'Asia/Tokyo' });
     const policies = await api().put('/api/v1/clinic/policies').set(as(saoPaulo)).send({ timeZone: 'Asia/Tokyo' });
 
