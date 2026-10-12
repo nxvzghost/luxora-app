@@ -16,6 +16,8 @@ import {
 } from '@/lib/api-client/billing.hooks';
 import { useTherapists } from '@/lib/api-client/therapists.hooks';
 import { describeApiError } from '@/lib/api-client/errors';
+import { useClinicTimeZone } from '@/lib/api-client/clinic.hooks';
+import { formatInZone } from '@/lib/clinic-time';
 import { useRole } from '@/lib/session';
 import { formatCurrencyBRL } from '@/lib/format-currency';
 
@@ -236,6 +238,8 @@ export default function FinanceiroPage() {
 function BillingForm(props: { patients: Array<{ id: string; name: string }>; onCreated: (billing: Billing) => void }) {
   const createBilling = useCreateBilling();
   const { data: therapistsData } = useTherapists();
+  // AD-039 — a data da sessão é mostrada na hora da clínica. O vencimento é uma data sem hora e não depende de fuso.
+  const { timeZone } = useClinicTimeZone();
   const [patientId, setPatientId] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [amount, setAmount] = useState('');
@@ -300,7 +304,7 @@ function BillingForm(props: { patients: Array<{ id: string; name: string }>; onC
                 checked={selected.includes(session.id)}
                 onChange={(event) => setSelected((current) => (event.target.checked ? [...current, session.id] : current.filter((id) => id !== session.id)))}
               />
-              {new Date(session.scheduledAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} ·{' '}
+              {formatInZone(session.scheduledAt, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }, timeZone)} ·{' '}
               {therapistName(session.therapistId)}
             </label>
           ))}

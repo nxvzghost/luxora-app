@@ -8,7 +8,9 @@ import { describeApiError } from '@/lib/api-client/errors';
 import { useRole } from '@/lib/session';
 import { useTherapists } from '@/lib/api-client/therapists.hooks';
 import { usePatients } from '@/lib/api-client/dashboard.hooks';
-import { useClinic } from '@/lib/api-client/clinic.hooks';
+import { useClinic, useClinicTimeZone } from '@/lib/api-client/clinic.hooks';
+import { ClinicTimeZoneNote } from '@/components/clinic-time-zone-note';
+import { formatInZone, instantFromLocalInput, startOfDayIn } from '@/lib/clinic-time';
 import { useAvailableSlots, type Modality } from '@/lib/api-client/appointments.hooks';
 import {
   type AvailabilityException,
@@ -21,10 +23,10 @@ import {
 } from '@/lib/api-client/availability.hooks';
 
 const WEEKDAYS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-const DAY_MS = 24 * 60 * 60 * 1000;
 
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+/** AD-039 — data e hora na hora da clínica. */
+function formatDateTime(iso: string, timeZone: string | undefined): string {
+  return formatInZone(iso, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }, timeZone);
 }
 
 /** Problema de uma janela, ou null. Mesmas regras que a API valida — conferidas antes para a mensagem ser clara. */
@@ -58,6 +60,10 @@ function sameWindows(a: AvailabilityWindow[], b: AvailabilityWindow[]): boolean 
  * exceções é só para admin, como na API; o terapeuta vê e pode criar
  * horários fixos. Feriados da clínica são respeitados na agenda, mas a API
  * ainda não tem rota para cadastrá-los.
+ *
+ * AD-039: os horários de atendimento são horas de parede da clínica; as
+ * datas e horas digitadas nas exceções e nos horários fixos são lidas, e as
+ * gravadas são mostradas, no fuso da clínica — não no do computador.
  */
 export default function DisponibilidadePage() {
   const { data: therapistsData, isLoading: loadingTherapists, isError: therapistsFailed, error: therapistsError } = useTherapists();
@@ -111,6 +117,7 @@ function TherapistAvailability({ therapistId }: { therapistId: string }) {
   return (
     <>
       {!isAdmin && <p style={hintStyle}>Os horários de atendimento e as exceções só podem ser alterados por um administrador.</p>}
+      <ClinicTimeZoneNote />
       <WindowsSection therapistId={therapistId} saved={calendar.windows} canEdit={isAdmin} />
       <ExceptionsSection therapistId={therapistId} saved={calendar.exceptions} canEdit={isAdmin} />
       <section style={cardStyle}>
@@ -254,6 +261,7 @@ function WindowsSection(props: { therapistId: string; saved: AvailabilityWindow[
 
 function ExceptionsSection(props: { therapistId: string; saved: AvailabilityException[]; canEdit: boolean }) {
   const save = useSetAvailabilityExceptions(props.therapistId);
+  const { timeZone } = useClinicTimeZone();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [reason, setReason] = useState('');
@@ -272,15 +280,19 @@ function ExceptionsSection(props: { therapistId: string; saved: AvailabilityExce
   async function handleAdd(event: React.FormEvent) {
     event.preventDefault();
     setSuccess(null);
-    const start = new Date(from);
-    const end = new Date(to);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+    // O que a pessoa digitou é hora de parede da clínica.
+    const start = instantFromLocalInput(from, timeZone);
+    const end = instantFromLocalInput(to, timeZone);
+    if (!start || !end || end <= start) {
       setError('Informe início e fim, com o fim depois do início.');
       return;
     }
     setError(null);
     try {
-      await save.mutateAsync([...props.saved.map(normalize), normalize({ from, to, reason: reason.trim() || undefined })]);
+      await save.mutateAsync([
+        ...props.saved.map(normalize),
+        normalize({ from: start.toISOString(), to: end.toISOString(), reason: reason.trim() || undefined }),
+      ]);
       setFrom('');
       setTo('');
       setReason('');
@@ -312,7 +324,7 @@ function ExceptionsSection(props: { therapistId: string; saved: AvailabilityExce
           <li key={`${exception.from}-${exception.to}`} style={rowStyle}>
             <div>
               <p style={{ margin: 0, fontWeight: 600 }}>
-                {formatDateTime(exception.from)} até {formatDateTime(exception.to)}
+                {formatDateTime(exception.from, timeZone)} até {formatDateTime(exception.to, timeZone)}
               </p>
               {exception.reason && <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--sage)' }}>{exception.reason}</p>}
             </div>
@@ -366,7 +378,7 @@ function ExceptionsSection(props: { therapistId: string; saved: AvailabilityExce
           title="Remover esta exceção?"
           description={
             <>
-              {formatDateTime(props.saved[toRemove].from)} até {formatDateTime(props.saved[toRemove].to)}. O terapeuta volta a aparecer com
+              {formatDateTime(props.saved[toRemove].from, timeZone)} até {formatDateTime(props.saved[toRemove].to, timeZone)}. O terapeuta volta a aparecer com
               horários livres nesse período.
             </>
           }
@@ -386,6 +398,7 @@ function RecurringBlocksSection({ therapistId }: { therapistId: string }) {
   const { data, isLoading, isError, error } = useRecurringBlocks(therapistId);
   const { data: patientsData } = usePatients();
   const create = useCreateRecurringBlock(therapistId);
+  const { timeZone } = useClinicTimeZone();
   const patients = patientsData?.data ?? [];
   const [patientId, setPatientId] = useState('');
   const [firstOccurrence, setFirstOccurrence] = useState('');
@@ -399,8 +412,9 @@ function RecurringBlocksSection({ therapistId }: { therapistId: string }) {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setSuccess(null);
-    const first = new Date(firstOccurrence);
-    if (Number.isNaN(first.getTime())) {
+    // O que a pessoa digitou é hora de parede da clínica.
+    const first = instantFromLocalInput(firstOccurrence, timeZone);
+    if (!first) {
       setFormError('Informe a data e a hora da primeira ocorrência.');
       return;
     }
@@ -428,7 +442,7 @@ function RecurringBlocksSection({ therapistId }: { therapistId: string }) {
             <div>
               <p style={{ margin: 0, fontWeight: 600 }}>{patients.find((patient) => patient.id === block.patientId)?.name ?? 'Paciente'}</p>
               <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--sage)' }}>
-                Desde {formatDateTime(block.firstOccurrence)} · a cada {block.intervalDays} dias · {block.modality} · renovação{' '}
+                Desde {formatDateTime(block.firstOccurrence, timeZone)} · a cada {block.intervalDays} dias · {block.modality} · renovação{' '}
                 {block.renewalMode === 'automatic' ? 'automática' : 'manual'}
               </p>
             </div>
@@ -498,21 +512,19 @@ function RecurringBlocksSection({ therapistId }: { therapistId: string }) {
 
 /** O efeito de tudo acima: quantos horários a agenda vai oferecer em cada um dos próximos sete dias. */
 function FreeSlotsPreview({ therapistId }: { therapistId: string }) {
-  const range = useMemo(() => {
-    const from = new Date();
-    from.setHours(0, 0, 0, 0);
-    return { from, to: new Date(from.getTime() + 7 * DAY_MS) };
-  }, []);
+  const { timeZone } = useClinicTimeZone();
+  // Sete dias do calendário da clínica, a partir de hoje.
+  const range = useMemo(() => ({ from: startOfDayIn(timeZone), to: startOfDayIn(timeZone, 7) }), [timeZone]);
   const { data, isLoading, isError, error } = useAvailableSlots(therapistId, range.from, range.to);
   const perDay = useMemo(() => {
     const counts = new Map<string, number>();
     for (const slot of data?.data ?? []) {
       if (new Date(slot.startsAt).getTime() <= Date.now()) continue;
-      const day = new Date(slot.startsAt).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+      const day = formatInZone(slot.startsAt, { weekday: 'short', day: '2-digit', month: '2-digit' }, timeZone);
       counts.set(day, (counts.get(day) ?? 0) + 1);
     }
     return Array.from(counts.entries());
-  }, [data]);
+  }, [data, timeZone]);
 
   return (
     <section style={cardStyle} aria-label="Horários livres">

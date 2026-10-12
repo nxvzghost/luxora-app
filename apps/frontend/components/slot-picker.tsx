@@ -2,27 +2,17 @@
 
 import Link from 'next/link';
 import { useAvailableSlots } from '@/lib/api-client/appointments.hooks';
+import { useClinicTimeZone } from '@/lib/api-client/clinic.hooks';
+import { dayRange, formatInZone, todayInputValue } from '@/lib/clinic-time';
 import { describeApiError } from '@/lib/api-client/errors';
 import { ErrorMessage, Loading } from '@/components/ui/feedback';
 import { hintStyle, inputStyle, labelStyle } from '@/components/ui/page-shell';
 
-/** Início e fim (exclusivo) de um dia local, a partir do valor de um <input type="date">. */
-export function dayRange(day: string): { from: Date; to: Date } | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
-  const from = new Date(`${day}T00:00:00`);
-  if (Number.isNaN(from.getTime())) return null;
-  const to = new Date(from);
-  to.setDate(to.getDate() + 1);
-  return { from, to };
-}
+// O dia, "hoje" e a hora são os do fuso da clínica (AD-039) — as regras estão em lib/clinic-time.ts.
+export { dayRange, todayInputValue };
 
-export function todayInputValue(now: Date = new Date()): string {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
-export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+export function formatTime(iso: string, timeZone?: string): string {
+  return formatInZone(iso, { hour: '2-digit', minute: '2-digit' }, timeZone);
 }
 
 /**
@@ -30,6 +20,9 @@ export function formatTime(iso: string): string {
  * ou remarcar uma consulta. Só oferece os horários que a API diz estarem
  * livres para o terapeuta naquele dia: a tela não deixa pedir um horário
  * que o backend recusaria por indisponibilidade.
+ *
+ * O dia escolhido é um dia do calendário da clínica, e os horários aparecem
+ * na hora de lá — seja qual for o fuso do computador (AD-039).
  */
 export function SlotPicker(props: {
   therapistId: string;
@@ -38,7 +31,8 @@ export function SlotPicker(props: {
   value: string;
   onChange: (startsAt: string) => void;
 }) {
-  const range = props.therapistId ? dayRange(props.day) : null;
+  const { timeZone } = useClinicTimeZone();
+  const range = props.therapistId ? dayRange(props.day, timeZone) : null;
   const { data, isLoading, isError, error } = useAvailableSlots(props.therapistId, range?.from ?? null, range?.to ?? null);
   // A API devolve também horários que já passaram no dia de hoje.
   const slots = (data?.data ?? []).filter((slot) => new Date(slot.startsAt).getTime() > Date.now());
@@ -52,7 +46,7 @@ export function SlotPicker(props: {
         id="slot-day"
         type="date"
         required
-        min={todayInputValue()}
+        min={todayInputValue(new Date(), timeZone)}
         value={props.day}
         onChange={(event) => {
           props.onDayChange(event.target.value);
@@ -81,7 +75,7 @@ export function SlotPicker(props: {
           <option value="">Selecione...</option>
           {slots.map((slot) => (
             <option key={slot.startsAt} value={slot.startsAt}>
-              {formatTime(slot.startsAt)} – {formatTime(slot.endsAt)}
+              {formatTime(slot.startsAt, timeZone)} – {formatTime(slot.endsAt, timeZone)}
             </option>
           ))}
         </select>

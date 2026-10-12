@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { SideNav } from '@/components/ui/side-nav';
 import { Button } from '@/components/ui/button';
 import { WhatsAppConnection } from '@/components/whatsapp-connection';
+import { ClinicTimeZoneSettings } from '@/components/clinic-time-zone-settings';
 import { useRole } from '@/lib/session';
 import { useClinic, useUpdateClinicPolicies, useUpdatePaymentInfo } from '@/lib/api-client/clinic.hooks';
 import { describeApiError } from '@/lib/api-client/errors';
@@ -133,6 +134,8 @@ export default function ConfiguracoesPage() {
                 </Button>
               </form>
             </section>
+
+            {clinic?.timeZone && <ClinicTimeZoneSettings current={clinic.timeZone} canEdit={isAdmin} />}
 
             {isAdmin && <WhatsAppConnection />}
           </>

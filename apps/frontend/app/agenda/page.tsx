@@ -4,8 +4,11 @@ import { useMemo, useState } from 'react';
 import { PageShell, cardStyle, inputStyle, labelStyle, rowStyle, sectionTitleStyle } from '@/components/ui/page-shell';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, EmptyState, ErrorMessage, Loading, SuccessMessage } from '@/components/ui/feedback';
-import { SlotPicker, todayInputValue } from '@/components/slot-picker';
+import { SlotPicker } from '@/components/slot-picker';
+import { ClinicTimeZoneNote } from '@/components/clinic-time-zone-note';
 import { describeApiError } from '@/lib/api-client/errors';
+import { useClinicTimeZone } from '@/lib/api-client/clinic.hooks';
+import { formatInZone, startOfDayIn, todayInputValue } from '@/lib/clinic-time';
 import { usePatients } from '@/lib/api-client/dashboard.hooks';
 import { useTherapists } from '@/lib/api-client/therapists.hooks';
 import {
@@ -36,28 +39,27 @@ const CAN_CONFIRM = ['Reservada', 'Reagendada'];
 const CAN_RESCHEDULE = ['Reservada', 'Confirmada', 'Reagendada'];
 const CAN_CANCEL = ['Criada', 'Reservada', 'Confirmada', 'ReagendamentoSolicitado', 'Reagendada'];
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function startOfToday(): Date {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
-
 /**
  * AgendaPage — Módulo 15; ciclo completo na Tarefa 05 da auditoria.
  * Fonte: 06-UX/03-Fluxo-Agendamento.md.
  *
  * Criar, ver, confirmar, remarcar e cancelar consultas, sete dias por vez.
  * DÍVIDA: continua sendo uma lista, não uma grade de calendário.
+ *
+ * AD-039: "hoje", os sete dias e todos os horários são os do fuso da
+ * clínica, seja qual for o do computador.
  */
 export default function AgendaPage() {
-  const [rangeStart, setRangeStart] = useState(startOfToday);
-  const rangeEnd = useMemo(() => new Date(rangeStart.getTime() + 7 * DAY_MS), [rangeStart]);
+  const { timeZone } = useClinicTimeZone();
+  // Quantas semanas à frente (ou atrás) de hoje a tela está mostrando.
+  const [weekOffset, setWeekOffset] = useState(0);
+  const { rangeStart, rangeEnd } = useMemo(
+    () => ({ rangeStart: startOfDayIn(timeZone, 7 * weekOffset), rangeEnd: startOfDayIn(timeZone, 7 * weekOffset + 7) }),
+    [timeZone, weekOffset],
+  );
+  const formatDateTime = (iso: string) =>
+    formatInZone(iso, { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }, timeZone);
+  const formatDate = (instant: Date) => formatInZone(instant, { day: '2-digit', month: '2-digit', year: 'numeric' }, timeZone);
   const { data, isLoading, isError, error } = useAppointments(rangeStart, rangeEnd);
   const { data: patientsData } = usePatients();
   const { data: therapistsData } = useTherapists();
@@ -104,7 +106,8 @@ export default function AgendaPage() {
     }
   }
 
-  const lastDay = new Date(rangeEnd.getTime() - DAY_MS);
+  // O último instante do sétimo dia: cai nele em qualquer fuso, inclusive em dia de mudança de horário de verão.
+  const lastDay = new Date(rangeEnd.getTime() - 1);
 
   return (
     <PageShell
@@ -132,19 +135,20 @@ export default function AgendaPage() {
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <Button type="button" variant="ghost" onClick={() => setRangeStart(new Date(rangeStart.getTime() - 7 * DAY_MS))}>
+        <Button type="button" variant="ghost" onClick={() => setWeekOffset((offset) => offset - 1)}>
           Semana anterior
         </Button>
-        <Button type="button" variant="ghost" onClick={() => setRangeStart(startOfToday())}>
+        <Button type="button" variant="ghost" onClick={() => setWeekOffset(0)}>
           Hoje
         </Button>
-        <Button type="button" variant="ghost" onClick={() => setRangeStart(new Date(rangeStart.getTime() + 7 * DAY_MS))}>
+        <Button type="button" variant="ghost" onClick={() => setWeekOffset((offset) => offset + 1)}>
           Próxima semana
         </Button>
         <span style={{ color: 'var(--sage)', fontSize: '0.9375rem' }}>
-          {rangeStart.toLocaleDateString('pt-BR')} a {lastDay.toLocaleDateString('pt-BR')}
+          {formatDate(rangeStart)} a {formatDate(lastDay)}
         </span>
       </div>
+      <ClinicTimeZoneNote />
 
       {isLoading && <Loading />}
       {isError && <ErrorMessage>{describeApiError(error, 'Não foi possível carregar a agenda.')}</ErrorMessage>}
@@ -252,9 +256,12 @@ function AppointmentForm(props: {
   onCreated: (appointment: Appointment) => void;
 }) {
   const createAppointment = useCreateAppointment();
+  const { timeZone } = useClinicTimeZone();
   const [patientId, setPatientId] = useState('');
   const [therapistId, setTherapistId] = useState('');
-  const [day, setDay] = useState(todayInputValue);
+  // Até a pessoa escolher um dia, vale "hoje" no calendário da clínica.
+  const [chosenDay, setDay] = useState<string | null>(null);
+  const day = chosenDay ?? todayInputValue(new Date(), timeZone);
   const [scheduledAt, setScheduledAt] = useState('');
   const [modality, setModality] = useState<Modality>('presencial');
   const [error, setError] = useState<string | null>(null);
@@ -339,7 +346,9 @@ function RescheduleDialog(props: {
   onRescheduled: (appointment: Appointment) => void;
 }) {
   const reschedule = useRescheduleAppointment();
-  const [day, setDay] = useState(todayInputValue);
+  const { timeZone } = useClinicTimeZone();
+  const [chosenDay, setDay] = useState<string | null>(null);
+  const day = chosenDay ?? todayInputValue(new Date(), timeZone);
   const [newScheduledAt, setNewScheduledAt] = useState('');
   const [error, setError] = useState<string | null>(null);
 

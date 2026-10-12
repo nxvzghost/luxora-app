@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { EmptyState, ErrorMessage, Loading } from '@/components/ui/feedback';
 import { useMarkNotificationRead, useNotifications } from '@/lib/api-client/notifications.hooks';
 import { describeApiError } from '@/lib/api-client/errors';
+import { useClinicTimeZone } from '@/lib/api-client/clinic.hooks';
+import { formatInZone } from '@/lib/clinic-time';
 
 /**
  * NotificacoesPage — Tarefa 05 da auditoria. Mostra as notificações
@@ -15,6 +17,8 @@ import { describeApiError } from '@/lib/api-client/errors';
 export default function NotificacoesPage() {
   const { data, isLoading, isError, error } = useNotifications();
   const markRead = useMarkNotificationRead();
+  // AD-039 — a hora do aviso é mostrada na hora da clínica.
+  const { timeZone } = useClinicTimeZone();
   const [actionError, setActionError] = useState<string | null>(null);
   const notifications = data?.data ?? [];
 
@@ -46,7 +50,7 @@ export default function NotificacoesPage() {
                 <p style={{ margin: 0, fontWeight: unread ? 700 : 600 }}>{notification.title}</p>
                 <p style={{ margin: '0.25rem 0', fontSize: '0.9375rem' }}>{notification.message}</p>
                 <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--sage)' }}>
-                  {new Date(notification.createdAt).toLocaleString('pt-BR')}
+                  {formatInZone(notification.createdAt, { dateStyle: 'short', timeStyle: 'medium' }, timeZone)}
                   {!unread && ' · lida'}
                 </p>
               </div>
