@@ -1,6 +1,6 @@
 # ADR-0064 — Fuso horário por clínica e vencimento pelo dia civil da clínica
 
-**Status:** APROVADA — decisão de produto de 8 de outubro de 2026. **IMPLEMENTADA em 12 de outubro de 2026 (AD-039), localmente: sem push e sem execução no CI remoto** — ver "Implementação", abaixo. Os dois "Pontos a confirmar" que tinham ficado abertos — o que o painel mostra e quem pode alterar o fuso — foram decididos e implementados no mesmo dia, também localmente: ver "Alteração do fuso pelo painel", abaixo.
+**Status:** APROVADA — decisão de produto de 8 de outubro de 2026. **IMPLEMENTADA em 12 de outubro de 2026 (AD-039) e publicada em 13 de outubro de 2026, com o CI remoto verde (execução 38479017674)** — ver "Implementação", abaixo. Os dois "Pontos a confirmar" que tinham ficado abertos — o que o painel mostra e quem pode alterar o fuso — foram decididos e implementados no mesmo dia e publicados com o restante: ver "Alteração do fuso pelo painel", abaixo.
 **Origem:** complemento da Tarefa 06 da auditoria. O levantamento que motivou a decisão — o que o código faz hoje com data e hora, com a medição no contêiner — está na [ADR-0062](./ADR-0062-fechamento-dos-testes.md) ("Data e fuso horário") e não é repetido aqui.
 **Antecedentes:** o modelo de domínio já lista "Fuso horário" como atributo da Clínica (`docs/01-Domain/01-Entidades.md.txt`); a estratégia de fuso consta como dívida nunca implementada desde o diagnóstico do Sprint 0 (`docs/10-Sprint-0/07-Diagnostico-Maturidade-MVP.md`). Não havia decisão aprovada nem item de backlog até aqui.
 
@@ -52,7 +52,7 @@ Nenhuma regra temporal de produção foi alterada: o corte do atraso continua em
 
 ## Implementação (12/10/2026 — AD-039)
 
-Executada na fase 1 da Tarefa 07 ([ADR-0065](./ADR-0065-preparacao-para-o-piloto-fase-1.md)). Local: sem push, sem deploy.
+Executada na fase 1 da Tarefa 07 ([ADR-0065](./ADR-0065-preparacao-para-o-piloto-fase-1.md)). Publicada em 13/10/2026 (`b00fa17..1facf1f`); sem deploy.
 
 ### O que mudou
 
@@ -112,7 +112,7 @@ Seis mutações que recolocam uma regra antiga (hora lida no fuso do processo; c
 
 ## Alteração do fuso pelo painel (12/10/2026)
 
-Fecha os pontos 2 e 3 de "Pontos a confirmar". Local: sem push, sem deploy, sem execução no CI remoto.
+Fecha os pontos 2 e 3 de "Pontos a confirmar". Publicado em 13/10/2026, com o CI remoto verde; sem deploy.
 
 ### Decisão
 

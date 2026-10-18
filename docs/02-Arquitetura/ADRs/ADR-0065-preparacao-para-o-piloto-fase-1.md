@@ -1,8 +1,8 @@
 # ADR-0065 — Preparação para o piloto, fase 1: nada sensível nos traces, licenças das fontes junto do painel e situação dos bloqueadores
 
-**Status:** ADOTADO (decisões 1 e 2). Executado localmente em 12 de outubro de 2026; **sem push, sem deploy, sem execução no CI remoto**.
+**Status:** ADOTADO (decisões 1 e 2). Executado localmente em 12 de outubro de 2026 e **publicado em 13 de outubro de 2026**, depois do gate pré-push, com o CI remoto verde (execução 38479017674). Sem deploy.
 **Origem:** Tarefa 07 da auditoria técnica de 04/10/2026 (piloto e produção), fase 1 — os bloqueadores que podiam ser resolvidos na máquina, com requisito definido e sem serviço externo.
-**Veredito da fase: PARCIAL** — os três blocos de código (traces, fuso por clínica, licenças) estão implementados e validados localmente; o que falta para a fase ser dada como concluída é a execução no CI remoto, que depende de publicação autorizada, e as decisões pedidas nos itens 4 e 5. **Atualização de 12/10/2026, à noite:** o escopo local foi fechado — o fuso passou a ser alterável pelo painel, o painel mostra os horários no fuso da clínica e as decisões das automações foram registradas (seção "Fechamento do escopo local"). A fase continua PARCIAL pelo que não é local: publicação autorizada, CI remoto e a repetição do ensaio de deploy com as imagens. **Nada aqui torna o produto pronto para produção nem autoriza iniciar o piloto.**
+**Veredito da fase: PARCIAL** — os três blocos de código (traces, fuso por clínica, licenças) estão implementados e validados localmente; o que falta para a fase ser dada como concluída é a execução no CI remoto, que depende de publicação autorizada, e as decisões pedidas nos itens 4 e 5. **Atualização de 12/10/2026, à noite:** o escopo local foi fechado — o fuso passou a ser alterável pelo painel, o painel mostra os horários no fuso da clínica e as decisões das automações foram registradas (seção "Fechamento do escopo local"). A fase continua PARCIAL pelo que não é local: publicação autorizada, CI remoto e a repetição do ensaio de deploy com as imagens. **Atualização de 13/10/2026:** essas três condições foram cumpridas (seção "Publicação e testes externos"). Dar a fase por concluída é decisão do responsável pelo produto. **Nada aqui torna o produto pronto para produção nem autoriza iniciar o piloto.**
 
 ## Objetivo
 
@@ -179,11 +179,43 @@ As três suítes do backend e a do painel deram as mesmas contagens com o proces
 
 No começo desta rodada: 6,2 GB livres no disco da máquina; 24 GB usados dentro do disco virtual do WSL; cache de build do Docker com 16,1 GB. Ao fim dos testes: cerca de 5,4 GB livres — a diferença são os builds do backend e do painel para os testes de ponta a ponta e os logs das suítes; nenhuma imagem foi construída. Nada foi apagado, podado ou compactado. O disco virtual do WSL não foi compactado: é decisão do responsável.
 
+## Publicação e testes externos (13/10/2026)
+
+Com autorização explícita do responsável pelo produto, em 13/10/2026: o gate pré-push no commit `1facf1f`, a publicação e os testes externos que não dependiam de URL pública.
+
+### Gate pré-push, no commit `1facf1f`
+
+| Verificação | Resultado |
+|---|---|
+| Segredos (gitleaks 8.30.1 e trufflehog 3.99.2, sem rede) | Nenhuma ocorrência nos 9 commits (`b00fa17..1facf1f`). No histórico inteiro, 22 e 2 achados: valores de teste em arquivos de teste e no `ci.yml`, publicados antes |
+| Dependências | Nenhum arquivo de dependência mudou nos 9 commits; `pnpm audit --prod` igual ao publicado (1 crítico, 1 alto, 3 moderados) |
+| Réplica do CI em clone limpo, sem `.env`, em UTC | Lint e tipos sem erro; 1190 unitários do backend e 274 do painel; 56 de integração; 567 críticos (1 pulado e 1 `todo`, os mesmos de antes); 32 de 32 de ponta a ponta |
+| Imagens construídas a partir do clone e ensaio de deploy | 78 de 78. Nenhum `.env` nas imagens; os textos de licença dentro da imagem do painel têm o mesmo SHA-256 dos do repositório; o token de verificação do webhook não chega ao coletor OTLP; o contêiner do backend roda em UTC |
+
+Com isso ficam resolvidas as ressalvas das seções anteriores sobre clone limpo, imagens, traces com coletor e licença na imagem.
+
+### Publicação
+
+Push em avanço simples, `b00fa17..1facf1f`. CI remoto verde nos sete jobs na execução 38479017674, em runner Ubuntu 24.04 (imagem 20261002.596), com as mesmas contagens do gate: `lint` (26 s), `typecheck` (32 s), `test-unit` (70 s), `test-integration` (90 s), `test-critical` (151 s), `test-e2e` (122 s) e `deploy-rehearsal` (177 s). O CD não foi acionado.
+
+### Testes externos
+
+| Provedor | Resultado no commit `1facf1f` |
+|---|---|
+| Asaas, sandbox | 5 de 5: cliente, assinatura por PIX, cobrança pendente, nenhum webhook cadastrado, cancelamento |
+| Anthropic | 0 de 3: HTTP 400 por saldo insuficiente, como em 05/10. Sem custo |
+| Meta, saída | Não repetido: o token de teste expirou e é preciso gerar outro no painel da Meta |
+| Meta, entrada | Fica para a homologação, por decisão do responsável pelo produto |
+
+### Disco da máquina
+
+O build das imagens e o ensaio levaram o disco C: de 13,9 GB livres para 1,8 GB, com o disco virtual do WSL parado em 37 GB. Quem cresce é o arquivo de paginação do Windows, sob a memória que o Docker pede no build. A recomendação registrada é limitar a memória do WSL antes do próximo build completo.
+
 ## Limitações conhecidas
 
-- Tudo foi validado na máquina, em clone limpo e em contêineres locais. **O CI remoto não rodou com estes commits.**
-- **Os três commits do fechamento do escopo local não passaram por clone limpo nem por imagem Docker**: foram validados na árvore de trabalho, sem ensaio de deploy (seção acima).
-- Nenhuma integração real foi exercitada: a verificação do webhook foi feita localmente, do jeito que a Meta a faz. Entrada real da Meta e respostas reais da Anthropic continuam não validadas.
+- Tudo foi validado na máquina, em clone limpo e em contêineres locais, e, desde 13/10/2026, no CI remoto (execução 38479017674).
+- Os três commits do fechamento do escopo local passaram por clone limpo, imagens e ensaio de deploy no gate de 13/10/2026.
+- A verificação do webhook foi feita localmente, do jeito que a Meta a faz. Entrada real da Meta e respostas reais da Anthropic continuam não validadas; em 13/10/2026 só o sandbox da Asaas respondeu de verdade.
 - A lista de parâmetros cujo valor continua visível nos traces é uma escolha desta implementação; acrescentar um nome a ela é decisão consciente, com teste.
 - A ligação entre arquivo de fonte e licença depende de o servidor do painel aplicar o cabeçalho `Link`; atrás de uma CDN que reescreva cabeçalhos, conferir de novo.
 
