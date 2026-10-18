@@ -10,9 +10,13 @@ on:
   push:
     branches: [master]
 
+# Runner fixado em ubuntu-24.04 (18/10/2026): o rótulo ubuntu-latest passa a
+# apontar para o Ubuntu 26 a partir de 19/10/2026, como avisa o próprio GitHub
+# nas execuções. Trocar de versão é decisão explícita, com uma execução verde
+# na versão nova antes de mudar este arquivo.
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -26,7 +30,7 @@ jobs:
   # Tipos de tudo o que é TypeScript, inclusive os testes: o build só confere
   # o código de produto e o Vitest não confere tipos (Tarefa 06 da auditoria).
   typecheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -41,7 +45,7 @@ jobs:
       - run: pnpm typecheck
 
   test-unit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -56,7 +60,7 @@ jobs:
       - run: pnpm test:unit
 
   test-integration:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16
@@ -101,7 +105,7 @@ jobs:
   # a intenção é que uma falha aqui seja imediatamente visível como bloqueio
   # de segurança/regra de negócio, não misturada com teste comum.
   test-critical:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test-integration
     services:
       postgres:
@@ -155,7 +159,7 @@ jobs:
   # painel e destrói tudo no fim. Cada teste cria e remove a própria
   # clínica. Não usa credencial nem serviço externo.
   test-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -191,7 +195,7 @@ jobs:
   # Postgres/Redis fora do ar, encerramento gracioso, restauração de backup
   # e exportação de traces. Não usa credencial nem serviço externo.
   deploy-rehearsal:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4

@@ -4,6 +4,10 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### CI — runner fixado em Ubuntu 24.04 (2026-10-18)
+
+O GitHub avisa, em todas as execuções desde 07/10, que o rótulo `ubuntu-latest` passa a apontar para o Ubuntu 26 a partir de 19/10/2026. Os sete jobs de `ci.yml` e os dois de `cd.yml` passam a rodar em `ubuntu-24.04`, a mesma imagem de todas as execuções verdes até aqui. Trocar de versão passa a ser uma decisão explícita, com uma execução verde na versão nova. Nenhum código, teste ou dependência mudou. Fica para outra vez o outro aviso do runner: as ações `checkout@v4`, `setup-node@v4` e `pnpm/action-setup@v4` foram feitas para Node 20 e rodam forçadas em Node 24.
+
 ### Tarefa 07 da auditoria — fase 1: fechamento do escopo local (2026-10-12)
 
 Segunda rodada da fase 1, no mesmo dia: o que ainda podia ser resolvido na máquina. **Estado: a fase continua PARCIAL — o escopo local está fechado; nada foi publicado, o CI remoto não rodou com estes commits, e as imagens Docker e o ensaio de deploy não foram refeitos nesta rodada (disco quase cheio). Não autoriza o piloto, não fez deploy, não acionou o CD e não chamou Meta, Anthropic nem Asaas.** Detalhe na [`ADR-0064`](./docs/02-Arquitetura/ADRs/ADR-0064-fuso-horario-por-clinica.md) ("Alteração do fuso pelo painel") e na [`ADR-0065`](./docs/02-Arquitetura/ADRs/ADR-0065-preparacao-para-o-piloto-fase-1.md) ("Fechamento do escopo local").
