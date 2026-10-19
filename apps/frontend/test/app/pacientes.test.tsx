@@ -44,8 +44,8 @@ describe('PacientesPage — Fase 9.2 (AD-014) — isError', () => {
 describe('PacientesPage — lista e cadastro', () => {
   const ANA = { id: 'patient-1', name: 'Ana Teste', phone: '+5541900000001', state: 'Ativo', billingPolicyOverride: null };
   const BRUNO = { id: 'patient-2', name: 'Bruno Teste', phone: '+5541900000002', state: 'Inativo', billingPolicyOverride: null };
-  // O administrador também vê os números aguardando vínculo (ADR-0063); aqui, nenhum.
-  const NO_PENDING = { 'GET /contacts/pending': { body: { data: [] } } };
+  // O administrador também vê os números aguardando vínculo (ADR-0063) e os vinculados (A-10); aqui, nenhum.
+  const NO_PENDING = { 'GET /contacts/pending': { body: { data: [] } }, 'GET /contacts/linked': { body: { data: [] } } };
 
   beforeEach(() => {
     useAuthStore.setState({ accessToken: fakeToken('admin'), refreshToken: 'fake-refresh' });
@@ -164,7 +164,7 @@ describe('PacientesPage — números aguardando vínculo (ADR-0063, AD-038)', ()
   const BRUNO = { id: 'patient-2', name: 'Bruno Teste', phone: '+5541900000002', state: 'Ativo', billingPolicyOverride: null };
   const NAMED = { id: 'contact-1', phoneNumber: '+5541988887777', name: 'Ana Teste', state: 'Identificado', createdAt: '2026-10-09T12:00:00.000Z' };
   const UNNAMED = { id: 'contact-2', phoneNumber: '+5541988886666', name: null, state: 'Conversando', createdAt: '2026-10-09T13:00:00.000Z' };
-  const PATIENTS = { 'GET /patients': { body: { data: [ANA, BRUNO] } } };
+  const PATIENTS = { 'GET /patients': { body: { data: [ANA, BRUNO] } }, 'GET /contacts/linked': { body: { data: [] } } };
 
   const section = () => screen.getByRole('region', { name: 'Números aguardando vínculo' });
 
@@ -186,6 +186,8 @@ describe('PacientesPage — números aguardando vínculo (ADR-0063, AD-038)', ()
     expect(screen.queryByRole('region', { name: 'Números aguardando vínculo' })).not.toBeInTheDocument();
     expect(screen.queryByText('+5541988887777')).not.toBeInTheDocument();
     expect(api.sent('GET', '/contacts/pending')).toHaveLength(0);
+    expect(api.sent('GET', '/contacts/linked')).toHaveLength(0);
+    expect(screen.queryByRole('region', { name: 'Números vinculados' })).not.toBeInTheDocument();
   });
 
   it('nenhum número pendente: a seção diz isso, sem parecer erro', async () => {

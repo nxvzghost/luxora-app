@@ -44,6 +44,14 @@ export interface ContactRepository {
    * É a lista que a clínica vê no painel para aprovar um vínculo.
    */
   findUnlinked(limit: number): Promise<Contact[]>;
+  /**
+   * A-10 — Contacts da clínica em `Vinculado`, com os vínculos de cada um, os
+   * de atividade mais recente primeiro. É de onde sai a lista de vínculos que
+   * o administrador pode desfazer.
+   */
+  findLinked(limit: number): Promise<Array<{ contact: Contact; associations: ContactPatientAssociation[] }>>;
+  /** A-10 — apaga um vínculo. Sob a RLS: o de outra clínica não é encontrado e nada muda. */
+  deleteAssociation(id: string): Promise<void>;
 }
 
 export const CONTACT_REPOSITORY = Symbol('CONTACT_REPOSITORY');

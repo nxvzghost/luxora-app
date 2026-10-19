@@ -135,6 +135,12 @@ export async function readContactLink(contactId: string): Promise<ContactLinkRec
   };
 }
 
+/** A-10 — o registro de auditoria de quando a clínica desfez o vínculo do contato, se houver. */
+export async function readContactUnlinkAudit(contactId: string): Promise<ContactLinkRecord['audit']> {
+  const audit = await prisma().auditLog.findFirst({ where: { entityId: contactId, action: 'ContatoDesvinculadoDePaciente' } });
+  return audit ? { userId: audit.userId, actorType: audit.actorType, payload: audit.payload } : null;
+}
+
 /** Desativa um usuário como o painel faz: o acesso acaba e os refresh tokens já emitidos deixam de valer. */
 export async function deactivateUser(userId: string): Promise<void> {
   await prisma().user.update({ where: { id: userId }, data: { deletedAt: new Date(), tokenVersion: { increment: 1 } } });

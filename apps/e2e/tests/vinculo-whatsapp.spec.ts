@@ -1,4 +1,4 @@
-import { createClinic, createPendingContact, readContactLink, removeClinic } from '../support/database';
+import { createClinic, createPendingContact, readContactLink, readContactUnlinkAudit, removeClinic } from '../support/database';
 import { expect, openMenu, signIn, test } from '../support/fixtures';
 
 /**
@@ -51,13 +51,58 @@ test.describe('Vínculo de número novo do WhatsApp', () => {
     // telefone do cadastro do paciente continua o mesmo.
     await page.reload();
     await expect(page.getByRole('region', { name: 'Números aguardando vínculo' })).toContainText('Nenhum número aguardando vínculo.');
-    await expect(page.getByRole('listitem').filter({ hasText: ana.name })).toContainText('+5541900000000');
+    // (A-10: o nome também aparece em "Números vinculados"; a linha do paciente é a que traz o telefone do cadastro.)
+    await expect(page.getByRole('listitem').filter({ hasText: ana.name }).filter({ hasText: '+5541900000000' })).toHaveCount(1);
 
     // E a aprovação aparece na Auditoria, como ação de um usuário.
     await openMenu(page, 'Auditoria');
     const entry = page.getByRole('listitem').filter({ hasText: 'ContatoVinculadoAPacienteExistente' });
     await expect(entry).toContainText('Usuário');
     await expect(entry).toContainText(clinic.admin.id);
+  });
+
+  test('o administrador desfaz um vínculo aprovado: o número volta a aguardar vínculo e fica gravado quem desfez (A-10)', async ({ page, clinic }) => {
+    const [ana] = clinic.patients;
+    const contact = await createPendingContact(clinic.tenantId, ana.name);
+
+    await signIn(page, clinic.admin);
+    await openMenu(page, 'Pacientes');
+
+    const pending = page.getByRole('region', { name: 'Números aguardando vínculo' });
+    const pendingRow = pending.getByRole('listitem').filter({ hasText: contact.phoneNumber });
+    await pendingRow.getByRole('combobox').selectOption(ana.id);
+    await pendingRow.getByRole('button', { name: 'Vincular' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Aprovar vínculo' }).click();
+    await expect(pending.getByRole('status')).toContainText('agora identifica');
+
+    const linked = page.getByRole('region', { name: 'Números vinculados' });
+    const linkedRow = linked.getByRole('listitem').filter({ hasText: contact.phoneNumber });
+    await expect(linkedRow).toContainText(`Identifica ${ana.name}`);
+    await linkedRow.getByRole('button', { name: 'Desfazer vínculo' }).click();
+
+    // A confirmação diz o que muda — e, até ela, nada foi desfeito.
+    const dialog = page.getByRole('dialog', { name: 'Desfazer o vínculo deste número?' });
+    await expect(dialog).toContainText(contact.phoneNumber);
+    await expect(dialog).toContainText(ana.name);
+    expect((await readContactLink(contact.id)).state).toBe('Vinculado');
+
+    await dialog.getByRole('button', { name: 'Desfazer o vínculo' }).click();
+
+    await expect(linked.getByRole('status')).toContainText(`O número ${contact.phoneNumber} não identifica mais ${ana.name}`);
+    await expect(linkedRow).toHaveCount(0);
+    await expect(pending.getByRole('listitem').filter({ hasText: contact.phoneNumber })).toBeVisible();
+
+    // No banco: sem vínculo, o contato de volta a Identificado, e quem desfez.
+    expect(await readContactLink(contact.id)).toMatchObject({ state: 'Identificado', patientIds: [] });
+    expect(await readContactUnlinkAudit(contact.id)).toMatchObject({
+      userId: clinic.admin.id,
+      actorType: 'user',
+      payload: { patientId: ana.id, undoneByUserId: clinic.admin.id },
+    });
+
+    // Lido de volta do servidor: o número continua fora da lista de vinculados.
+    await page.reload();
+    await expect(page.getByRole('region', { name: 'Números vinculados' })).toContainText('Nenhum número vinculado por aprovação.');
   });
 
   test('desistir na confirmação não vincula nada', async ({ page, clinic }) => {
@@ -86,6 +131,7 @@ test.describe('Vínculo de número novo do WhatsApp', () => {
 
     await expect(page.getByText(clinic.patients[0].name)).toBeVisible();
     await expect(page.getByRole('region', { name: 'Números aguardando vínculo' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Números vinculados' })).toHaveCount(0);
     await expect(page.getByText(contact.phoneNumber)).toHaveCount(0);
   });
 

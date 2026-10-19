@@ -23,6 +23,8 @@ import { ResolverIdentidadeDoContatoUseCase } from '@use-cases/contact/resolver-
 import { VincularContatoAPacienteUseCase } from '@use-cases/contact/vincular-contato-a-paciente.use-case';
 import { ListarContatosPendentesUseCase } from '@use-cases/contact/listar-contatos-pendentes.use-case';
 import { SolicitarAtendimentoHumanoUseCase } from '@use-cases/contact/solicitar-atendimento-humano.use-case';
+import { ListarVinculosAprovadosUseCase } from '@use-cases/contact/listar-vinculos-aprovados.use-case';
+import { DesfazerVinculoDoContatoUseCase } from '@use-cases/contact/desfazer-vinculo-do-contato.use-case';
 import { ContactIntentActionRouter } from '@use-cases/contact/contact-intent-action-router';
 import { ContactsController } from './contacts.controller';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -89,6 +91,8 @@ import { PatientsModule } from '../patients/patients.module';
     VincularContatoAPacienteUseCase,
     ListarContatosPendentesUseCase,
     SolicitarAtendimentoHumanoUseCase,
+    ListarVinculosAprovadosUseCase,
+    DesfazerVinculoDoContatoUseCase,
     ContactIntentActionRouter,
     JwtAuthGuard,
     RolesGuard,

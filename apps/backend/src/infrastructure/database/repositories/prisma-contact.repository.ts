@@ -161,6 +161,22 @@ export class PrismaContactRepository implements ContactRepository {
     return records.map((r) => this.toDomain(r));
   }
 
+  async findLinked(limit: number): Promise<Array<{ contact: Contact; associations: ContactPatientAssociation[] }>> {
+    const records = await this.prisma.forTenant((tx) =>
+      tx.contact.findMany({
+        where: { state: 'Vinculado', phoneNumber: { not: null } },
+        include: { associations: { orderBy: { createdAt: 'asc' } } },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+        take: limit,
+      }),
+    );
+    return records.map((r) => ({ contact: this.toDomain(r), associations: r.associations.map((a) => this.associationToDomain(a)) }));
+  }
+
+  async deleteAssociation(id: string): Promise<void> {
+    await this.prisma.forTenant((tx) => tx.contactPatientAssociation.deleteMany({ where: { id } }));
+  }
+
   private toDomain(record: PrismaContact): Contact {
     return Contact.reconstitute({
       id: record.id,

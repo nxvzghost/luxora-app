@@ -157,6 +157,44 @@ export class ContactLinkedToExistingPatientEvent extends DomainEvent {
   }
 }
 
+/**
+ * A-10 (19/10/2026) — a clínica desfez um vínculo que ela mesma tinha
+ * aprovado. Leva quem desfez e quando; fica na trilha de auditoria ao lado
+ * do registro da aprovação.
+ */
+export class ContactUnlinkedFromPatientEvent extends DomainEvent {
+  declare readonly patientId: string;
+  declare readonly undoneByUserId: string;
+  declare readonly undoneAt: string;
+
+  constructor(contactId: string, tenantId: string, patientId: string, undo: ContactUnlinkRecord) {
+    super('ContatoDesvinculadoDePaciente', contactId, tenantId, {
+      patientId,
+      undoneByUserId: undo.undoneByUserId,
+      undoneAt: undo.undoneAt.toISOString(),
+    });
+  }
+}
+
+export interface ContactUnlinkRecord {
+  undoneByUserId: string;
+  undoneAt: Date;
+}
+
+export class ContactUnlinkWithoutUserError extends Error {
+  constructor(contactId: string) {
+    super(`O vínculo do Contact ${contactId} só pode ser desfeito por um usuário da clínica.`);
+    this.name = 'ContactUnlinkWithoutUserError';
+  }
+}
+
+export class ContactNotLinkedError extends Error {
+  constructor(contactId: string, state: string) {
+    super(`O Contact ${contactId} não tem vínculo aprovado a desfazer (estado "${state}").`);
+    this.name = 'ContactNotLinkedError';
+  }
+}
+
 export class ContactLinkWithoutApprovalError extends Error {
   constructor(contactId: string) {
     super(`O Contact ${contactId} só pode ser vinculado a um paciente existente com a aprovação de um usuário da clínica.`);
@@ -494,6 +532,31 @@ export class Contact {
     this._pendingEvents.push(new ContactAssociatedToPatientEvent(this.props.id, this.props.tenantId, patientId, role));
 
     return association;
+  }
+
+  /**
+   * A-10 (19/10/2026) — desfaz um vínculo aprovado pela clínica
+   * (vincularAPacienteExistente). Sem o vínculo, o número deixa de
+   * identificar o paciente.
+   *
+   * É a única saída de `Vinculado`, e é explícita: a tabela de transições
+   * continua dizendo que `Vinculado` é terminal, para que nenhum outro
+   * caminho (identificar(), por exemplo) o tire de lá sem querer. Quando não
+   * sobra nenhum outro vínculo, o contato volta a `Identificado` — mantém o
+   * nome e volta à lista de números aguardando vínculo. Quem desfez e quando
+   * são obrigatórios, como na aprovação.
+   */
+  desfazerVinculo(patientId: string, undo: ContactUnlinkRecord, remainingLinks: number): void {
+    if (!undo?.undoneByUserId || !(undo.undoneAt instanceof Date)) {
+      throw new ContactUnlinkWithoutUserError(this.props.id);
+    }
+    if (this.props.state !== 'Vinculado') {
+      throw new ContactNotLinkedError(this.props.id, this.props.state);
+    }
+    if (remainingLinks <= 0) {
+      this.props.state = 'Identificado';
+    }
+    this._pendingEvents.push(new ContactUnlinkedFromPatientEvent(this.props.id, this.props.tenantId, patientId, undo));
   }
 
   /** Ramo de retenção (Cenário 15) — só capacidade de domínio nesta AD, sem scheduler (ADR-0055, escopo). */

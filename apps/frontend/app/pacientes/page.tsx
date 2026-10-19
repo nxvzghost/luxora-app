@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { SideNav } from '@/components/ui/side-nav';
 import { Button } from '@/components/ui/button';
 import { PendingContactLinks } from '@/components/pending-contact-links';
+import { LinkedContacts } from '@/components/linked-contacts';
 import { usePatients, useCreatePatient } from '@/lib/api-client/dashboard.hooks';
 import { describeApiError } from '@/lib/api-client/errors';
 import { useRole } from '@/lib/session';
@@ -69,6 +70,7 @@ export default function PacientesPage() {
         )}
 
         {isAdmin && <PendingContactLinks patients={data?.data ?? []} />}
+        {isAdmin && <LinkedContacts />}
 
         {isLoading && <p style={{ color: 'var(--sage)' }}>Carregando...</p>}
         {isError && (
