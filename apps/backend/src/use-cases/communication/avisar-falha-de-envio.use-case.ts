@@ -8,6 +8,8 @@ import { logReference } from '@shared/logging/log-reference';
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const OVERDUE_REMINDER_KEY = new RegExp(`^billing-overdue-(${UUID})-d\\d+$`, 'i');
 const BILLING_KEY = new RegExp(`^billing-(${UUID})$`, 'i');
+/** Reenvio pelo painel (ReenviarCobrancaUseCase): `billing-<cobrança>-resend-<aviso>`. */
+const BILLING_RESEND_KEY = new RegExp(`^billing-(${UUID})-resend-`, 'i');
 const AGENDA_SUMMARY_KEY = new RegExp(`^agenda-summary(?:-updated)?-(${UUID})-`, 'i');
 
 export interface MessagePurpose {
@@ -32,7 +34,7 @@ export function describeMessagePurpose(idempotencyKey: string): MessagePurpose {
   if (reminder) {
     return { label: 'O lembrete de cobrança em atraso', feminine: false, entityType: 'Billing', entityId: reminder[1] };
   }
-  const billing = BILLING_KEY.exec(idempotencyKey);
+  const billing = BILLING_KEY.exec(idempotencyKey) ?? BILLING_RESEND_KEY.exec(idempotencyKey);
   if (billing) {
     return {
       label: 'A cobrança',

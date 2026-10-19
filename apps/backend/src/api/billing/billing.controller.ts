@@ -11,6 +11,7 @@ import {
   ConsultarCobrancaUseCase,
   ListarCobrancasUseCase,
   EnviarCobrancaUseCase,
+  ReenviarCobrancaUseCase,
 } from '@use-cases/billing/billing.use-cases';
 import {
   RegistrarPagamentoUseCase,
@@ -36,6 +37,7 @@ export class BillingController {
     private readonly consultarCobranca: ConsultarCobrancaUseCase,
     private readonly listarCobrancas: ListarCobrancasUseCase,
     private readonly enviarCobranca: EnviarCobrancaUseCase,
+    private readonly reenviarCobranca: ReenviarCobrancaUseCase,
     private readonly listarPagamentos: ListarPagamentosDaCobrancaUseCase,
     private readonly consultarEstadosDePagamento: ConsultarEstadosDePagamentoUseCase,
     @Inject(CLINIC_TIME_ZONE_READER) private readonly clinicTimeZone: ClinicTimeZoneReader,
@@ -70,6 +72,17 @@ export class BillingController {
   @Roles('admin')
   async send(@Param('id') id: string) {
     return this.toResponse(await this.enviarCobranca.execute(id), await this.clinicTimeZone.current());
+  }
+
+  /**
+   * Reenvio depois de um aviso de falha de envio ou de entrega ainda não lido
+   * (ADR-0066). A cobrança continua no mesmo estado; o aviso é dado por
+   * tratado e o reenvio fica na auditoria.
+   */
+  @Post(':id/resend')
+  @Roles('admin')
+  async resend(@Param('id') id: string) {
+    return this.toResponse(await this.reenviarCobranca.execute(id), await this.clinicTimeZone.current());
   }
 
   // Tarefa 05 da auditoria — só leitura: é por aqui que o painel chega ao id

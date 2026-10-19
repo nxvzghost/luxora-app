@@ -8,6 +8,7 @@ import {
   ConsultarCobrancaUseCase,
   ListarCobrancasUseCase,
   EnviarCobrancaUseCase,
+  ReenviarCobrancaUseCase,
 } from '@use-cases/billing/billing.use-cases';
 import {
   RegistrarPagamentoUseCase,
@@ -57,6 +58,7 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     ConsultarCobrancaUseCase,
     ListarCobrancasUseCase,
     EnviarCobrancaUseCase,
+    ReenviarCobrancaUseCase,
     ConsultarSegmentacaoFinanceiraUseCase,
     ExecutarReguaInadimplenciaUseCase,
     RegistrarPagamentoUseCase,

@@ -18,6 +18,8 @@ export interface NotificationRepository {
    * de uma conversa que continua esperando a clínica.
    */
   hasUnread(type: string, entityId: string): Promise<boolean>;
+  /** Reenvio de cobrança — os avisos ainda não lidos destes tipos sobre esta entidade, do mais novo para o mais antigo. */
+  findUnreadByEntity(entityId: string, types: readonly string[]): Promise<Notification[]>;
   /**
    * Idempotente quanto ao readAt (chamar novamente numa Notification já lida
    * não sobrescreve o timestamp original). Lança NotFoundException se o id

@@ -56,6 +56,16 @@ export class PrismaNotificationRepository implements NotificationRepository {
     return count > 0;
   }
 
+  async findUnreadByEntity(entityId: string, types: readonly string[]): Promise<Notification[]> {
+    const records = await this.prisma.forTenant((tx) =>
+      tx.notification.findMany({
+        where: { entityId, type: { in: [...types] }, readAt: null },
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      }),
+    );
+    return records.map((r) => this.toDomain(r));
+  }
+
   async countUnreadByTenant(): Promise<number> {
     return this.prisma.forTenant((tx) => tx.notification.count({ where: { readAt: null } }));
   }

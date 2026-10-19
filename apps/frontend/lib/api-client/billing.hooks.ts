@@ -68,6 +68,19 @@ export function useSendBilling() {
   });
 }
 
+/**
+ * Reenvio depois de um aviso de falha de envio ou de entrega (ADR-0066). Só
+ * admin, na API. A cobrança não muda de estado; o aviso é dado por tratado.
+ */
+export function useResendBilling() {
+  const token = useAuthStore((s) => s.accessToken);
+  const invalidate = useInvalidateFinance();
+  return useMutation({
+    mutationFn: (billingId: string) => apiRequest(`/billings/${billingId}/resend`, { method: 'POST', token }),
+    onSuccess: invalidate,
+  });
+}
+
 /** O pagamento de uma cobrança (a API guarda no máximo um). */
 export function useBillingPayments(billingId: string | null) {
   const token = useAuthStore((s) => s.accessToken);
