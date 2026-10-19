@@ -97,6 +97,7 @@ export class ProcessarMensagemWhatsAppUseCase {
       tenantId: input.tenantId,
       patientId: identity.status === 'recognized' ? identity.patientId : undefined,
       identityAmbiguous: identity.status === 'ambiguous',
+      identityInactive: identity.status === 'inactive',
       contactId: contact.id,
       conversationHistory,
       message: input.message,

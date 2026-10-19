@@ -3,7 +3,7 @@ import { ConflictException, ForbiddenException, NotFoundException } from '@nestj
 import { Contact, ContactPatientAssociation, ContactState } from '@domain/contact/contact.entity';
 import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 import { isFullName, normalizePersonName } from '@domain/contact/person-name';
-import { Patient } from '@domain/patient/patient.entity';
+import { Patient, PatientState } from '@domain/patient/patient.entity';
 import { TenantContext } from '@shared/tenant-context';
 import { ResolverIdentidadeDoContatoUseCase } from '@use-cases/contact/resolver-identidade-do-contato.use-case';
 import { IdentificarContatoUseCase } from '@use-cases/contact/identificar-contato.use-case';
@@ -23,8 +23,8 @@ function contactIn(state: ContactState, name: string | null = null, id = 'c1') {
   return Contact.reconstitute({ id, tenantId: TENANT_ID, phoneNumber: PhoneNumber.fromE164(PHONE), name, state });
 }
 
-function patient(id: string, name = 'Ana Prado') {
-  return Patient.reconstitute({ id, tenantId: TENANT_ID, name, phone: PHONE, state: 'Cadastrado' });
+function patient(id: string, name = 'Ana Prado', state: PatientState = 'Cadastrado') {
+  return Patient.reconstitute({ id, tenantId: TENANT_ID, name, phone: PHONE, state });
 }
 
 /** Unidade de trabalho de mentira: roda o trabalho na hora e deixa ver se foi usada. */
@@ -52,9 +52,13 @@ describe('nome completo (person-name)', () => {
 });
 
 describe('ResolverIdentidadeDoContatoUseCase', () => {
-  function makeUseCase(opts: { registered?: Patient[]; associations?: ContactPatientAssociation[] }) {
+  function makeUseCase(opts: { registered?: Patient[]; associations?: ContactPatientAssociation[]; linkedPatients?: Patient[] }) {
     const contactRepo = { findAssociationsByContactId: vi.fn().mockResolvedValue(opts.associations ?? []) };
-    const patientRepo = { findAllByPhone: vi.fn().mockResolvedValue(opts.registered ?? []) };
+    const patientRepo = {
+      findAllByPhone: vi.fn().mockResolvedValue(opts.registered ?? []),
+      // O paciente do vínculo aprovado é lido pelo id, para saber o estado dele (A-11).
+      findById: vi.fn(async (id: string) => opts.linkedPatients?.find((candidate) => candidate.id === id) ?? patient(id)),
+    };
     return { useCase: new ResolverIdentidadeDoContatoUseCase(contactRepo as never, patientRepo as never), contactRepo, patientRepo };
   }
 
@@ -103,6 +107,30 @@ describe('ResolverIdentidadeDoContatoUseCase', () => {
       expect(contactRepo.findAssociationsByContactId).not.toHaveBeenCalled();
     },
   );
+
+  describe('paciente fora de atendimento (A-11)', () => {
+    it.each(['Inativo', 'Alta'] as const)('o único paciente do número está "%s": inactive — nenhum id sai daqui', async (state) => {
+      const { useCase } = makeUseCase({ registered: [patient('p-fora', 'Ana Prado', state)] });
+      const identity = await useCase.execute(contactIn('Conversando'));
+      expect(identity).toEqual({ status: 'inactive' });
+      expect(JSON.stringify(identity)).not.toContain('p-fora');
+    });
+
+    it.each(['Cadastrado', 'Ativo', 'Agendado', 'Confirmado', 'EmFollowUp'] as const)('"%s" continua reconhecido', async (state) => {
+      const { useCase } = makeUseCase({ registered: [patient('p1', 'Ana Prado', state)] });
+      expect(await useCase.execute(contactIn('Conversando'))).toEqual({ status: 'recognized', patientId: 'p1' });
+    });
+
+    it('vínculo aprovado para um paciente com alta: inactive', async () => {
+      const { useCase } = makeUseCase({ associations: [association('p-alta')], linkedPatients: [patient('p-alta', 'Ana Prado', 'Alta')] });
+      expect(await useCase.execute(contactIn('Vinculado'))).toEqual({ status: 'inactive' });
+    });
+
+    it('um ativo e um inativo no mesmo número: continua ambíguo', async () => {
+      const { useCase } = makeUseCase({ registered: [patient('p1', 'Ana Prado', 'Ativo'), patient('p2', 'Bruno Prado', 'Inativo')] });
+      expect(await useCase.execute(contactIn('Conversando'))).toEqual({ status: 'ambiguous' });
+    });
+  });
 
   it('Contact sem telefone (anonimizado): desconhecido, sem consultar nada', async () => {
     const { useCase, patientRepo } = makeUseCase({ registered: [patient('p1')] });

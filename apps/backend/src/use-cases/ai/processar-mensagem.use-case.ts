@@ -33,6 +33,13 @@ export interface ProcessarMensagemInput {
    * nenhum dado de paciente entra na resposta e a conversa vai para a clínica.
    */
   identityAmbiguous?: boolean;
+  /**
+   * A-11 (19/10/2026) — o número é de exatamente um paciente, mas ele está
+   * inativo ou com alta. Mesmo tratamento do ambíguo: nenhum paciente vai
+   * para a IA, nenhuma ação é executada, e a conversa vai para a clínica,
+   * com outro motivo no aviso.
+   */
+  identityInactive?: boolean;
   conversationHistory: ConversationMessage[];
   message: string;
   /** AD-016 — correlaciona todo o turno (3 chamadas de IA possíveis) com o restante dos logs do job/requisição de origem. */
@@ -114,8 +121,11 @@ export class ProcessarMensagemUseCase {
   async execute(input: ProcessarMensagemInput): Promise<ProcessarMensagemResult> {
     const turnStart = Date.now();
     const ambiguous = input.identityAmbiguous === true;
-    // Com o número ambíguo, nenhum paciente é entregue ao provedor de IA.
-    const knownPatientId = ambiguous ? undefined : input.patientId;
+    const inactive = !ambiguous && input.identityInactive === true;
+    // Com o número ambíguo, ou de paciente inativo ou com alta (A-11), nenhum
+    // paciente é entregue ao provedor de IA.
+    const handedToClinic = ambiguous || inactive;
+    const knownPatientId = handedToClinic ? undefined : input.patientId;
 
     const intent = await this.aiProvider.interpretIntent({
       tenantId: input.tenantId,
@@ -130,16 +140,18 @@ export class ProcessarMensagemUseCase {
     // identifica e só muda se a pessoa concluir o próprio cadastro nesta
     // mesma mensagem (Cenário 1, ADR-0045).
     let resolvedPatientId = knownPatientId;
-    let identityPending = ambiguous;
-    let handoffReason: HumanHandoffReason | undefined = ambiguous ? 'shared_number' : undefined;
-    let patientNotice: string | undefined = ambiguous ? CLINIC_WILL_CONTINUE : undefined;
+    let identityPending = handedToClinic;
+    let handoffReason: HumanHandoffReason | undefined = ambiguous ? 'shared_number' : inactive ? 'inactive_patient' : undefined;
+    let patientNotice: string | undefined = handedToClinic ? CLINIC_WILL_CONTINUE : undefined;
     let contactActionTaken = false;
     let contactActionSummary: string | undefined;
     let contactConfirmationPrompt: string | undefined;
     let contactCost = 0;
 
-    // Com o número ambíguo não há o que classificar: a regra é uma só.
-    if (input.contactId && !ambiguous) {
+    // Com o número ambíguo, ou de paciente fora de atendimento, não há o que
+    // classificar: a regra é uma só (e um cadastro novo pelo mesmo número
+    // não pode nascer daqui).
+    if (input.contactId && !handedToClinic) {
       const contactResult = await this.contactIntentActionRouter.route({
         tenantId: input.tenantId,
         contactId: input.contactId,

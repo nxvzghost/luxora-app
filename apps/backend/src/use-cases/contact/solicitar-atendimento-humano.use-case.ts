@@ -11,9 +11,16 @@ import { NotificationRepository, NOTIFICATION_REPOSITORY } from '@domain-service
  * - `possible_duplicate`: pediu cadastro com um nome que já existe entre os pacientes;
  * - `human_review`: o pedido depende de saber para quem é, e o sistema não decide isso sozinho;
  * - `unsupported_media`: chegou áudio, imagem, figurinha ou outra mensagem que não é texto (A-15),
- *   que o atendimento automático não lê.
+ *   que o atendimento automático não lê;
+ * - `inactive_patient`: o número é de um paciente inativo ou com alta (A-11).
  */
-export type HumanHandoffReason = 'shared_number' | 'link_request' | 'possible_duplicate' | 'human_review' | 'unsupported_media';
+export type HumanHandoffReason =
+  | 'shared_number'
+  | 'link_request'
+  | 'possible_duplicate'
+  | 'human_review'
+  | 'unsupported_media'
+  | 'inactive_patient';
 
 export interface SolicitarAtendimentoHumanoInput {
   tenantId: string;
@@ -45,6 +52,12 @@ const NOTICES: Record<HumanHandoffReason, { type: string; title: string; message
     title: 'WhatsApp: conversa aguardando atendimento humano',
     message: (tail) =>
       `A conversa com o número de final ${tail} foi encaminhada para a equipe: o pedido depende de confirmar para quem é o atendimento, e nada foi feito automaticamente.`,
+  },
+  inactive_patient: {
+    type: 'whatsapp_inactive_patient',
+    title: 'WhatsApp: paciente inativo ou com alta',
+    message: (tail) =>
+      `O número com final ${tail} é de um paciente inativo ou com alta. O atendimento automático não marca, não cancela nem consulta cobrança para ele: a conversa precisa de atendimento humano. Para voltar ao atendimento automático, o paciente inativo pode ser reativado em Pacientes; com alta, o reingresso é um cadastro novo.`,
   },
   unsupported_media: {
     type: 'whatsapp_unsupported_media',

@@ -2,6 +2,14 @@ import { Injectable, Inject } from '@nestjs/common';
 import { Contact } from '@domain/contact/contact.entity';
 import { ContactRepository, CONTACT_REPOSITORY } from '@domain-services/patient-ops/contact.repository';
 import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
+import { PatientState } from '@domain/patient/patient.entity';
+
+/**
+ * A-11 (19/10/2026, decisão do responsável pelo produto) — paciente fora de
+ * atendimento: inativo (pode ser reativado) ou com alta (reingresso exige
+ * novo cadastro). O número dele não age em nome dele pelo WhatsApp.
+ */
+export const OUT_OF_CARE_STATES: readonly PatientState[] = ['Inativo', 'Alta'];
 
 /**
  * Quem está do outro lado de um número — ADR-0063 (AD-037 e AD-038).
@@ -9,11 +17,15 @@ import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-
  * - `recognized`: o número corresponde a exatamente um paciente da clínica;
  * - `ambiguous`: corresponde a dois ou mais. Ninguém é escolhido — nem o
  *   cadastro mais antigo — e nenhum dos candidatos sai daqui;
- * - `unknown`: não corresponde a nenhum.
+ * - `unknown`: não corresponde a nenhum;
+ * - `inactive`: corresponde a exatamente um, mas ele está inativo ou com
+ *   alta (A-11). Como no ambíguo, nenhum id sai daqui: o atendimento
+ *   automático não age em nome dele e a conversa vai para a clínica.
  */
 export type SenderIdentity =
   | { status: 'recognized'; patientId: string }
   | { status: 'ambiguous' }
+  | { status: 'inactive' }
   | { status: 'unknown' };
 
 /**
@@ -46,8 +58,10 @@ export class ResolverIdentidadeDoContatoUseCase {
     }
 
     const patientIds = new Set<string>();
+    const states = new Map<string, PatientState>();
     for (const patient of await this.patientRepo.findAllByPhone(contact.phoneNumber.toE164())) {
       patientIds.add(patient.id);
+      states.set(patient.id, patient.state);
     }
     if (contact.state === 'Vinculado') {
       for (const association of await this.contactRepo.findAssociationsByContactId(contact.id)) {
@@ -58,6 +72,9 @@ export class ResolverIdentidadeDoContatoUseCase {
     if (patientIds.size === 0) return { status: 'unknown' };
     if (patientIds.size > 1) return { status: 'ambiguous' };
     const [patientId] = patientIds;
+    // O paciente do vínculo aprovado não veio da busca pelo telefone: o estado dele é lido à parte.
+    const state = states.get(patientId) ?? (await this.patientRepo.findById(patientId))?.state;
+    if (state && OUT_OF_CARE_STATES.includes(state)) return { status: 'inactive' };
     return { status: 'recognized', patientId };
   }
 }

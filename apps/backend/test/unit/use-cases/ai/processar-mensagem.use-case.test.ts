@@ -61,6 +61,33 @@ describe('ProcessarMensagemUseCase', () => {
     expect(intentActionRouter.route).not.toHaveBeenCalled();
   });
 
+  it('A-11 — paciente inativo ou com alta: nenhum paciente vai para a IA, nenhuma ação, classificador não consultado e a clínica é avisada', async () => {
+    const { useCase, aiProvider, intentActionRouter, contactIntentActionRouter, solicitarAtendimentoHumano } = makeUseCase({
+      intent: 'agendar_consulta',
+      confidence: 0.9,
+      entities: {},
+      requiresEscalation: false,
+    });
+    const result = await useCase.execute({
+      tenantId: 't1',
+      patientId: 'p-inativo',
+      identityInactive: true,
+      contactId: 'c1',
+      conversationHistory: [],
+      message: 'Quero marcar uma consulta',
+    });
+
+    expect(aiProvider.interpretIntent.mock.calls[0][0].patientId).toBeUndefined();
+    expect(aiProvider.generateResponse.mock.calls[0][0].patientId).toBeUndefined();
+    expect(intentActionRouter.route).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ patientId: undefined, identityResolved: false }));
+    expect(contactIntentActionRouter.route).not.toHaveBeenCalled();
+    expect(solicitarAtendimentoHumano.execute).toHaveBeenCalledWith({ tenantId: 't1', contactId: 'c1', reason: 'inactive_patient' });
+    expect(result.requiresEscalation).toBe(true);
+    expect(result.actionTaken).toBe(false);
+    const conversation = aiProvider.generateResponse.mock.calls[0][0].conversationHistory as Array<{ content: string }>;
+    expect(conversation.some((message) => message.content.startsWith('[Informe ao paciente:'))).toBe(true);
+  });
+
   it('quando a ação é executada, actionTaken=true é refletido no resultado', async () => {
     const { useCase } = makeUseCase(
       { intent: 'confirmar_presenca', confidence: 0.95, entities: { appointmentId: 'a1' }, requiresEscalation: false },

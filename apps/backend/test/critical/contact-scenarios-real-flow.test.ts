@@ -866,6 +866,99 @@ describe('[Contact] identidade no fluxo real do WhatsApp — ADR-0063 (AD-037, A
     });
   });
 
+  describe('A-11 — paciente inativo ou com alta escreve pelo WhatsApp', () => {
+    const FROM = '5541988880021';
+    // Os horários de 7 h a 21 h do dia 60 já são dos outros cenários; a agenda da clínica de teste está aberta todos os dias.
+    const slotOnDay61 = (hour: number) => clinicTimeAt(61, hour);
+    const slot = slotOnDay61(15);
+    const existingSlot = slotOnDay61(21);
+    let patientId: string;
+    let patientsBefore: number;
+    let booking: Turn;
+    let cancelling: Turn;
+    let billingQuestion: Turn;
+    let appointment: { id: string };
+
+    beforeAll(async () => {
+      patientId = await registerPatient('Paciente Inativo Teste', '(41) 98888-0021');
+      await fixturePrisma.patient.update({ where: { id: patientId }, data: { state: 'Inativo' } });
+      patientsBefore = await patientCount();
+      appointment = await existingAppointment(patientId, existingSlot);
+      const billing = await existingBilling(patientId);
+
+      booking = await turn(FROM, 'Quero marcar uma consulta.', { intent: bookingRequest(slot), decision: 'IGNORAR' });
+      cancelling = await turn(FROM, 'Cancela a consulta.', {
+        intent: { intent: 'cancelar_consulta', entities: { appointmentId: appointment.id } },
+        decision: 'IGNORAR',
+      });
+      billingQuestion = await turn(FROM, 'Quanto estou devendo?', {
+        intent: { intent: 'consultar_cobranca', entities: { billingId: billing.id } },
+        decision: 'IGNORAR',
+      });
+    }, 60_000);
+
+    it('nada é marcado, cancelado nem informado em nome dele', async () => {
+      expect(await appointmentsAt(slot)).toHaveLength(0);
+      expect((await fixturePrisma.appointment.findUniqueOrThrow({ where: { id: appointment.id } })).state).toBe('Reservada');
+      for (const turnResult of [booking, cancelling, billingQuestion]) {
+        expect(actionsIn(turnResult.instructions)).toEqual([]);
+      }
+    });
+
+    it('nenhum dado do paciente vai para a IA; a pessoa ouve que a equipe vai continuar', () => {
+      for (const turnResult of [booking, cancelling, billingQuestion]) {
+        expect(turnResult.intentInput.patientId).toBeUndefined();
+        expect(turnResult.responseContext.patientId).toBeUndefined();
+        expect(turnResult.instructions).toEqual([`[Informe ao paciente: ${CLINIC_WILL_CONTINUE}]`]);
+        expect(turnResult.classifierCalled).toBe(false);
+        const everythingSent = JSON.stringify(turnResult.responseContext);
+        expect(everythingSent).not.toContain(patientId);
+        expect(everythingSent).not.toContain('Paciente Inativo');
+        expect(everythingSent).not.toMatch(BILLING_AMOUNT);
+      }
+    });
+
+    it('ninguém é cadastrado de novo e a conversa não é ligada ao paciente', async () => {
+      expect(await patientCount()).toBe(patientsBefore);
+      expect((await conversationOf(FROM))?.patientId).toBeNull();
+    });
+
+    it('a clínica é avisada — um aviso só, sem o nome do paciente', async () => {
+      const contact = await contactOf(FROM);
+      const notices = await noticesFor(contact!.id, 'whatsapp_inactive_patient');
+      expect(notices).toHaveLength(1);
+      expect(notices[0].message).toContain('0021');
+      expect(notices[0].message).not.toContain('Paciente Inativo');
+    });
+
+    it('com alta: o mesmo — nada marcado, conversa para a clínica', async () => {
+      const from = '5541988880022';
+      const discharged = await registerPatient('Paciente Com Alta Teste', '(41) 98888-0022');
+      await fixturePrisma.patient.update({ where: { id: discharged }, data: { state: 'Alta' } });
+      const dischargeSlot = slotOnDay61(16);
+
+      const result = await turn(from, 'Quero voltar, marca uma consulta?', { intent: bookingRequest(dischargeSlot), decision: 'IGNORAR' });
+
+      expect(await appointmentsAt(dischargeSlot)).toHaveLength(0);
+      expect(result.intentInput.patientId).toBeUndefined();
+      expect(result.instructions).toEqual([`[Informe ao paciente: ${CLINIC_WILL_CONTINUE}]`]);
+      const contact = await contactOf(from);
+      expect(await noticesFor(contact!.id, 'whatsapp_inactive_patient')).toHaveLength(1);
+    });
+
+    it('reativado, volta a ser atendido normalmente', async () => {
+      await fixturePrisma.patient.update({ where: { id: patientId }, data: { state: 'Ativo' } });
+      const reactivatedSlot = slotOnDay61(17);
+
+      const result = await turn(FROM, 'Agora quero marcar.', { intent: bookingRequest(reactivatedSlot), decision: 'IGNORAR' });
+
+      expect(result.intentInput.patientId).toBe(patientId);
+      const booked = await appointmentsAt(reactivatedSlot);
+      expect(booked).toHaveLength(1);
+      expect(booked[0].patientId).toBe(patientId);
+    });
+  });
+
   describe('o número passa a ser de dois pacientes depois de a conversa já existir (AD-038)', () => {
     const FROM = '5541988880010';
     const slotBefore = slotAt(7);
