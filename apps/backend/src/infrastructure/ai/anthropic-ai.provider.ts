@@ -7,6 +7,7 @@ import {
   AIResponse,
 } from '@domain-services/ai/ai-provider';
 import { buildSystemPrompt } from '@use-cases/ai/system-prompt.builder';
+import { unwrapModelJson } from '@use-cases/ai/model-json-text';
 import { ClinicRepository, CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { THERAPIST_REPOSITORY, TherapistRepository } from '@domain-services/platform/therapist.repository';
 import { MetricsService } from '@shared/metrics.service';
@@ -29,6 +30,9 @@ class AnthropicHttpError extends Error {
  * Modelo: claude-haiku-4-5-20251001. NÃO TESTADO CONTRA A API REAL — sem
  * rede neste ambiente, mesma categoria de pendência do
  * WhatsAppMessageProvider (Módulo 11).
+ * 19/10/2026: primeira chamada real (test/manual/anthropic-smoke.test.ts).
+ * O modelo devolve o JSON de intenção entre cercas de código — ver
+ * unwrapModelJson().
  *
  * DÍVIDA FECHADA NA REVISÃO GERAL: buildSystemPrompt() usava
  * clinicName/therapistNames fixos — agora busca de verdade via
@@ -93,7 +97,7 @@ Critério de escalonamento: requiresEscalation=true quando a mensagem envolver a
     };
 
     try {
-      const parsed = JSON.parse(text) as IntentResult;
+      const parsed = JSON.parse(unwrapModelJson(text)) as IntentResult;
       return {
         intent: parsed.intent,
         confidence: parsed.confidence,

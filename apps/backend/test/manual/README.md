@@ -114,8 +114,13 @@ Faz as 3 chamadas de um turno — `interpretIntent`, `ContactIntentClassifier` e
 **inventados**. Nenhum banco é lido; nenhum dado real sai da máquina. Imprime
 modelo, tokens, latência e custo estimado de cada chamada.
 
-O primeiro teste falha se o modelo real devolver o JSON de intenção embrulhado
-(cerca de código, texto em volta): é o defeito que só uma chamada real revela.
+Os dois primeiros testes falham se o sistema não conseguir ler o JSON do modelo
+real: `interpretIntent` cai em `outro` e escala; o classificador cai em `HUMANO`
+com o motivo "Falha ao interpretar resposta do modelo.". É o defeito que só uma
+chamada real revela. Em 19/10/2026 o modelo devolveu o JSON entre cercas de
+código Markdown (três crases e `json`) nas duas chamadas; os parsers passaram a retirar a cerca
+que envolve a resposta inteira (`unwrapModelJson`). Texto em volta da cerca
+continua caindo no ramo de segurança.
 
 ## Asaas sandbox — `asaas-sandbox-smoke.test.ts`
 

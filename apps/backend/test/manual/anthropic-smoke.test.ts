@@ -83,6 +83,10 @@ describe.skipIf(!enabled)('[MANUAL / EXTERNAL] Anthropic — turno completo com 
     });
 
     expect(['PROMOVER', 'ASSOCIAR', 'DESAMBIGUAR', 'IGNORAR', 'HUMANO']).toContain(result.decision);
+    // HUMANO também é o valor de falha do parser. Sem esta linha o teste
+    // passou em 19/10/2026 com o modelo dizendo PROMOVER e o sistema lendo
+    // HUMANO, porque o JSON veio entre cercas de código.
+    expect(result.reasoning).not.toBe('Falha ao interpretar resposta do modelo.');
   }, 30000);
 
   it('generateResponse devolve texto e uso de tokens', async () => {

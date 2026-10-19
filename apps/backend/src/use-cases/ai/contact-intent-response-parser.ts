@@ -2,6 +2,7 @@ import {
   ContactIntentClassificationResult,
   ContactIntentDecision,
 } from '@domain-services/ai/contact-intent-classifier';
+import { unwrapModelJson } from './model-json-text';
 
 const VALID_DECISIONS: readonly ContactIntentDecision[] = ['PROMOVER', 'ASSOCIAR', 'DESAMBIGUAR', 'IGNORAR', 'HUMANO'];
 
@@ -17,10 +18,13 @@ const VALID_DECISIONS: readonly ContactIntentDecision[] = ['PROMOVER', 'ASSOCIAR
  * ADR-0063 (AD-037) — `explicitConfirmation` só vale quando o modelo
  * devolve literalmente `true`. Qualquer outra coisa ("true" como texto, 1,
  * "sim", ausente) é falta de confirmação: na dúvida, nenhum cadastro.
+ *
+ * 19/10/2026 — o modelo real devolve o JSON entre cercas de código; a cerca
+ * que envolve a resposta inteira é retirada antes da leitura (unwrapModelJson).
  */
 export function parseContactIntentResponse(text: string): ContactIntentClassificationResult {
   try {
-    const parsed = JSON.parse(text) as ContactIntentClassificationResult;
+    const parsed = JSON.parse(unwrapModelJson(text)) as ContactIntentClassificationResult;
     if (!VALID_DECISIONS.includes(parsed.decision)) {
       throw new Error(`decision fora do vocabulário esperado: "${parsed.decision}"`);
     }

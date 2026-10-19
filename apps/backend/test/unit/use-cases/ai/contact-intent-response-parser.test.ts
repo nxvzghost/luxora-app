@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseContactIntentResponse } from '@use-cases/ai/contact-intent-response-parser';
+import { REAL_CONTACT_INTENT_RESPONSE } from './support/real-anthropic-responses';
 
 describe('parseContactIntentResponse — ADR-0055 (AD-018), Fase 7', () => {
   it('interpreta um JSON válido com todos os campos', () => {
@@ -28,6 +29,27 @@ describe('parseContactIntentResponse — ADR-0055 (AD-018), Fase 7', () => {
   it('cai para HUMANO em uma string vazia', () => {
     const result = parseContactIntentResponse('');
     expect(result.decision).toBe('HUMANO');
+  });
+
+  describe('resposta real do modelo, com o JSON entre cercas de código (19/10/2026)', () => {
+    it('lê a decisão que o modelo tomou, em vez de cair para HUMANO', () => {
+      const result = parseContactIntentResponse(REAL_CONTACT_INTENT_RESPONSE);
+      expect(result.decision).toBe('PROMOVER');
+      expect(result.confidence).toBe(0.85);
+      expect(result.patientNameHint).toBeUndefined();
+      expect(result.explicitConfirmation).toBe(false);
+      expect(result.reasoning).not.toBe('Falha ao interpretar resposta do modelo.');
+    });
+
+    it('com texto em volta da cerca, continua caindo para HUMANO', () => {
+      const result = parseContactIntentResponse(`Segue a classificação:\n${REAL_CONTACT_INTENT_RESPONSE}`);
+      expect(result).toEqual({ decision: 'HUMANO', confidence: 0, reasoning: 'Falha ao interpretar resposta do modelo.' });
+    });
+
+    it('a cerca não abre exceção para decisão fora do vocabulário', () => {
+      const result = parseContactIntentResponse('```json\n{"decision": "TALVEZ", "confidence": 0.5}\n```');
+      expect(result.decision).toBe('HUMANO');
+    });
   });
 
   describe('explicitConfirmation — ADR-0063 (AD-037)', () => {

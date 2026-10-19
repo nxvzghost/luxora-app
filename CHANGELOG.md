@@ -4,6 +4,15 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### IA — leitura do JSON do modelo real (2026-10-19)
+
+Com autorização explícita do responsável pelo produto. No primeiro teste contra a API real da Anthropic (19/10/2026, `test/manual/anthropic-smoke.test.ts`, conteúdo sintético), o modelo `claude-haiku-4-5-20251001` respondeu às três chamadas, mas pôs o JSON entre cercas de código Markdown (três crases e `json`) nas duas que esperam JSON. `interpretIntent` e o classificador de contato usavam `JSON.parse` direto e caíam no ramo de segurança em toda mensagem: o modelo dizia `consultar_disponibilidade` e o sistema escalava para um humano; dizia `PROMOVER` e o sistema ficava com `HUMANO`. Os dublês dos testes unitários sempre devolviam JSON puro, por isso o defeito nunca tinha aparecido.
+
+- **Correção:** `unwrapModelJson` (`use-cases/ai/model-json-text.ts`) retira a cerca que envolve a resposta inteira antes da leitura, nos dois parsers. Não procura JSON no meio de um texto: resposta com texto em volta continua escalando / caindo em `HUMANO`.
+- **Testes:** unitários feitos com as respostas reais, sem mudar nada nelas (`test/unit/use-cases/ai/support/real-anthropic-responses.ts`), e com os casos de texto em volta da cerca.
+- **Teste mascarado:** o teste real do classificador aceitava `HUMANO`, que é também o valor de falha, e passou com o defeito. Agora recusa o motivo de falha.
+- A resposta ao paciente (`generateResponse`) não mudou: já funcionava com o modelo real.
+
 ### CI — runner fixado em Ubuntu 24.04 (2026-10-18)
 
 O GitHub avisa, em todas as execuções desde 07/10, que o rótulo `ubuntu-latest` passa a apontar para o Ubuntu 26 a partir de 19/10/2026. Os sete jobs de `ci.yml` e os dois de `cd.yml` passam a rodar em `ubuntu-24.04`, a mesma imagem de todas as execuções verdes até aqui. Trocar de versão passa a ser uma decisão explícita, com uma execução verde na versão nova. Nenhum código, teste ou dependência mudou. Fica para outra vez o outro aviso do runner: as ações `checkout@v4`, `setup-node@v4` e `pnpm/action-setup@v4` foram feitas para Node 20 e rodam forçadas em Node 24.

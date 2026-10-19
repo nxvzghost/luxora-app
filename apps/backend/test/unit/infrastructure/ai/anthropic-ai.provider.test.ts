@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AnthropicAIProvider } from '@infrastructure/ai/anthropic-ai.provider';
 import { ConversationInput, ConversationContext, IntentResult } from '@domain-services/ai/ai-provider';
 import { MetricsService } from '@shared/metrics.service';
+import { REAL_INTENT_RESPONSE } from '../../use-cases/ai/support/real-anthropic-responses';
 
 function baseIntentInput(overrides: Partial<ConversationInput> = {}): ConversationInput {
   return { tenantId: 't1', conversationHistory: [], message: 'Olá', ...overrides };
@@ -20,6 +21,10 @@ function okIntentResponse(usage = { input_tokens: 100, output_tokens: 40 }) {
       usage,
     }),
   };
+}
+
+function okTextResponse(text: string) {
+  return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text }], usage: { input_tokens: 244, output_tokens: 75 } }) };
 }
 
 function okGenerateResponse(usage = { input_tokens: 200, output_tokens: 80 }) {
@@ -75,6 +80,31 @@ describe('AnthropicAIProvider — ADR-0055 (AD-018), Fase 8.1 (hardening)', () =
       expect(Object.keys(result).sort()).toEqual(
         ['confidence', 'entities', 'escalationReason', 'intent', 'requiresEscalation', 'usage'].sort(),
       );
+    });
+  });
+
+  describe('interpretIntent() — resposta real do modelo, com o JSON entre cercas de código (19/10/2026)', () => {
+    it('lê o intent que o modelo devolveu, sem escalar por falha de leitura', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okTextResponse(REAL_INTENT_RESPONSE)));
+      const { provider } = makeProvider();
+      const result = await provider.interpretIntent(baseIntentInput());
+
+      expect(result.intent).toBe('consultar_disponibilidade');
+      expect(result.confidence).toBe(0.95);
+      expect(result.entities).toEqual({ dia_semana: 'quinta-feira', periodo: 'tarde' });
+      expect(result.requiresEscalation).toBe(false);
+      expect(result.escalationReason).toBeUndefined();
+      expect(result.usage!.inputTokens).toBe(244);
+    });
+
+    it('com texto em volta da cerca, continua escalando por segurança', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okTextResponse(`Claro! Segue:\n${REAL_INTENT_RESPONSE}`)));
+      const { provider } = makeProvider();
+      const result = await provider.interpretIntent(baseIntentInput());
+
+      expect(result.intent).toBe('outro');
+      expect(result.requiresEscalation).toBe(true);
+      expect(result.escalationReason).toBe('Falha ao interpretar resposta do modelo.');
     });
   });
 
