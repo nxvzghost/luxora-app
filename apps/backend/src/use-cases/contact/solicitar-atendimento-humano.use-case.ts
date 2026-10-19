@@ -9,9 +9,11 @@ import { NotificationRepository, NOTIFICATION_REPOSITORY } from '@domain-service
  * - `shared_number`: o número consta no cadastro de mais de um paciente;
  * - `link_request`: um número novo diz ser de (ou tratar de) um paciente que já existe;
  * - `possible_duplicate`: pediu cadastro com um nome que já existe entre os pacientes;
- * - `human_review`: o pedido depende de saber para quem é, e o sistema não decide isso sozinho.
+ * - `human_review`: o pedido depende de saber para quem é, e o sistema não decide isso sozinho;
+ * - `unsupported_media`: chegou áudio, imagem, figurinha ou outra mensagem que não é texto (A-15),
+ *   que o atendimento automático não lê.
  */
-export type HumanHandoffReason = 'shared_number' | 'link_request' | 'possible_duplicate' | 'human_review';
+export type HumanHandoffReason = 'shared_number' | 'link_request' | 'possible_duplicate' | 'human_review' | 'unsupported_media';
 
 export interface SolicitarAtendimentoHumanoInput {
   tenantId: string;
@@ -43,6 +45,12 @@ const NOTICES: Record<HumanHandoffReason, { type: string; title: string; message
     title: 'WhatsApp: conversa aguardando atendimento humano',
     message: (tail) =>
       `A conversa com o número de final ${tail} foi encaminhada para a equipe: o pedido depende de confirmar para quem é o atendimento, e nada foi feito automaticamente.`,
+  },
+  unsupported_media: {
+    type: 'whatsapp_unsupported_media',
+    title: 'WhatsApp: mensagem que o atendimento automático não lê',
+    message: (tail) =>
+      `O número com final ${tail} enviou uma mensagem que não é texto (áudio, imagem, figurinha, vídeo, documento, localização ou contato). O atendimento automático só lê texto: a mensagem não foi aberta e a pessoa foi convidada a escrever. Veja a conversa no WhatsApp da clínica.`,
   },
 };
 

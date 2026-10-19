@@ -5,6 +5,9 @@ import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
 import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
+import { Queue } from 'bullmq';
+import IORedis from 'ioredis';
+import { UNSUPPORTED_MEDIA_REPLY } from '@use-cases/communication/receber-mensagem-whatsapp.use-case';
 
 /**
  * ADR-0053 (AD-007) — Webhook de entrada do WhatsApp: handshake de
@@ -343,20 +346,50 @@ describe('[Fase 3] Payload no formato documentado pela Meta', () => {
     expect(await fixturePrisma.conversation.count({ where: { tenantId: fixture.tenantId, phoneNumber: recipient } })).toBe(0);
   });
 
-  it('mensagem que não é texto (imagem): 200, ignorada — nenhuma Conversation nem Message', async () => {
+  /**
+   * A-15 (19/10/2026) — até aqui a imagem era descartada sem deixar rastro
+   * (este teste afirmava exatamente isso). Agora: nenhuma IA, a mensagem fica
+   * na conversa, a clínica recebe um aviso e a pessoa recebe a resposta fixa
+   * pedindo que escreva. A fila de saída é real; o worker dela está desligado
+   * nesta suíte, então o job é conferido e retirado da fila aqui mesmo.
+   */
+  it('A-15 — mensagem que não é texto (imagem): 200, sem IA — a pessoa recebe o pedido para escrever e a clínica, um aviso', async () => {
     const from = metaPhone();
     const wamid = `wamid.${randomUUID()}`;
+    const payload = metaEnvelope({
+      contacts: [{ profile: { name: 'Pessoa Fictícia' }, wa_id: from }],
+      messages: [{ from, id: wamid, timestamp: unixNow(), type: 'image', image: { mime_type: 'image/jpeg', sha256: 'ficticio', id: '1' } }],
+    });
 
-    const res = await postSigned(
-      metaEnvelope({
-        contacts: [{ profile: { name: 'Pessoa Fictícia' }, wa_id: from }],
-        messages: [{ from, id: wamid, timestamp: unixNow(), type: 'image', image: { mime_type: 'image/jpeg', sha256: 'ficticio', id: '1' } }],
-      }),
-    );
+    const res = await postSigned(payload);
     expect(res.status).toBe(200);
+    // Reentrega da Meta do mesmo POST: nada se repete.
+    expect((await postSigned(payload)).status).toBe(200);
 
-    expect(await fixturePrisma.conversation.count({ where: { tenantId: fixture.tenantId, phoneNumber: from } })).toBe(0);
-    expect(await fixturePrisma.message.count({ where: { externalId: wamid } })).toBe(0);
+    const conversation = await fixturePrisma.conversation.findFirst({ where: { tenantId: fixture.tenantId, phoneNumber: from } });
+    expect(conversation).not.toBeNull();
+    const messages = await fixturePrisma.message.findMany({ where: { conversationId: conversation!.id } });
+    expect(messages.filter((m) => m.direction === 'entrada').map((m) => m.externalId)).toEqual([wamid]);
+    expect(messages.filter((m) => m.direction === 'saida').map((m) => m.content)).toEqual([UNSUPPORTED_MEDIA_REPLY]);
+
+    const notices = await fixturePrisma.notification.findMany({
+      where: { tenantId: fixture.tenantId, type: 'whatsapp_unsupported_media', message: { contains: from.slice(-4) } },
+    });
+    expect(notices).toHaveLength(1);
+
+    const connection = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', { maxRetriesPerRequest: null });
+    const outbound = new Queue('messages', { connection });
+    const inbound = new Queue('whatsapp-inbound', { connection });
+    try {
+      const job = await outbound.getJob(`unsupported-media-reply-${wamid}`);
+      expect(job?.data).toMatchObject({ tenantId: fixture.tenantId, toPhoneNumber: from, body: UNSUPPORTED_MEDIA_REPLY });
+      expect(await inbound.getJob(wamid)).toBeUndefined();
+      await job?.remove().catch(() => undefined);
+    } finally {
+      await outbound.close();
+      await inbound.close();
+      await connection.quit();
+    }
   });
 
   /**

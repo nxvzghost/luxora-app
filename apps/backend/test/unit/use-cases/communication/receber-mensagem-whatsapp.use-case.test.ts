@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { ReceberMensagemWhatsAppUseCase, WhatsAppWebhookPayload } from '@use-cases/communication/receber-mensagem-whatsapp.use-case';
-import { Conversation } from '@domain/communication/conversation.entity';
+import {
+  ReceberMensagemWhatsAppUseCase,
+  WhatsAppWebhookPayload,
+  UNSUPPORTED_MEDIA_REPLY,
+  UNSUPPORTED_MEDIA_REPLY_INTERVAL_MS,
+} from '@use-cases/communication/receber-mensagem-whatsapp.use-case';
+import { Conversation, Message } from '@domain/communication/conversation.entity';
 import { TenantContext } from '@shared/tenant-context';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
@@ -17,6 +22,7 @@ function makeDeps(opts: {
   integration?: { tenantId: string; active: boolean } | null;
   existingMessage?: unknown;
   existingConversation?: Conversation | null;
+  history?: Message[];
   patient?: { id: string } | null;
   identity?: { status: 'recognized'; patientId: string } | { status: 'ambiguous' } | { status: 'unknown' };
 }) {
@@ -32,7 +38,7 @@ function makeDeps(opts: {
     findById: vi.fn(),
     save: vi.fn().mockResolvedValue(undefined),
     appendMessages: vi.fn().mockResolvedValue(undefined),
-    findMessagesByConversationId: vi.fn(),
+    findMessagesByConversationId: vi.fn().mockResolvedValue(opts.history ?? []),
   };
   // ADR-0063 — quem diz a quem o número pertence é ResolverIdentidadeDoContatoUseCase.
   const identity = opts.identity ?? (opts.patient ? { status: 'recognized', patientId: opts.patient.id } : { status: 'unknown' });
@@ -41,6 +47,8 @@ function makeDeps(opts: {
   const inboundQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
   const reconhecerOuCriarContatoUseCase = { execute: vi.fn().mockResolvedValue({ id: 'contact-1', state: 'Conversando' }) };
   const correlationContext = { correlationId: 'corr-fake' };
+  const outboundQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
+  const solicitarAtendimentoHumano = { execute: vi.fn().mockResolvedValue(undefined) };
 
   const useCase = new ReceberMensagemWhatsAppUseCase(
     prismaClient,
@@ -51,9 +59,29 @@ function makeDeps(opts: {
     reconhecerOuCriarContatoUseCase as never,
     correlationContext as never,
     resolverIdentidade as never,
+    outboundQueue as never,
+    solicitarAtendimentoHumano as never,
   );
 
-  return { useCase, prismaClient, tenantContext, conversationRepo, resolverIdentidade, auditService, inboundQueue, reconhecerOuCriarContatoUseCase, correlationContext };
+  return {
+    useCase,
+    prismaClient,
+    tenantContext,
+    conversationRepo,
+    resolverIdentidade,
+    auditService,
+    inboundQueue,
+    reconhecerOuCriarContatoUseCase,
+    correlationContext,
+    outboundQueue,
+    solicitarAtendimentoHumano,
+  };
+}
+
+function mediaPayload(messageId: string, type: string, from = FROM): WhatsAppWebhookPayload {
+  return {
+    entry: [{ changes: [{ value: { metadata: { phone_number_id: PHONE_NUMBER_ID }, messages: [{ id: messageId, from, type }] } }] }],
+  };
 }
 
 function payloadWith(messageId: string, body: string, phoneNumberId = PHONE_NUMBER_ID): WhatsAppWebhookPayload {
@@ -158,27 +186,15 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
       expect(inboundQueue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ correlationId: correlationContext.correlationId }));
     });
 
-    it('mensagens ignoradas (sem Tenant conectado, ou não-texto) nunca chegam a chamar ReconhecerOuCriarContatoUseCase', async () => {
+    it('mensagens ignoradas (sem Tenant conectado, ou reação) nunca chegam a chamar ReconhecerOuCriarContatoUseCase', async () => {
       const semTenant = makeDeps({ integration: null });
       await semTenant.useCase.execute(payloadWith('wamid.1', 'Olá'));
       expect(semTenant.reconhecerOuCriarContatoUseCase.execute).not.toHaveBeenCalled();
 
-      const naoTexto = makeDeps({});
-      const payload: WhatsAppWebhookPayload = {
-        entry: [{ changes: [{ value: { metadata: { phone_number_id: PHONE_NUMBER_ID }, messages: [{ id: 'wamid.2', from: FROM, type: 'image' }] } }] }],
-      };
-      await naoTexto.useCase.execute(payload);
-      expect(naoTexto.reconhecerOuCriarContatoUseCase.execute).not.toHaveBeenCalled();
+      const reacao = makeDeps({});
+      await reacao.useCase.execute(mediaPayload('wamid.2', 'reaction'));
+      expect(reacao.reconhecerOuCriarContatoUseCase.execute).not.toHaveBeenCalled();
     });
-  });
-
-  it('ignora mensagens que não são de texto (fora do mínimo necessário desta AD)', async () => {
-    const { useCase, conversationRepo } = makeDeps({});
-    const payload: WhatsAppWebhookPayload = {
-      entry: [{ changes: [{ value: { metadata: { phone_number_id: PHONE_NUMBER_ID }, messages: [{ id: 'wamid.2', from: FROM, type: 'image' }] } }] }],
-    };
-    await useCase.execute(payload);
-    expect(conversationRepo.findMessageByExternalId).not.toHaveBeenCalled();
   });
 
   it('payload com 2 mensagens de Tenants diferentes resolve e processa cada uma sob o Tenant correto', async () => {
@@ -216,6 +232,8 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
       reconhecerOuCriarContatoUseCase as never,
       correlationContext as never,
       resolverIdentidade as never,
+      { enqueue: vi.fn() } as never,
+      { execute: vi.fn() } as never,
     );
 
     const payload: WhatsAppWebhookPayload = {
@@ -233,6 +251,104 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
 
     const enqueuedTenants = inboundQueue.enqueue.mock.calls.map((c) => c[0].tenantId);
     expect(enqueuedTenants).toEqual(['tenant-A', 'tenant-B']);
+  });
+});
+
+describe('ReceberMensagemWhatsAppUseCase — mensagem que não é texto (A-15)', () => {
+  function sentMessages(conversationRepo: ReturnType<typeof makeDeps>['conversationRepo']) {
+    return conversationRepo.appendMessages.mock.calls.flatMap((call) => call[0] as Message[]);
+  }
+
+  function pastReply(minutesAgo: number): Message {
+    return Message.reconstitute({
+      id: 'msg-resposta',
+      conversationId: 'conv-1',
+      tenantId: TENANT_ID,
+      direction: 'saida',
+      content: UNSUPPORTED_MEDIA_REPLY,
+      createdAt: new Date(Date.now() - minutesAgo * 60 * 1000),
+    });
+  }
+
+  it('áudio: não passa pela IA, avisa a clínica e pede à pessoa que escreva', async () => {
+    const deps = makeDeps({});
+    await deps.useCase.execute(mediaPayload('wamid.audio', 'audio'));
+
+    expect(deps.inboundQueue.enqueue).not.toHaveBeenCalled();
+    expect(deps.solicitarAtendimentoHumano.execute).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      contactId: 'contact-1',
+      reason: 'unsupported_media',
+    });
+    expect(deps.outboundQueue.enqueue).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      toPhoneNumber: FROM,
+      body: UNSUPPORTED_MEDIA_REPLY,
+      idempotencyKey: 'unsupported-media-reply-wamid.audio',
+      correlationId: 'corr-fake',
+    });
+
+    const messages = sentMessages(deps.conversationRepo);
+    expect(messages.map((m) => [m.direction, m.externalId])).toEqual([
+      ['entrada', 'wamid.audio'],
+      ['saida', null],
+    ]);
+    expect(messages[0].content).toContain('áudio');
+    expect(messages[1].content).toBe(UNSUPPORTED_MEDIA_REPLY);
+    expect(deps.conversationRepo.save).toHaveBeenCalledOnce();
+  });
+
+  it.each(['image', 'sticker', 'video', 'document', 'location', 'contacts', 'unsupported', 'interactive'])(
+    '"%s": mesma resposta e mesmo aviso, sem IA',
+    async (type) => {
+      const deps = makeDeps({});
+      await deps.useCase.execute(mediaPayload(`wamid.${type}`, type));
+      expect(deps.inboundQueue.enqueue).not.toHaveBeenCalled();
+      expect(deps.outboundQueue.enqueue).toHaveBeenCalledOnce();
+      expect(deps.solicitarAtendimentoHumano.execute).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['reaction', 'system'])('"%s" continua ignorada: sem resposta, sem aviso, nada gravado', async (type) => {
+    const deps = makeDeps({});
+    await deps.useCase.execute(mediaPayload('wamid.x', type));
+    expect(deps.conversationRepo.findMessageByExternalId).not.toHaveBeenCalled();
+    expect(deps.outboundQueue.enqueue).not.toHaveBeenCalled();
+    expect(deps.solicitarAtendimentoHumano.execute).not.toHaveBeenCalled();
+  });
+
+  it('reentrega da Meta (mesmo wamid já gravado): nada de novo', async () => {
+    const deps = makeDeps({ existingMessage: { id: 'ja-gravada' } });
+    await deps.useCase.execute(mediaPayload('wamid.audio', 'audio'));
+    expect(deps.outboundQueue.enqueue).not.toHaveBeenCalled();
+    expect(deps.solicitarAtendimentoHumano.execute).not.toHaveBeenCalled();
+    expect(deps.conversationRepo.appendMessages).not.toHaveBeenCalled();
+  });
+
+  it('segundo áudio pouco depois: registra e avisa, mas não repete a resposta', async () => {
+    const conversation = Conversation.create({ id: 'conv-1', tenantId: TENANT_ID, phoneNumber: FROM, patientId: null });
+    const deps = makeDeps({ existingConversation: conversation, history: [pastReply(60)] });
+    await deps.useCase.execute(mediaPayload('wamid.audio2', 'audio'));
+
+    expect(deps.outboundQueue.enqueue).not.toHaveBeenCalled();
+    expect(deps.solicitarAtendimentoHumano.execute).toHaveBeenCalledOnce();
+    expect(sentMessages(deps.conversationRepo).map((m) => m.direction)).toEqual(['entrada']);
+    expect(deps.conversationRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('depois do intervalo, a resposta volta a ser enviada', async () => {
+    const conversation = Conversation.create({ id: 'conv-1', tenantId: TENANT_ID, phoneNumber: FROM, patientId: null });
+    const minutes = UNSUPPORTED_MEDIA_REPLY_INTERVAL_MS / 60_000 + 1;
+    const deps = makeDeps({ existingConversation: conversation, history: [pastReply(minutes)] });
+    await deps.useCase.execute(mediaPayload('wamid.audio3', 'audio'));
+    expect(deps.outboundQueue.enqueue).toHaveBeenCalledOnce();
+  });
+
+  it('remetente que não é do Brasil mandando áudio: ignorado, como o texto', async () => {
+    const deps = makeDeps({});
+    await deps.useCase.execute(mediaPayload('wamid.fora', 'audio', '14155550100'));
+    expect(deps.outboundQueue.enqueue).not.toHaveBeenCalled();
+    expect(deps.solicitarAtendimentoHumano.execute).not.toHaveBeenCalled();
   });
 });
 

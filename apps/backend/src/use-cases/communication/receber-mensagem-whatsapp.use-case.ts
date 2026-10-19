@@ -7,9 +7,12 @@ import { Conversation } from '@domain/communication/conversation.entity';
 import { ConversationRepository, CONVERSATION_REPOSITORY } from '@domain-services/communication/conversation.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { WhatsAppInboundQueueProducer } from '@infrastructure/messaging/whatsapp-inbound-queue.producer';
+import { MessageQueueProducer } from '@infrastructure/messaging/message-queue.producer';
 import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-ou-criar-contato.use-case';
 import { ResolverIdentidadeDoContatoUseCase } from '@use-cases/contact/resolver-identidade-do-contato.use-case';
+import { SolicitarAtendimentoHumanoUseCase } from '@use-cases/contact/solicitar-atendimento-humano.use-case';
 import { PhoneNumber } from '@domain/contact/phone-number.value-object';
+import { logReference } from '@shared/logging/log-reference';
 
 export interface WhatsAppWebhookPayload {
   entry?: Array<{
@@ -24,6 +27,34 @@ export interface WhatsAppWebhookPayload {
 }
 
 /**
+ * A-15 da auditoria (19/10/2026) — o que a Meta entrega e não é conversa de
+ * ninguém: reação (emoji sobre uma mensagem) e aviso de sistema (troca de
+ * número etc.). Continuam ignorados, sem resposta nem aviso.
+ */
+const IGNORED_MESSAGE_TYPES = new Set(['reaction', 'system']);
+
+/** Como cada tipo aparece no histórico da conversa. O que não está aqui vira "mensagem que não é texto". */
+const MEDIA_LABELS: Record<string, string> = {
+  audio: 'áudio',
+  image: 'imagem',
+  sticker: 'figurinha',
+  video: 'vídeo',
+  document: 'documento',
+  location: 'localização',
+  contacts: 'contato',
+};
+
+/**
+ * Resposta fixa, sem IA e sem dado de paciente, a quem manda áudio, imagem,
+ * figurinha etc. (A-15). Exportada para os testes conferirem o texto exato.
+ */
+export const UNSUPPORTED_MEDIA_REPLY =
+  'Recebemos sua mensagem, mas por aqui só conseguimos ler texto. Pode escrever o que precisa? A equipe da clínica também foi avisada.';
+
+/** Vários áudios seguidos recebem uma resposta só: ela não se repete na mesma conversa dentro deste intervalo. */
+export const UNSUPPORTED_MEDIA_REPLY_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+/**
  * ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007). Parte SÍNCRONA do
  * webhook: valida o mínimo, persiste a mensagem de entrada de forma
  * durável e idempotente, e despacha o processamento de IA para a fila —
@@ -34,6 +65,13 @@ export interface WhatsAppWebhookPayload {
  * re-inicializado a cada `change`, nunca uma vez só para a requisição
  * inteira (diferente do padrão de TenantApiKeyGuard/ProcessarWebhook-
  * AssinaturaUseCase, que sempre lidam com exatamente 1 Tenant por chamada).
+ *
+ * A-15 (19/10/2026) — áudio, imagem, figurinha e o resto que não é texto
+ * eram pulados sem deixar rastro: quem mandava áudio ficava sem resposta e
+ * a clínica nunca sabia. Agora a mensagem fica registrada na conversa, a
+ * clínica recebe um aviso no painel (o mesmo recurso da escalada para
+ * humano) e a pessoa recebe uma resposta fixa pedindo que escreva — sem
+ * chamar a IA, que não lê esses formatos.
  */
 @Injectable()
 export class ReceberMensagemWhatsAppUseCase {
@@ -48,6 +86,8 @@ export class ReceberMensagemWhatsAppUseCase {
     private readonly reconhecerOuCriarContatoUseCase: ReconhecerOuCriarContatoUseCase,
     private readonly correlationContext: CorrelationContext,
     private readonly resolverIdentidade: ResolverIdentidadeDoContatoUseCase,
+    private readonly outboundQueue: MessageQueueProducer,
+    private readonly solicitarAtendimentoHumano: SolicitarAtendimentoHumanoUseCase,
   ) {}
 
   async execute(payload: WhatsAppWebhookPayload): Promise<void> {
@@ -62,7 +102,9 @@ export class ReceberMensagemWhatsAppUseCase {
         this.tenantContext.set(tenantId, null);
 
         for (const message of change.value?.messages ?? []) {
-          if (message.type !== 'text' || !message.text?.body) continue; // só texto nesta AD
+          if (IGNORED_MESSAGE_TYPES.has(message.type)) continue;
+          const isText = message.type === 'text';
+          if (isText && !message.text?.body) continue;
           // Fase 3B da auditoria — ACHADO REAL: um remetente que não é um
           // telefone do Brasil fazia a normalização do Contact lançar, o
           // webhook respondia 500 e a Meta reenviava o mesmo POST por dias —
@@ -74,11 +116,15 @@ export class ReceberMensagemWhatsAppUseCase {
           // outro país com "DDD + número".
           if (!PhoneNumber.tryFromInternational(message.from)) {
             this.logger.warn(
-              `Mensagem ${message.id} ignorada: o remetente não é um telefone do Brasil, único formato atendido hoje.`,
+              `Mensagem ${logReference(message.id)} ignorada: o remetente não é um telefone do Brasil, único formato atendido hoje.`,
             );
             continue;
           }
-          await this.processInboundMessage(tenantId, message.id, message.from, message.text.body);
+          if (isText && message.text) {
+            await this.processInboundMessage(tenantId, message.id, message.from, message.text.body);
+          } else {
+            await this.processUnsupportedMessage(tenantId, message.id, message.from, message.type);
+          }
         }
         // statuses[] (entregue/lida) — fora do mínimo necessário desta AD;
         // Message.status permanece no valor padrão ('enviada') até uma AD
@@ -169,5 +215,76 @@ export class ReceberMensagemWhatsAppUseCase {
       // AnthropicContactIntentClassifier.
       correlationId: this.correlationContext.correlationId,
     });
+  }
+
+  /**
+   * A-15 — mensagem que não é texto. Não passa pela IA: registra a mensagem
+   * na conversa, avisa a clínica e responde com o texto fixo.
+   *
+   * Ordem pensada para a reentrega da Meta: o aviso e o envio vêm antes de
+   * gravar a mensagem de entrada (que é a marca de "já processada"). Se a
+   * gravação falhar, a Meta reenvia; o aviso não duplica enquanto não for
+   * lido, e o envio usa a mesma chave de idempotência, que a fila e o
+   * registro de envios recusam repetir.
+   */
+  private async processUnsupportedMessage(
+    tenantId: string,
+    externalId: string,
+    fromPhoneNumber: string,
+    type: string,
+  ): Promise<void> {
+    const alreadyProcessed = await this.conversationRepo.findMessageByExternalId(externalId);
+    if (alreadyProcessed) return;
+
+    const contact = await this.reconhecerOuCriarContatoUseCase.execute(tenantId, fromPhoneNumber);
+    const identity = await this.resolverIdentidade.execute(contact);
+    const recognizedPatientId = identity.status === 'recognized' ? identity.patientId : null;
+
+    let conversation = await this.conversationRepo.findByTenantAndPhone(tenantId, fromPhoneNumber);
+    const isNewConversation = !conversation;
+    if (!conversation) {
+      conversation = Conversation.create({
+        id: randomUUID(),
+        tenantId,
+        phoneNumber: fromPhoneNumber,
+        patientId: recognizedPatientId,
+      });
+    }
+
+    const history = isNewConversation ? [] : await this.conversationRepo.findMessagesByConversationId(conversation.id);
+    const now = Date.now();
+    const repliedRecently = history.some(
+      (m) =>
+        m.direction === 'saida' &&
+        m.content === UNSUPPORTED_MEDIA_REPLY &&
+        now - m.createdAt.getTime() < UNSUPPORTED_MEDIA_REPLY_INTERVAL_MS,
+    );
+
+    await this.solicitarAtendimentoHumano.execute({ tenantId, contactId: contact.id, reason: 'unsupported_media' });
+
+    const label = MEDIA_LABELS[type] ?? 'mensagem que não é texto';
+    conversation.addMessage({
+      id: randomUUID(),
+      direction: 'entrada',
+      content: `[${label} — não lido: o atendimento automático só lê texto]`,
+      externalId,
+    });
+
+    if (!repliedRecently) {
+      await this.outboundQueue.enqueue({
+        tenantId,
+        toPhoneNumber: fromPhoneNumber,
+        body: UNSUPPORTED_MEDIA_REPLY,
+        idempotencyKey: `unsupported-media-reply-${externalId}`,
+        correlationId: this.correlationContext.correlationId,
+      });
+      conversation.addMessage({ id: randomUUID(), direction: 'saida', content: UNSUPPORTED_MEDIA_REPLY });
+    }
+
+    if (isNewConversation) {
+      await this.conversationRepo.save(conversation);
+    }
+    await this.conversationRepo.appendMessages(conversation.pullPendingMessages(), tenantId);
+    await this.auditService.recordAll(conversation.pullDomainEvents(), 'system');
   }
 }

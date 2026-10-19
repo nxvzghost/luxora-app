@@ -71,6 +71,10 @@ export class Message {
   get status(): string {
     return this.props.status;
   }
+
+  get createdAt(): Date {
+    return this.props.createdAt;
+  }
 }
 
 export interface ConversationProps {
