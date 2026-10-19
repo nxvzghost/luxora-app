@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
@@ -9,6 +9,7 @@ import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } fro
 import { MessageJobData, MessageQueueProducer } from '@infrastructure/messaging/message-queue.producer';
 import { MessageQueueWorker } from '@infrastructure/messaging/message-queue.worker';
 import { TokenCipherService } from '@shared/token-cipher.service';
+import { logReference } from '@shared/logging/log-reference';
 
 /**
  * Fase 3 da auditoria — fila de saída do WhatsApp ('messages').
@@ -315,6 +316,44 @@ describe('[Fase 3] Fila de saída do WhatsApp — MessageQueueWorker', () => {
     expect(job?.failedReason).not.toContain(marker);
     expect(job?.failedReason).not.toContain('texto livre');
     expect(await fixturePrisma.messageLog.count({ where: { idempotencyKey: data.idempotencyKey } })).toBe(0);
+  });
+
+  it('A-18: os logs do worker levam só a referência do job, nunca a chave de idempotência (que pode carregar o wamid)', async () => {
+    const lines: string[] = [];
+    const capture = (message: unknown) => {
+      lines.push(String(message));
+    };
+    const spies = [
+      vi.spyOn(Logger.prototype, 'log').mockImplementation((message) => capture(message)),
+      vi.spyOn(Logger.prototype, 'warn').mockImplementation((message) => capture(message)),
+      vi.spyOn(Logger.prototype, 'error').mockImplementation((message) => capture(message)),
+    ];
+    try {
+      const okMarker = randomUUID();
+      const failMarker = randomUUID();
+      scriptedResponses.set(okMarker, [okResponse(`wamid.${okMarker}`)]);
+      scriptedResponses.set(failMarker, [errorResponse(401, 190)]);
+      const ok = jobData(tenantA.tenantId, okMarker);
+      const fail = jobData(tenantA.tenantId, failMarker);
+
+      await app.get(MessageQueueProducer).enqueue(ok);
+      await app.get(MessageQueueProducer).enqueue(fail);
+      expect(await waitForFinalState(ok.idempotencyKey)).toBe('completed');
+      expect(await waitForFinalState(fail.idempotencyKey)).toBe('failed');
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const mine = lines.filter((line) => line.includes(`corr-${okMarker}`) || line.includes(`corr-${failMarker}`));
+      expect(mine.some((line) => line.includes(logReference(ok.idempotencyKey)))).toBe(true);
+      expect(mine.some((line) => line.includes(logReference(fail.idempotencyKey)) && line.includes('definitivo'))).toBe(true);
+      // O correlationId destes jobs (`corr-<marcador>`) vai para o log de
+      // propósito; a chave de idempotência (`outbound-test-<marcador>`), não.
+      for (const line of lines) {
+        expect(line).not.toContain(ok.idempotencyKey);
+        expect(line).not.toContain(fail.idempotencyKey);
+      }
+    } finally {
+      spies.forEach((spy) => spy.mockRestore());
+    }
   });
 
   it('clínica sem canal conectado: falha permanente, nenhuma chamada externa — nunca usa a credencial de outra clínica', async () => {

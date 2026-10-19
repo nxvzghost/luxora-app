@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { createHmac, randomUUID } from 'node:crypto';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { Queue } from 'bullmq';
@@ -11,6 +11,7 @@ import { MessageQueueProducer } from '@infrastructure/messaging/message-queue.pr
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { TenantContext } from '@shared/tenant-context';
+import { logReference } from '@shared/logging/log-reference';
 import { PrismaInboxRepository } from '@infrastructure/database/repositories/prisma-inbox.repository';
 
 /**
@@ -367,6 +368,47 @@ describe('[AD-036] Idempotência ponta-a-ponta do processamento assíncrono (ADR
           expect(headers['X-Correlation-Id']).toBe(correlationId);
         }
       } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+    35000,
+  );
+
+  it(
+    'A-18 — os logs da fila de entrada levam só a referência do job: o wamid (que embute o telefone) nunca vai para o log',
+    async () => {
+      const fetchMock = mockAnthropicFetch();
+      vi.stubGlobal('fetch', fetchMock);
+      const lines: string[] = [];
+      const capture = (message: unknown) => {
+        lines.push(String(message));
+      };
+      const spies = [
+        vi.spyOn(Logger.prototype, 'log').mockImplementation((message) => capture(message)),
+        vi.spyOn(Logger.prototype, 'warn').mockImplementation((message) => capture(message)),
+        vi.spyOn(Logger.prototype, 'error').mockImplementation((message) => capture(message)),
+      ];
+
+      try {
+        const from = `+554199${Math.floor(Math.random() * 900000 + 100000)}`;
+        const wamid = `wamid.${randomUUID()}`;
+        const correlationId = `corr-${randomUUID()}`;
+
+        const res = await postSigned(inboundMessagePayload(wamid, from, `A-18 teste de log ${wamid}`), {
+          'X-Correlation-Id': correlationId,
+        });
+        expect(res.status).toBe(200);
+        await waitForInboxStatusAtLeast(wamid, 'dispatched');
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        const mine = lines.filter((line) => line.includes(correlationId));
+        expect(mine.some((line) => line.includes(`Processando job ${logReference(wamid)}`))).toBe(true);
+        for (const line of lines) {
+          expect(line).not.toContain(wamid);
+          expect(line).not.toContain(from.replace('+', ''));
+        }
+      } finally {
+        spies.forEach((spy) => spy.mockRestore());
         vi.unstubAllGlobals();
       }
     },

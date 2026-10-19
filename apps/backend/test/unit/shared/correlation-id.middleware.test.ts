@@ -35,6 +35,33 @@ describe('correlationIdMiddleware (AD-016)', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
+  it('aceita um UUID e um valor de exatamente 64 caracteres do alfabeto permitido', () => {
+    for (const value of ['0f8fad5b-d9cb-469f-a165-70867728950e', `${'a'.repeat(60)}.:_-`]) {
+      const { req, res, next } = mockReqRes(value);
+      correlationIdMiddleware(req, res, next);
+      expect((req as unknown as Record<string, unknown>)[CORRELATION_ID_REQUEST_KEY]).toBe(value);
+    }
+  });
+
+  describe('A-18 — valor fora do formato é trocado por um gerado, nunca cortado nem limpo', () => {
+    it.each([
+      ['65 caracteres', 'a'.repeat(65)],
+      ['quebra de linha (injeção de linha no log)', 'abc\nERROR falso'],
+      ['espaço no meio', 'abc def'],
+      ['colchete que fecharia o marcador [correlationId=…]', 'abc]def'],
+      ['acento', 'ação'],
+      ['texto de 10 mil caracteres', 'x'.repeat(10_000)],
+    ])('%s', (_label, value) => {
+      const { req, res, next } = mockReqRes(value);
+      correlationIdMiddleware(req, res, next);
+
+      const attached = (req as unknown as Record<string, unknown>)[CORRELATION_ID_REQUEST_KEY] as string;
+      expect(attached).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(res.setHeader).toHaveBeenCalledWith('X-Correlation-Id', attached);
+      expect(next).toHaveBeenCalledOnce();
+    });
+  });
+
   it('ignora um header vazio/só espaços e gera um novo (nunca propaga string vazia)', () => {
     const { req, res, next } = mockReqRes('   ');
     correlationIdMiddleware(req, res, next);

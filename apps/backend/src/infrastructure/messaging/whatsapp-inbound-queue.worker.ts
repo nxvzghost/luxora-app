@@ -4,6 +4,7 @@ import { ContextIdFactory, ModuleRef } from '@nestjs/core';
 import { Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { TenantContext } from '@shared/tenant-context';
+import { logReference } from '@shared/logging/log-reference';
 import { ProcessarMensagemWhatsAppUseCase, ProcessarMensagemWhatsAppResult } from '@use-cases/communication/processar-mensagem-whatsapp.use-case';
 import { INBOX_REPOSITORY, InboxRepository } from '@domain-services/platform/inbox.repository';
 import { MessageQueueProducer } from './message-queue.producer';
@@ -56,7 +57,7 @@ export class WhatsAppInboundQueueWorker implements OnModuleDestroy {
       'whatsapp-inbound',
       async (job) => {
         const correlationId = job.data.correlationId ?? randomUUID();
-        this.logger.log(`[correlationId=${correlationId}] Processando job ${job.id} da fila 'whatsapp-inbound'.`);
+        this.logger.log(`[correlationId=${correlationId}] Processando job ${logReference(job.id)} da fila 'whatsapp-inbound'.`);
 
         const contextId = ContextIdFactory.create();
         const tenantContext = await this.moduleRef.resolve(TenantContext, contextId, { strict: false });
@@ -74,17 +75,17 @@ export class WhatsAppInboundQueueWorker implements OnModuleDestroy {
 
         if (claim.outcome === 'in_progress') {
           this.logger.warn(
-            `[correlationId=${correlationId}] Job ${job.id} já possui um claim ativo em 'inbound_processing_inbox' — ignorando esta execução para evitar processamento concorrente.`,
+            `[correlationId=${correlationId}] Job ${logReference(job.id)} já possui um claim ativo em 'inbound_processing_inbox' — ignorando esta execução para evitar processamento concorrente.`,
           );
           return;
         }
 
         if (claim.outcome === 'resume_dispatch') {
           this.logger.log(
-            `[correlationId=${correlationId}] Job ${job.id}: Fase 1 já concluída anteriormente — retomando só o despacho (Fase 2), sem chamar a IA de novo.`,
+            `[correlationId=${correlationId}] Job ${logReference(job.id)}: Fase 1 já concluída anteriormente — retomando só o despacho (Fase 2), sem chamar a IA de novo.`,
           );
           await this.dispatchAndComplete(job.data, claim.resultPayload, correlationId, inbox, job.id ?? job.data.externalId);
-          this.logger.log(`[correlationId=${correlationId}] Job ${job.id} concluído (retomada).`);
+          this.logger.log(`[correlationId=${correlationId}] Job ${logReference(job.id)} concluído (retomada).`);
           return;
         }
 
@@ -113,7 +114,7 @@ export class WhatsAppInboundQueueWorker implements OnModuleDestroy {
         // mais markFailed() para este evento.
         await this.dispatchAndComplete(job.data, result, correlationId, inbox, job.id ?? job.data.externalId);
 
-        this.logger.log(`[correlationId=${correlationId}] Job ${job.id} concluído.`);
+        this.logger.log(`[correlationId=${correlationId}] Job ${logReference(job.id)} concluído.`);
       },
       { connection: this.connection },
     );
@@ -137,7 +138,7 @@ export class WhatsAppInboundQueueWorker implements OnModuleDestroy {
       await inbox.markDispatched(CHANNEL, jobData.externalId);
     } catch (err) {
       this.logger.warn(
-        `[correlationId=${correlationId}] Job ${jobLabel}: falha ao despachar (Fase 2) — Inbox permanece em 'generated', a próxima tentativa só reenvia, nunca rechama a IA. Erro: ${(err as Error).message}`,
+        `[correlationId=${correlationId}] Job ${logReference(jobLabel)}: falha ao despachar (Fase 2) — Inbox permanece em 'generated', a próxima tentativa só reenvia, nunca rechama a IA. Erro: ${(err as Error).message}`,
       );
       throw err;
     }

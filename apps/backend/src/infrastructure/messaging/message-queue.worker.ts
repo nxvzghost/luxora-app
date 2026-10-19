@@ -8,6 +8,7 @@ import { MessageProviderError } from '@domain-services/communication/message-pro
 import { EnviarMensagemUseCase } from '@use-cases/communication/enviar-mensagem.use-case';
 import { MessageJobData } from './message-queue.producer';
 import { outboundRetryDelayMs } from './outbound-retry';
+import { logReference } from '@shared/logging/log-reference';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -64,14 +65,16 @@ export class MessageQueueWorker implements OnModuleDestroy {
     });
 
     // Nunca registra `job.data` (telefone e texto da mensagem) — só o
-    // necessário para localizar o job e o motivo já sanitizado.
+    // necessário para localizar o job e o motivo já sanitizado. O id do job
+    // é a chave de idempotência, que pode carregar o wamid: vai só como
+    // referência opaca (A-18, logReference).
     this.worker.on('failed', (job, err) => {
       const correlationId = job?.data?.correlationId ?? 'desconhecido';
       const attemptsMade = job?.attemptsMade ?? 0;
       const maxAttempts = job?.opts?.attempts ?? 1;
       const final = err instanceof UnrecoverableError || attemptsMade >= maxAttempts;
       this.logger.warn(
-        `[correlationId=${correlationId}] Job ${job?.id} da fila 'messages' falhou (tentativa ${attemptsMade}/${maxAttempts}, ${final ? 'definitivo' : 'será repetido'}): ${err.message}`,
+        `[correlationId=${correlationId}] Job ${logReference(job?.id)} da fila 'messages' falhou (tentativa ${attemptsMade}/${maxAttempts}, ${final ? 'definitivo' : 'será repetido'}): ${err.message}`,
       );
     });
   }
@@ -85,7 +88,7 @@ export class MessageQueueWorker implements OnModuleDestroy {
     // — deixa explícito no log que a correlação não veio de uma
     // requisição HTTP original.
     const correlationId = job.data.correlationId ?? randomUUID();
-    this.logger.log(`[correlationId=${correlationId}] Processando job ${job.id} da fila 'messages'.`);
+    this.logger.log(`[correlationId=${correlationId}] Processando job ${logReference(job.id)} da fila 'messages'.`);
 
     const tenantId = job.data.tenantId;
     if (typeof tenantId !== 'string' || !UUID_REGEX.test(tenantId)) {
@@ -107,7 +110,7 @@ export class MessageQueueWorker implements OnModuleDestroy {
       throw err;
     }
 
-    this.logger.log(`[correlationId=${correlationId}] Job ${job.id} concluído.`);
+    this.logger.log(`[correlationId=${correlationId}] Job ${logReference(job.id)} concluído.`);
   }
 
   async onModuleDestroy() {
