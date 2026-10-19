@@ -131,6 +131,18 @@ describe('[CRÍTICO — R6] message_log sob Row-Level Security', () => {
     expect(seenByB.map((row) => row.idempotencyKey)).toEqual([keyOfB]);
   });
 
+  it('A-08: o Tenant A não acha nem marca como falho o envio do Tenant B pelo id da Meta', async () => {
+    const asA = new PrismaMessageLogRepository(prismaAs(tenantA.tenantId));
+    expect(await asA.findByProviderMessageId('wamid.r6-b')).toBeNull();
+
+    const rowOfB = await fixturePrisma.messageLog.findUniqueOrThrow({ where: { idempotencyKey: keyOfB } });
+    await asA.markFailed(rowOfB.id);
+    expect((await fixturePrisma.messageLog.findUniqueOrThrow({ where: { id: rowOfB.id } })).status).toBe('sent');
+
+    const asB = new PrismaMessageLogRepository(prismaAs(tenantB.tenantId));
+    expect(await asB.findByProviderMessageId('wamid.r6-b')).toMatchObject({ id: rowOfB.id, idempotencyKey: keyOfB, status: 'sent' });
+  });
+
   it('o Tenant A não consegue gravar uma linha em nome do Tenant B', async () => {
     const attempt = prismaAs(tenantA.tenantId).forTenant((tx) =>
       tx.messageLog.create({

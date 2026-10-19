@@ -49,6 +49,7 @@ function makeDeps(opts: {
   const correlationContext = { correlationId: 'corr-fake' };
   const outboundQueue = { enqueue: vi.fn().mockResolvedValue(undefined) };
   const solicitarAtendimentoHumano = { execute: vi.fn().mockResolvedValue(undefined) };
+  const avisarFalhaDeEnvio = { naoEntregue: vi.fn().mockResolvedValue(true) };
 
   const useCase = new ReceberMensagemWhatsAppUseCase(
     prismaClient,
@@ -61,6 +62,7 @@ function makeDeps(opts: {
     resolverIdentidade as never,
     outboundQueue as never,
     solicitarAtendimentoHumano as never,
+    avisarFalhaDeEnvio as never,
   );
 
   return {
@@ -75,6 +77,7 @@ function makeDeps(opts: {
     correlationContext,
     outboundQueue,
     solicitarAtendimentoHumano,
+    avisarFalhaDeEnvio,
   };
 }
 
@@ -234,6 +237,7 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
       resolverIdentidade as never,
       { enqueue: vi.fn() } as never,
       { execute: vi.fn() } as never,
+      { naoEntregue: vi.fn() } as never,
     );
 
     const payload: WhatsAppWebhookPayload = {
@@ -251,6 +255,35 @@ describe('ReceberMensagemWhatsAppUseCase — ADR-0053 (AD-007)', () => {
 
     const enqueuedTenants = inboundQueue.enqueue.mock.calls.map((c) => c[0].tenantId);
     expect(enqueuedTenants).toEqual(['tenant-A', 'tenant-B']);
+  });
+});
+
+describe('ReceberMensagemWhatsAppUseCase — status de entrega (A-08)', () => {
+  function statusPayload(statuses: Array<{ id: string; status: string; errors?: Array<{ code?: number }> }>): WhatsAppWebhookPayload {
+    return { entry: [{ changes: [{ value: { metadata: { phone_number_id: PHONE_NUMBER_ID }, statuses } }] }] };
+  }
+
+  it('status "failed": repassa o id da mensagem e o código do erro ao aviso, no contexto da clínica', async () => {
+    const deps = makeDeps({});
+    await deps.useCase.execute(statusPayload([{ id: 'wamid.saida', status: 'failed', errors: [{ code: 131047 }] }]));
+    expect(deps.avisarFalhaDeEnvio.naoEntregue).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      providerMessageId: 'wamid.saida',
+      errorCode: 131047,
+    });
+    expect(deps.tenantContext.tenantId).toBe(TENANT_ID);
+  });
+
+  it.each(['sent', 'delivered', 'read'])('status "%s": nada a fazer', async (status) => {
+    const deps = makeDeps({});
+    await deps.useCase.execute(statusPayload([{ id: 'wamid.saida', status }]));
+    expect(deps.avisarFalhaDeEnvio.naoEntregue).not.toHaveBeenCalled();
+  });
+
+  it('status de um número sem clínica conectada: ignorado', async () => {
+    const deps = makeDeps({ integration: null });
+    await deps.useCase.execute(statusPayload([{ id: 'wamid.saida', status: 'failed' }]));
+    expect(deps.avisarFalhaDeEnvio.naoEntregue).not.toHaveBeenCalled();
   });
 });
 

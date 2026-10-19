@@ -43,4 +43,20 @@ export class PrismaMessageLogRepository implements MessageLogRepository {
       throw err;
     }
   }
+
+  async findByProviderMessageId(providerMessageId: string) {
+    if (!providerMessageId) return null;
+    return this.prisma.forTenant((tx) =>
+      tx.messageLog.findFirst({
+        where: { providerMessageId },
+        select: { id: true, idempotencyKey: true, toPhoneNumber: true, status: true },
+      }),
+    );
+  }
+
+  async markFailed(id: string): Promise<void> {
+    // updateMany: sob RLS, a linha de outra clínica simplesmente não aparece — nada muda e nada lança.
+    await this.prisma.forTenant((tx) => tx.messageLog.updateMany({ where: { id }, data: { status: 'failed' } }));
+  }
+
 }

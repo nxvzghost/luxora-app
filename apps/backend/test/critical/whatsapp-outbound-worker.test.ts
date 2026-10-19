@@ -356,6 +356,27 @@ describe('[Fase 3] Fila de saída do WhatsApp — MessageQueueWorker', () => {
     }
   });
 
+  it('A-08: falha definitiva vira aviso no painel da própria clínica — com assunto, final do número e motivo, sem o texto', async () => {
+    const marker = randomUUID();
+    const billingId = randomUUID();
+    scriptedResponses.set(marker, [errorResponse(401, 190)]);
+    const data = jobData(tenantA.tenantId, marker, { idempotencyKey: `billing-${billingId}`, toPhoneNumber: '5541999994321' });
+
+    await app.get(MessageQueueProducer).enqueue(data);
+    expect(await waitForFinalState(data.idempotencyKey)).toBe('failed');
+
+    let notices: Array<{ tenantId: string; type: string; message: string; entityType: string }> = [];
+    for (let attempt = 0; attempt < 30 && notices.length === 0; attempt += 1) {
+      notices = await fixturePrisma.notification.findMany({ where: { entityId: billingId } });
+      if (notices.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ tenantId: tenantA.tenantId, type: 'whatsapp_send_failed', entityType: 'Billing' });
+    expect(notices[0].message).toContain('A cobrança para o número com final 4321 não foi enviada');
+    expect(notices[0].message).toContain('credencial');
+    expect(notices[0].message).not.toContain(marker);
+  });
+
   it('clínica sem canal conectado: falha permanente, nenhuma chamada externa — nunca usa a credencial de outra clínica', async () => {
     const marker = randomUUID();
     scriptedResponses.set(marker, [okResponse('nunca-usada')]);

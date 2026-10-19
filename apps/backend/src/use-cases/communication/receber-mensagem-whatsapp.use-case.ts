@@ -11,6 +11,7 @@ import { MessageQueueProducer } from '@infrastructure/messaging/message-queue.pr
 import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-ou-criar-contato.use-case';
 import { ResolverIdentidadeDoContatoUseCase } from '@use-cases/contact/resolver-identidade-do-contato.use-case';
 import { SolicitarAtendimentoHumanoUseCase } from '@use-cases/contact/solicitar-atendimento-humano.use-case';
+import { AvisarFalhaDeEnvioUseCase } from '@use-cases/communication/avisar-falha-de-envio.use-case';
 import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 import { logReference } from '@shared/logging/log-reference';
 
@@ -20,7 +21,7 @@ export interface WhatsAppWebhookPayload {
       value?: {
         metadata?: { phone_number_id?: string };
         messages?: Array<{ id: string; from: string; type: string; text?: { body: string } }>;
-        statuses?: Array<{ id: string; status: string }>;
+        statuses?: Array<{ id: string; status: string; errors?: Array<{ code?: number }> }>;
       };
     }>;
   }>;
@@ -88,6 +89,7 @@ export class ReceberMensagemWhatsAppUseCase {
     private readonly resolverIdentidade: ResolverIdentidadeDoContatoUseCase,
     private readonly outboundQueue: MessageQueueProducer,
     private readonly solicitarAtendimentoHumano: SolicitarAtendimentoHumanoUseCase,
+    private readonly avisarFalhaDeEnvio: AvisarFalhaDeEnvioUseCase,
   ) {}
 
   async execute(payload: WhatsAppWebhookPayload): Promise<void> {
@@ -126,9 +128,18 @@ export class ReceberMensagemWhatsAppUseCase {
             await this.processUnsupportedMessage(tenantId, message.id, message.from, message.type);
           }
         }
-        // statuses[] (entregue/lida) — fora do mínimo necessário desta AD;
-        // Message.status permanece no valor padrão ('enviada') até uma AD
-        // futura decidir tratar esses eventos.
+        // A-08 (19/10/2026) — status `failed`: a Meta aceitou a mensagem,
+        // mas ela não chegou (o caso típico é a janela de 24 horas). Vira
+        // aviso no painel e o registro do envio passa a 'failed'. Entregue e
+        // lida continuam sem uso.
+        for (const status of change.value?.statuses ?? []) {
+          if (status.status !== 'failed') continue;
+          await this.avisarFalhaDeEnvio.naoEntregue({
+            tenantId,
+            providerMessageId: status.id,
+            errorCode: status.errors?.[0]?.code,
+          });
+        }
       }
     }
   }

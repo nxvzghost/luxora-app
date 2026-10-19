@@ -392,6 +392,56 @@ describe('[Fase 3] Payload no formato documentado pela Meta', () => {
     }
   });
 
+  it('A-08 — status "failed" de uma cobrança enviada: o envio passa a falho e a clínica recebe um aviso, uma vez só', async () => {
+    const recipient = metaPhone();
+    const providerMessageId = `wamid.${randomUUID()}`;
+    const billingId = randomUUID();
+    const log = await fixturePrisma.messageLog.create({
+      data: {
+        tenantId: fixture.tenantId,
+        toPhoneNumber: recipient,
+        body: 'texto da cobrança — nunca vai para o aviso',
+        idempotencyKey: `billing-${billingId}`,
+        providerMessageId,
+      },
+    });
+    const payload = metaEnvelope({
+      statuses: [
+        {
+          id: providerMessageId,
+          status: 'failed',
+          timestamp: unixNow(),
+          recipient_id: recipient,
+          errors: [{ code: 131047, title: 'Re-engagement message', message: 'Re-engagement message' }],
+        },
+      ],
+    });
+
+    try {
+      expect((await postSigned(payload)).status).toBe(200);
+      expect((await postSigned(payload)).status).toBe(200); // reentrega do mesmo status
+
+      expect((await fixturePrisma.messageLog.findUnique({ where: { id: log.id } }))?.status).toBe('failed');
+      const notices = await fixturePrisma.notification.findMany({ where: { tenantId: fixture.tenantId, entityId: billingId } });
+      expect(notices).toHaveLength(1);
+      expect(notices[0].type).toBe('whatsapp_delivery_failed');
+      expect(notices[0].message).toContain(`final ${recipient.slice(-4)}`);
+      expect(notices[0].message).toContain('24 horas');
+      expect(notices[0].message).not.toContain('texto da cobrança');
+    } finally {
+      await fixturePrisma.messageLog.delete({ where: { id: log.id } });
+    }
+  });
+
+  it('A-08 — status "failed" de uma mensagem que não está registrada: 200, nenhum aviso', async () => {
+    const before = await fixturePrisma.notification.count({ where: { tenantId: fixture.tenantId, type: 'whatsapp_delivery_failed' } });
+    const res = await postSigned(
+      metaEnvelope({ statuses: [{ id: `wamid.${randomUUID()}`, status: 'failed', timestamp: unixNow(), recipient_id: metaPhone(), errors: [{ code: 131026 }] }] }),
+    );
+    expect(res.status).toBe(200);
+    expect(await fixturePrisma.notification.count({ where: { tenantId: fixture.tenantId, type: 'whatsapp_delivery_failed' } })).toBe(before);
+  });
+
   /**
    * Fase 3B (ADR-0059) — até aqui o paciente gravado como "+55…" não era
    * reconhecido quando a Meta enviava o mesmo número só em dígitos: a busca

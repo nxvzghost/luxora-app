@@ -38,6 +38,8 @@ describe('EnviarMensagemUseCase — idempotência (2 camadas)', () => {
     const logRepo = {
       findByIdempotencyKey: vi.fn().mockResolvedValue({ id: 'log1', providerMessageId: 'wamid.123' }),
       record: vi.fn(),
+      findByProviderMessageId: vi.fn(),
+      markFailed: vi.fn(),
     };
     const useCase = new EnviarMensagemUseCase(provider, logRepo);
 
@@ -49,7 +51,12 @@ describe('EnviarMensagemUseCase — idempotência (2 camadas)', () => {
 
   it('envia e registra quando é a primeira tentativa', async () => {
     const provider = { send: vi.fn().mockResolvedValue({ providerMessageId: 'wamid.456', sentAt: new Date() }) };
-    const logRepo = { findByIdempotencyKey: vi.fn().mockResolvedValue(null), record: vi.fn().mockResolvedValue(undefined) };
+    const logRepo = {
+      findByIdempotencyKey: vi.fn().mockResolvedValue(null),
+      record: vi.fn().mockResolvedValue(undefined),
+      findByProviderMessageId: vi.fn(),
+      markFailed: vi.fn(),
+    };
     const useCase = new EnviarMensagemUseCase(provider, logRepo);
 
     const result = await useCase.execute({ tenantId: 't1', toPhoneNumber: '+5541900000000', body: 'oi', idempotencyKey: 'k2' });

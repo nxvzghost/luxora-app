@@ -34,6 +34,9 @@ import { SubscriptionAccessGuard } from '../subscription/subscription-access.gua
 import { CLINIC_SUBSCRIPTION_REPOSITORY } from '@domain-services/subscription/clinic-subscription.repository';
 import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/repositories/prisma-clinic-subscription.repository';
 import { ContactModule } from '../patient-ops/contact.module';
+import { AvisarFalhaDeEnvioUseCase } from '@use-cases/communication/avisar-falha-de-envio.use-case';
+import { NOTIFICATION_REPOSITORY } from '@domain-services/platform/notification.repository';
+import { PrismaNotificationRepository } from '@infrastructure/database/repositories/prisma-notification.repository';
 
 /**
  * ADR-0055 (AD-018), Fase 5 — importa ContactModule para que
@@ -52,6 +55,8 @@ import { ContactModule } from '../patient-ops/contact.module';
     EnviarMensagemUseCase,
     ConectarWhatsAppUseCase,
     ReceberMensagemWhatsAppUseCase,
+    AvisarFalhaDeEnvioUseCase,
+    { provide: NOTIFICATION_REPOSITORY, useClass: PrismaNotificationRepository },
     WhatsAppWebhookGuard,
     { provide: MESSAGE_PROVIDER, useClass: WhatsAppMessageProvider },
     { provide: MESSAGE_LOG_REPOSITORY, useClass: PrismaMessageLogRepository },

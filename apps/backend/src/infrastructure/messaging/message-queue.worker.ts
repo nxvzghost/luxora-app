@@ -6,6 +6,7 @@ import IORedis from 'ioredis';
 import { TenantContext } from '@shared/tenant-context';
 import { MessageProviderError } from '@domain-services/communication/message-provider';
 import { EnviarMensagemUseCase } from '@use-cases/communication/enviar-mensagem.use-case';
+import { AvisarFalhaDeEnvioUseCase } from '@use-cases/communication/avisar-falha-de-envio.use-case';
 import { MessageJobData } from './message-queue.producer';
 import { outboundRetryDelayMs } from './outbound-retry';
 import { logReference } from '@shared/logging/log-reference';
@@ -42,6 +43,11 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  * tentativas. Todo o resto segue a política de MessageQueueProducer
  * (3 tentativas, espera exponencial).
  *
+ * Falha definitiva (A-08, 19/10/2026): além do aviso no log, a clínica
+ * recebe um aviso no painel (AvisarFalhaDeEnvioUseCase), resolvido no
+ * contexto da clínica do job, como o envio. Se o próprio aviso falhar, fica
+ * só o registro no log — nunca derruba o worker.
+ *
  * Encerramento (Fase 3B): onModuleDestroy() fecha o worker de forma
  * graciosa — ele para de pegar jobs novos e espera o que está em andamento
  * terminar. main.ts liga isso ao SIGTERM (enableShutdownHooks), para um
@@ -76,7 +82,31 @@ export class MessageQueueWorker implements OnModuleDestroy {
       this.logger.warn(
         `[correlationId=${correlationId}] Job ${logReference(job?.id)} da fila 'messages' falhou (tentativa ${attemptsMade}/${maxAttempts}, ${final ? 'definitivo' : 'será repetido'}): ${err.message}`,
       );
+      if (final && job) {
+        void this.warnClinic(job, err, correlationId);
+      }
     });
+  }
+
+  private async warnClinic(job: Job<MessageJobData>, err: Error, correlationId: string): Promise<void> {
+    const tenantId = job.data?.tenantId;
+    if (typeof tenantId !== 'string' || !UUID_REGEX.test(tenantId)) return; // sem clínica válida, não há a quem avisar
+    try {
+      const contextId = ContextIdFactory.create();
+      const tenantContext = await this.moduleRef.resolve(TenantContext, contextId, { strict: false });
+      tenantContext.set(tenantId, null);
+      const avisar = await this.moduleRef.resolve(AvisarFalhaDeEnvioUseCase, contextId, { strict: false });
+      await avisar.naoEnviada({
+        tenantId,
+        toPhoneNumber: job.data.toPhoneNumber,
+        idempotencyKey: job.data.idempotencyKey,
+        reason: err.message,
+      });
+    } catch (warnErr) {
+      this.logger.error(
+        `[correlationId=${correlationId}] Job ${logReference(job.id)}: não foi possível avisar a clínica da falha de envio: ${(warnErr as Error).message}`,
+      );
+    }
   }
 
   private async process(job: Job<MessageJobData>): Promise<void> {
