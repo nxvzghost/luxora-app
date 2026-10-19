@@ -153,6 +153,7 @@ Reflete o modelo N:N `session ↔ billing` via `billing_session`, corrigido em `
 | GET | `/api/v1/billings/{id}` | ConsultarCobranca | — |
 | POST | `/api/v1/billings/{id}/send` | EnviarCobranca | RF-075 |
 | GET | `/api/v1/billings/{id}/payments` | ListarPagamentosDaCobranca | — (Tarefa 05 da auditoria) |
+| POST | `/api/v1/billings/{id}/resend` | ReenviarCobranca | — (19/10/2026, [ADR-0066](../02-Arquitetura/ADRs/ADR-0066-correcoes-do-whatsapp-antes-da-homologacao.md)) |
 
 Acrescentado na Tarefa 05 da auditoria (ADR-0061), sem mudar o que já existia:
 
@@ -166,6 +167,17 @@ Tarefa 06 da auditoria (08/10/2026, ADR-0062):
 
 - **`POST /billings` responde 404** quando o paciente ou alguma sessão informada não existe ou é de outra clínica, e **nada é gravado**. Antes, o paciente não era conferido e, com a sessão de outra clínica, a resposta era 404 mas o vínculo com essa sessão ficava gravado — a outra clínica não conseguia mais cobrá-la.
 - **`limit` inválido responde 400** em `GET /billings` e em `GET /notifications` (inteiro maior que zero; antes, 500).
+
+Reenvio depois de falha de envio (19/10/2026, [ADR-0066](../02-Arquitetura/ADRs/ADR-0066-correcoes-do-whatsapp-antes-da-homologacao.md), seção "Reenviar cobrança"):
+
+- **`POST /billings/{id}/resend`:** só `admin` (terapeuta recebe 403). Sem corpo. Põe de novo na fila de envio a mesma mensagem do primeiro envio, para o telefone do cadastro do paciente. Condições, conferidas nesta ordem:
+  1. a cobrança existe e é da clínica da sessão — senão **404**;
+  2. está em `Enviada`, `Visualizada` ou `Pendente` (já enviada e ainda não paga) — senão **409**;
+  3. a clínica tem WhatsApp conectado e ativo — senão **409** `WHATSAPP_NOT_CONNECTED`;
+  4. existe ao menos um aviso `whatsapp_send_failed` ou `whatsapp_delivery_failed` desta cobrança ainda não lido (os avisos da A-08) — senão **409**, e nada vai para a fila.
+- **Resposta 201** com a cobrança no formato de `GET /billings/{id}`. **O estado não muda.** Como no envio, 201 significa que a mensagem entrou na fila, não que foi entregue.
+- **Idempotência:** a chave do envio é `billing-<id>-resend-<id do aviso mais recente>`; a mesma requisição repetida, ou um clique duplo, não manda duas vezes.
+- **Efeitos:** todos os avisos de falha desta cobrança passam a lidos — um segundo reenvio sem falha nova responde 409. Fica na trilha de auditoria `CobrancaReenviada`, com o usuário e `failureNoticeId`. Se o reenvio falhar, um aviso novo é criado para a mesma cobrança e o reenvio volta a ser possível.
 
 ---
 
@@ -219,6 +231,8 @@ Notificações internas por Tenant (isoladas por RLS), sem destinatário por usu
 | POST | `/api/v1/notifications/:id/read` | Marca a notificação como lida e a devolve |
 
 Gatilhos: um pagamento registrado com valor divergente gera uma notificação `payment_divergent`; e, desde a ADR-0063 (09/10/2026), uma conversa do WhatsApp que o sistema não pode resolver sozinho gera `whatsapp_shared_number` (número de mais de um paciente), `whatsapp_link_request` (número novo que diz ser de um paciente), `whatsapp_possible_duplicate` (pedido de cadastro com nome que já existe) ou `whatsapp_human_review` — sempre com `entityType: "Contact"`, só os quatro últimos dígitos do número no texto e no máximo uma não lida por contato e por tipo. Não há canal externo (e-mail ou push).
+
+Acrescentados em 19/10/2026 ([ADR-0066](../02-Arquitetura/ADRs/ADR-0066-correcoes-do-whatsapp-antes-da-homologacao.md)): `whatsapp_unsupported_media` (mensagem que não é texto, A-15) e `whatsapp_inactive_patient` (número de paciente inativo ou com alta, A-11), com `entityType: "Contact"` e as mesmas regras acima; e os avisos de falha da A-08, `whatsapp_send_failed` (a fila não conseguiu enviar) e `whatsapp_delivery_failed` (a Meta devolveu o status `failed`), no máximo um não lido por assunto, cujo `entityType` diz do que se tratava — `Billing` (cobrança ou lembrete de atraso; é por estes que `POST /billings/{id}/resend` procura), `Therapist` (resumo da agenda) ou `WhatsAppMessage` (resposta automática, com referência opaca).
 
 ---
 

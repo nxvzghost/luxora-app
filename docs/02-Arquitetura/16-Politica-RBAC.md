@@ -32,6 +32,7 @@ Toda rota desta tabela tem `RolesGuard` na cadeia de `@UseGuards()` do seu Contr
 | `TherapistsController` | PUT | `/therapists/:id/availability` | `admin` | Idem — disponibilidade de outro terapeuta é gestão, não autoatendimento. | **AD-003** |
 | `BillingController` | POST | `/billings` | `admin` | Financeiro — mesma sensibilidade do padrão já aplicado em `SubscriptionController`. | **AD-003** |
 | `BillingController` | POST | `/billings/:id/send` | `admin` | Financeiro. | **AD-003** |
+| `BillingController` | POST | `/billings/:id/resend` | `admin` | Reenvio da cobrança depois de aviso de falha — mesmo critério do primeiro envio. | **ADR-0066** (19/10/2026) |
 | `PaymentController` | POST | `/payments` | `admin` | Financeiro. | **AD-003** |
 | `PaymentController` | POST | `/payments/:id/refund` | `admin` | Financeiro — estorno é ação de maior risco. | **AD-003** |
 | `PatientsController` | POST | `/patients` | `admin`, `therapist` | Trabalho operacional do dia a dia — um terapeuta solo precisa cadastrar os próprios pacientes. | **AD-003** |

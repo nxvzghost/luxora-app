@@ -4,6 +4,18 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### WhatsApp e piloto — decisões do responsável pelo produto (2026-10-19, noite)
+
+Quatro itens que a [`ADR-0066`](./docs/02-Arquitetura/ADRs/ADR-0066-correcoes-do-whatsapp-antes-da-homologacao.md) deixava em aberto, decididos pelo responsável pelo produto e implementados em quatro commits. Detalhe, verificação e limitações na seção "Decisões do responsável pelo produto (19/10/2026, noite)" da ADR. Não autoriza o piloto; não houve deploy nem CD.
+
+- **A-09 — nono dígito (`f343f02`):** um celular com o 9 e a mesma linha sem o 9 identificam a mesma pessoa, nos dois sentidos, nas buscas de paciente, contato e conversa. O número continua gravado como chegou; muda só a comparação (`PhoneNumber.ninthDigitVariants()`). Fixo não ganha nem perde dígito. Dois pacientes na mesma linha (um com e outro sem o 9) são encaminhados à clínica, sem escolher nenhum.
+- **A-11 — paciente inativo ou com alta (`6f859da`):** o número dele não marca, não cancela nem consulta cobrança pelo WhatsApp; a pessoa ouve que a equipe dará continuidade e a clínica recebe o aviso `whatsapp_inactive_patient`. A reativação devolve o atendimento normal. No painel, nada muda.
+- **Reenviar cobrança (`b5837e2`):** `POST /billings/{id}/resend`, só `admin`, para cobrança já enviada e não paga com aviso de falha de envio ou de entrega não lido, com o WhatsApp conectado. Mesma mensagem, chave de idempotência derivada do aviso (clique duplo não manda duas vezes), avisos dados por tratados, auditoria `CobrancaReenviada`. O estado da cobrança não muda. No painel, botão "Reenviar cobrança" no aviso, com confirmação. Contrato em `docs/04-API/01-Contratos-REST.md`; papel em `16-Politica-RBAC.md`.
+- **A-16 — entrada da clínica piloto (`d35700d`):** `pnpm --filter @luxora/backend provision:pilot` cria, numa transação, a clínica, as configurações, uma assinatura de cortesia sem vínculo com a Asaas e o registro na auditoria; nome repetido, fuso ou plano inválido são recusados. O administrador cria o próprio acesso por `bootstrap-admin`. Roteiro em [`docs/07-Infra/ENTRADA_CLINICA_PILOTO.md`](./docs/07-Infra/ENTRADA_CLINICA_PILOTO.md).
+- **Prova por mutação:** desligar cada proteção fez os testes novos falharem. Duas clínicas de teste criadas no banco local de desenvolvimento durante a mutação do A-16 foram removidas e a limpeza conferida.
+- **Regressão de 19/10/2026 (noite)**, no commit `d35700d`, na árvore de trabalho: `pnpm typecheck` e lint sem erro; 1.317 unitários do backend (eram 1.279), 61 de integração (eram 56), 603 críticos com 1 pulado e 1 `todo` (eram 580), 283 do painel (eram 279) e 33 de 33 de ponta a ponta.
+- **Documentação:** ADR-0066 (seção nova), ADR-0063 (item 11 e "Revisão: pacientes inativos ou com alta", com atualização datada), contrato REST (rota de reenvio e os tipos de aviso de 19/10), política de RBAC.
+
 ### WhatsApp — correções antes da homologação (2026-10-19)
 
 Com autorização do responsável pelo produto, o passo 4 da rota até o piloto: os achados da auditoria que não dependiam de decisão de produto. As decisões pequenas foram tomadas na opção mais conservadora e estão na [`ADR-0066`](./docs/02-Arquitetura/ADRs/ADR-0066-correcoes-do-whatsapp-antes-da-homologacao.md). Não autoriza o piloto; não houve deploy nem CD.

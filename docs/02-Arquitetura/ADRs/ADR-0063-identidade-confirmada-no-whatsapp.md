@@ -181,7 +181,7 @@ Nada disto é defeito mascarado: são comportamentos que as decisões não defin
 8. **Fuso horário** (AD-039, ADR-0064): não tocado aqui.
 9. **A recusa por nome permite inferir que o nome existe** (ver "Sem duplicidade"). Não há como fechar isso sem mudar a regra de produto: ou o cadastro com nome já existente passa a ser aceito (duplicando), ou nenhum cadastro é confirmado na própria conversa.
 10. **Variantes de nome não são barradas.** Só o nome idêntico (sem acento, caixa e espaços) é recusado; "Maria Silva" e "Maria da Silva" viram dois cadastros, sem aviso à clínica. Correspondência aproximada não foi implementada: precisa de regra de produto e de testes próprios.
-11. **Estado do paciente (inativo, alta).** Ver "Revisão: pacientes inativos ou com alta", abaixo. Nada foi alterado.
+11. **Estado do paciente (inativo, alta).** Ver "Revisão: pacientes inativos ou com alta", abaixo. Nada foi alterado. **Atualização de 19/10/2026:** decidido pelo responsável pelo produto (A-11, [ADR-0066](./ADR-0066-correcoes-do-whatsapp-antes-da-homologacao.md)) — no WhatsApp, o número de um paciente inativo ou com alta não age mais em nome dele; a conversa vai para a clínica. No painel, nada mudou.
 
 ## Revisão: pacientes inativos ou com alta
 
@@ -197,6 +197,8 @@ Consequências para este fluxo, todas coerentes com o resto do sistema e **nenhu
 - a conferência de nome já existente conta também pacientes com alta: quem teve alta e volta de um número novo é encaminhado à clínica, e não cadastrado de novo pelo WhatsApp, embora o domínio diga que o reingresso é por novo cadastro. Quem faz esse novo cadastro, hoje, é a clínica, pelo painel.
 
 Se paciente com alta (ou inativo) deve deixar de ser reconhecido, de marcar ou de receber vínculo é decisão de produto, que vale para o sistema inteiro e não só para este fluxo. Fica registrada como pendência (item 11).
+
+**Atualização de 19/10/2026 (A-11, [ADR-0066](./ADR-0066-correcoes-do-whatsapp-antes-da-homologacao.md)):** o responsável pelo produto decidiu a parte do WhatsApp. A regra de identidade devolve `inactive` quando o número identifica exatamente um paciente `Inativo` ou com `Alta` (também por vínculo aprovado); a mensagem é tratada como a de número compartilhado — nenhum paciente vai para a IA, nenhuma ação roda, nenhum cadastro novo nasce do número, a pessoa ouve que a equipe dará continuidade e a clínica recebe o aviso `whatsapp_inactive_patient`. A reativação devolve o atendimento normal. O primeiro item das consequências acima deixou de valer; os outros dois (aprovação de vínculo em qualquer estado e conferência de nome incluindo pacientes com alta) continuam como estavam, e o painel continua sem usar o estado para negar ação.
 
 ## Histórico
 

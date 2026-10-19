@@ -1,6 +1,6 @@
 # ADR-0066 — Correções do WhatsApp antes da homologação
 
-**Status:** ADOTADA — implementada em 19 de outubro de 2026, com autorização do responsável pelo produto para seguir de forma automatizada. As decisões pequenas registradas abaixo foram tomadas na opção mais conservadora e podem ser revistas pelo responsável pelo produto; nenhuma apaga dado nem muda o que já estava gravado. **Não autoriza o piloto**, não fez deploy e não acionou o CD.
+**Status:** ADOTADA — implementada em 19 de outubro de 2026, com autorização do responsável pelo produto para seguir de forma automatizada. As decisões pequenas registradas abaixo foram tomadas na opção mais conservadora e podem ser revistas pelo responsável pelo produto; nenhuma apaga dado nem muda o que já estava gravado. **Não autoriza o piloto**, não fez deploy e não acionou o CD. Na mesma data, à noite, o responsável pelo produto decidiu A-09, A-11, A-16 e o reenvio de cobrança — seção "Decisões do responsável pelo produto (19/10/2026, noite)".
 **Origem:** auditoria de 12 e 13 de outubro de 2026 (Painel do Projeto), achados **A-13, A-18, A-15, A-08 e A-10** — o passo 4 da rota mínima até o piloto ("correções do WhatsApp"), começando pelo que não dependia de decisão de produto.
 **Antecedentes:** [ADR-0063](./ADR-0063-identidade-confirmada-no-whatsapp.md) (identidade e vínculo de número), [ADR-0065](./ADR-0065-preparacao-para-o-piloto-fase-1.md) (fase 1 da Tarefa 07 e bloqueadores).
 
@@ -60,12 +60,69 @@ Rotas: `GET /contacts/linked` e `POST /contacts/{id}/unlink` (ver `docs/04-API/0
 - **Prova por mutação**, item a item, desligando a correção: A-18 (a referência opaca e a validação do cabeçalho), A-15 (o descarte silencioso e a resposta a cada áudio), A-08 (o aviso da fila e o tratamento do status) e A-10 (a remoção do vínculo e a recusa do número do cadastro). Em todos os casos os testes novos falharam, e o código foi restaurado byte a byte.
 - Os testes críticos rodam contra Postgres e Redis reais: os logs dos dois workers capturados linha a linha, a fila de saída real, a RLS do `message_log` (busca por id da Meta incluída) e uma transação só no desfazer (provado por `xmin`).
 
+## Decisões do responsável pelo produto (19/10/2026, noite)
+
+Quatro itens que esta ADR deixava em aberto foram decididos por ele e implementados em quatro commits (`f343f02`, `6f859da`, `b5837e2`, `d35700d`).
+
+### A-09 — Nono dígito (`f343f02`)
+
+**Decisão:** um celular brasileiro com o nono dígito e a mesma linha sem ele identificam a mesma pessoa, nos dois sentidos. A Meta às vezes entrega o remetente sem o 9 (visto no envio real de 05/10) e cadastros antigos têm o celular sem ele; até aqui esse paciente chegava como desconhecido, risco aceito na ADR-0055.
+
+- A normalização continua sem inventar nem tirar dígito: o número é gravado como chegou. Muda só a **comparação**: `PhoneNumber.ninthDigitVariants()` devolve o próprio número e, para celular, a outra grafia.
+- Celular, para esta regra: depois do DDD, 9 + 8 dígitos começando de 6 a 9, ou esses 8 dígitos sem o 9. **Fixo** (8 dígitos começando de 2 a 5) nunca ganha nem perde dígito; um "9" seguido de 2 a 5 também não é juntado — na dúvida, não junta.
+- As três buscas usam a regra: pacientes (SQL `IN` com as duas grafias), contatos (a mesma linha é o mesmo contato, grafia exata primeiro — uma mensagem sem o 9 não cria um segundo contato nem perde um vínculo aprovado) e conversas.
+- Um paciente com o 9 e outro sem o 9 na mesma linha voltam juntos: a regra de identidade da ADR-0063 já trata isso como número de mais de um paciente e **encaminha à clínica, sem escolher nenhum**.
+
+### A-11 — Paciente inativo ou com alta (`6f859da`)
+
+**Decisão:** o número de um paciente `Inativo` ou com `Alta` não age em nome dele pelo WhatsApp.
+
+- A regra de identidade ganhou um quinto resultado, `inactive`: o número identifica exatamente um paciente (também por vínculo aprovado) e ele está fora de atendimento. Como no número compartilhado, **nenhum id de paciente sai da regra**.
+- A mensagem é tratada como a de número compartilhado: nada do paciente vai para a IA, nenhuma ação roda (marcar, cancelar, consultar cobrança), o classificador de contato não é chamado (nenhum cadastro novo nasce do mesmo número), a pessoa ouve que a equipe dará continuidade e a clínica recebe o aviso `whatsapp_inactive_patient` no painel, dizendo que o inativo pode ser reativado e que, com alta, o reingresso é um cadastro novo.
+- Número de um paciente ativo e de um inativo continua **ambíguo** (mais de um paciente).
+- A reativação devolve o atendimento normal, sem outra ação.
+- Isso substitui o item 11 das pendências da ADR-0063 e a "Revisão: pacientes inativos ou com alta" dela **só para o WhatsApp**: no painel, o estado do paciente continua sem restringir nada (marcar consulta pelo painel, aprovar vínculo).
+
+### Reenviar cobrança (`b5837e2`)
+
+**Decisão:** quando a mensagem de uma cobrança não foi enviada ou não foi entregue (o aviso da A-08), a clínica pode reenviá-la pelo painel. Até aqui não havia como: `Enviada → Enviada` não existe e a fila ignora um job novo com o id de um que ela ainda guarda (os falhos ficam 14 dias).
+
+- **Rota:** `POST /billings/{id}/resend`, só `admin`, como o primeiro envio (contrato em `docs/04-API/01-Contratos-REST.md`).
+- **Só** cobrança já enviada e ainda não paga (`Enviada`, `Visualizada`, `Pendente`), **só** com um aviso `whatsapp_send_failed` ou `whatsapp_delivery_failed` dela ainda não lido, e **só** com o WhatsApp conectado. O estado da cobrança não muda.
+- A mensagem é a mesma do primeiro envio (a montagem passou a ser compartilhada). A chave de idempotência é derivada do aviso mais recente, `billing-<id>-resend-<aviso>`: clique duplo, ou a mesma requisição repetida, não manda duas vezes.
+- Os avisos da cobrança são dados por tratados (lidos): o botão some até uma nova falha. Se o reenvio também falhar, o aviso novo é atribuído à mesma cobrança e o botão volta.
+- **Auditoria:** `CobrancaReenviada`, com o usuário da requisição e o id do aviso de origem.
+- **Painel:** em Notificações, o aviso de falha de uma cobrança mostra "Reenviar cobrança" (só para o administrador), atrás de uma confirmação que avisa que, se a causa foi a janela de 24 horas, a mensagem só chega depois que o paciente escrever.
+
+### A-16 — Entrada da clínica piloto (`d35700d`)
+
+**Decisão:** a clínica piloto entra por **provisionamento manual documentado, sem cobrança de assinatura**. Nenhuma rota cria clínica, quase toda rota exige assinatura ativa e o fluxo de assinatura pela Asaas nunca foi validado em produção.
+
+- `src/cli/provisionar-clinica-piloto.ts` (`pnpm --filter @luxora/backend provision:pilot`, ou `node dist/cli/provisionar-clinica-piloto.js` dentro da imagem) cria, numa transação só e sob a RLS, a clínica, as configurações (fuso IANA validado, padrão `America/Sao_Paulo`), as configurações de IA, uma **assinatura de cortesia** ativa sem cliente nem assinatura na Asaas, e o registro `ClinicaProvisionadaParaPiloto` na auditoria.
+- Nome repetido (sem diferença de maiúsculas), fuso inválido ou plano inexistente: recusado, nada gravado.
+- O script não vê senha: o administrador da clínica cria o próprio acesso pela rota `bootstrap-admin` que já existia.
+- Roteiro: [`docs/07-Infra/ENTRADA_CLINICA_PILOTO.md`](../../07-Infra/ENTRADA_CLINICA_PILOTO.md).
+
+### Verificação das quatro decisões
+
+- **Testes:** unitários de cada regra; integração com Postgres real e RLS para as buscas por telefone (os dois sentidos, fixo, outra clínica); críticos com webhook, fila e worker reais para o nono dígito e para o paciente inativo/com alta (marcar, cancelar, consultar cobrança, um aviso só, atendimento normal depois da reativação); suíte crítica do reenvio com fila e banco reais (papel, outra clínica 404, sem aviso 409, segundo reenvio 409, aviso de entrega); provisionamento ponta a ponta (provisiona, cria o administrador, entra e usa a API do painel) e cada recusa; testes do painel para o botão.
+- **Prova por mutação:** desligar cada proteção fez os testes novos falharem — cada sentido do nono dígito, o reconhecimento antigo do inativo, a exigência do aviso e o "dado por tratado" no reenvio, as conferências de nome e de fuso do provisionamento. Durante a mutação do A-16, duas clínicas de teste foram criadas no banco local de desenvolvimento; ambas foram removidas e a limpeza conferida.
+- **Regressão completa** no commit `d35700d`, na árvore de trabalho, em 19/10/2026: ver "Regressão de 19/10/2026 (noite)" no CHANGELOG.
+
+### Limitações das quatro decisões
+
+- **A-09:** dois cadastros da mesma linha (um com e outro sem o 9) passam a ser ambíguos e vão para a clínica, mesmo quando a mensagem chega com a grafia exata de um deles.
+- **A-11:** a pessoa recebe a mesma resposta do número compartilhado (a equipe dará continuidade), sem o motivo; é a clínica que decide. O estado continua sem efeito no painel.
+- **Reenvio:** os avisos são dados por tratados e a auditoria gravada depois de enfileirar, fora de transação. Pela leitura do código (não medido), dois reenvios simultâneos da mesma cobrança enfileiram uma vez só (mesma chave na fila), mas podem gravar dois registros de auditoria. O reenvio não contorna a janela de 24 horas (A-07).
+- **A-16:** a assinatura de cortesia é criada sem data de término; encerrar a cortesia ou convertê-la em assinatura paga é manual e não tem roteiro. Não há como remover a clínica depois de dados reais.
+
 ## O que fica para decisão do responsável pelo produto
 
-- **A-09** nono dígito; **A-11** paciente inativo ou com alta continua reconhecido; **A-16** entrada da clínica piloto; **A-14** governança dos dados; **A-17** sessão para o piloto.
+- **A-14** governança dos dados; **A-17** sessão para o piloto.
 - **A-07** mensagem fora da janela de 24 horas só com template aprovado: depende da conta da Meta e da aprovação dos textos.
 - **A-12** homologação, CD, backup externo e alerta: tem custo.
-- **Cobrança com falha de envio.** Se ela deve ganhar um estado próprio. Hoje também não existe reenvio de uma cobrança já `Enviada` (a transição `Enviada → Enviada` não existe), e a fila ignora um job novo com o id de um job que ela ainda guarda — os falhos ficam 14 dias.
+- **Cobrança com falha de envio.** Se ela deve ganhar um estado próprio. O reenvio pelo aviso de falha existe desde 19/10 (acima); o estado da cobrança continua `Enviada` enquanto isso.
+- Decididos em 19/10/2026: A-09, A-11, A-16 e o reenvio de cobrança (seção anterior).
 
 ## Limitações
 
