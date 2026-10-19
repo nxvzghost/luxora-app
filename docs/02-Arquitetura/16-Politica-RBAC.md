@@ -51,6 +51,8 @@ Toda rota desta tabela tem `RolesGuard` na cadeia de `@UseGuards()` do seu Contr
 | `UsersController` | POST | `/users/:id/reactivate` | `admin` | Idem. | **AD-001** |
 | `ContactsController` | GET | `/contacts/pending` | `admin` | Lista números de quem escreveu para a clínica e o nome que cada um informou — dado pessoal de quem ainda não é paciente. | **AD-038** (ADR-0063) |
 | `ContactsController` | POST | `/contacts/:id/link` | `admin` | Muda quem um número identifica no WhatsApp: a partir daí, quem escreve dele age em nome do paciente. Decisão de produto: só o administrador aprova. | **AD-038** (ADR-0063) |
+| `ContactsController` | GET | `/contacts/linked` | `admin` | Lista os números que identificam um paciente por vínculo aprovado, com o nome do paciente. | **A-10** (ADR-0066) |
+| `ContactsController` | POST | `/contacts/:id/unlink` | `admin` | Desfaz um vínculo aprovado: o número deixa de identificar o paciente. Mesmo critério da aprovação — só o administrador. | **A-10** (ADR-0066) |
 
 **Total: 33 rotas** (8 pré-existentes + 21 da AD-003 + 4 da AD-001).
 

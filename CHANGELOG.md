@@ -4,6 +4,17 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### WhatsApp — correções antes da homologação (2026-10-19)
+
+Com autorização do responsável pelo produto, o passo 4 da rota até o piloto: os achados da auditoria que não dependiam de decisão de produto. As decisões pequenas foram tomadas na opção mais conservadora e estão na [`ADR-0066`](./docs/02-Arquitetura/ADRs/ADR-0066-correcoes-do-whatsapp-antes-da-homologacao.md). Não autoriza o piloto; não houve deploy nem CD.
+
+- **A-13 — dependências:** `proxy-addr` 2.0.8 (era crítica) e `source-map-js` 1.2.2 (era alta), por `overrides`. Ficam 3 moderadas, só corrigidas nas próximas versões maiores do NestJS.
+- **A-18 — dado pessoal em log:** o id de job das filas do WhatsApp (o wamid, que embute o telefone) sai do log; vai uma referência opaca (`logReference`). O `X-Correlation-Id` só é aceito com até 64 caracteres seguros; fora disso, vira um UUID gerado.
+- **A-15 — mensagem que não é texto:** áudio, imagem, figurinha etc. deixam de ser descartados em silêncio. Sem passar pela IA, a mensagem fica na conversa, a clínica recebe um aviso no painel e a pessoa, uma resposta fixa pedindo que escreva (uma por conversa a cada 6 horas). Reação e aviso de sistema continuam ignorados.
+- **A-08 — falha de envio e de entrega:** falha definitiva da fila de saída e status `failed` da Meta viram aviso no painel, com o assunto (cobrança, lembrete, resumo da agenda, resposta automática), o final do número e o motivo — nunca o texto. O envio falho fica `failed` no `message_log`. O estado da cobrança não muda (decisão de produto em aberto).
+- **A-10 — desfazer vínculo aprovado:** `GET /contacts/linked` e `POST /contacts/{id}/unlink`, só do administrador, e a seção "Números vinculados" em Pacientes. Uma transação, com o contato travado e o registro de quem desfez; o contato volta a `Identificado` e à lista de pendentes.
+- **Testes:** 1.279 unitários do backend (eram 1.204), 56 de integração, 580 críticos (eram 567), 279 do painel (eram 274), 33 de 33 de ponta a ponta (eram 32); prova por mutação em cada item. Um teste crítico afirmava o descarte da imagem e passou a afirmar o comportamento novo; um seletor do teste de ponta a ponta da aprovação ficou ambíguo com a seção nova e foi restrito à linha do paciente.
+
 ### IA — leitura do JSON do modelo real (2026-10-19)
 
 Com autorização explícita do responsável pelo produto. No primeiro teste contra a API real da Anthropic (19/10/2026, `test/manual/anthropic-smoke.test.ts`, conteúdo sintético), o modelo `claude-haiku-4-5-20251001` respondeu às três chamadas, mas pôs o JSON entre cercas de código Markdown (três crases e `json`) nas duas que esperam JSON. `interpretIntent` e o classificador de contato usavam `JSON.parse` direto e caíam no ramo de segurança em toda mensagem: o modelo dizia `consultar_disponibilidade` e o sistema escalava para um humano; dizia `PROMOVER` e o sistema ficava com `HUMANO`. Os dublês dos testes unitários sempre devolviam JSON puro, por isso o defeito nunca tinha aparecido.

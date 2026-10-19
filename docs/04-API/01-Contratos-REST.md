@@ -96,14 +96,16 @@ Recurso singular por Tenant — cada Clínica só acessa os próprios dados via 
 
 # Contatos do WhatsApp — vínculo de número novo (`/api/v1/contacts`) — ADR-0063 (AD-038)
 
-O mínimo para a clínica aprovar o vínculo de um número novo de WhatsApp a um paciente que já existe. As duas rotas são só de `admin`. Contato ou paciente de outra clínica responde 404 (RLS), como se não existisse.
+O mínimo para a clínica aprovar o vínculo de um número novo de WhatsApp a um paciente que já existe e, desde 19/10/2026 (A-10, ADR-0066), desfazer um vínculo aprovado. Todas as rotas são só de `admin`. Contato ou paciente de outra clínica responde 404 (RLS), como se não existisse.
 
 | Método | Rota | Caso de Uso | Descrição |
 |---|---|---|---|
 | GET | `/api/v1/contacts/pending` | ListarContatosPendentes | Números que escreveram para a clínica e não identificam nenhum paciente — no máximo 100, os de atividade mais recente primeiro. Resposta: `{ "data": [{ "id", "phoneNumber", "name", "state", "createdAt" }] }`. `name` é o que a pessoa informou na conversa (ninguém o conferiu) ou `null`. |
 | POST | `/api/v1/contacts/{id}/link` | VincularContatoAPaciente | Corpo: `{ "patientId": "<uuid>" }`. Aprova o vínculo: `201` com `{ "contactId", "patientId", "state": "Vinculado", "approvedByUserId", "approvedAt" }`. `400` identificador ou corpo inválido; `404` contato ou paciente inexistente; `409` contato que já tem paciente, ou número que já consta no cadastro de um paciente. |
+| GET | `/api/v1/contacts/linked` | ListarVinculosAprovados | Números que identificam um paciente porque a clínica aprovou o vínculo — no máximo 100 contatos, os de atividade mais recente primeiro. Resposta: `{ "data": [{ "contactId", "phoneNumber", "patientId", "patientName", "linkedAt" }] }`. O número que está no cadastro do próprio paciente não aparece. |
+| POST | `/api/v1/contacts/{id}/unlink` | DesfazerVinculoDoContato | Corpo: `{ "patientId": "<uuid>" }`. Desfaz o vínculo: `200` com `{ "contactId", "patientId", "state", "undoneByUserId", "undoneAt" }` — `state` é `Identificado` quando não sobra outro vínculo. `400` identificador ou corpo inválido; `404` contato inexistente, ou número que não está vinculado a esse paciente; `409` número que está no cadastro do paciente (é o cadastro que o identifica). |
 
-Quem aprovou e quando ficam também na trilha de auditoria (ação `ContatoVinculadoAPacienteExistente`, ator `user`), gravada na **mesma transação** do vínculo: se o registro não puder ser gravado, a rota responde `500` e nada muda. `approvedByUserId` vem da sessão; `approvedAt` é tomado uma vez, dentro da transação. Duas aprovações simultâneas do mesmo contato — para pacientes diferentes ou para o mesmo — resultam em uma `201` e uma `409`, nunca em dois vínculos nem em dois registros. A aprovação **não altera** o telefone do cadastro do paciente, e não existe rota para desfazer um vínculo aprovado (pendência registrada na ADR-0063).
+Quem aprovou e quando ficam também na trilha de auditoria (ação `ContatoVinculadoAPacienteExistente`, ator `user`), gravada na **mesma transação** do vínculo: se o registro não puder ser gravado, a rota responde `500` e nada muda. `approvedByUserId` vem da sessão; `approvedAt` é tomado uma vez, dentro da transação. Duas aprovações simultâneas do mesmo contato — para pacientes diferentes ou para o mesmo — resultam em uma `201` e uma `409`, nunca em dois vínculos nem em dois registros. A aprovação **não altera** o telefone do cadastro do paciente. O desfazer segue a mesma disciplina: contato travado, vínculo apagado, contato e auditoria (ação `ContatoDesvinculadoDePaciente`, ator `user`, com `undoneByUserId` e `undoneAt`) confirmados na mesma transação.
 
 ---
 
