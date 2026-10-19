@@ -167,6 +167,48 @@ describe('[Fase 3B] PrismaPatientRepository.findByPhone — comparação normali
     expect(found?.id).not.toBe(newer.id);
   });
 
+  describe('nono dígito (A-09)', () => {
+    /** Celular cuja linha, depois do 9, começa de 6 a 9: DDD + 9 + 8 dígitos. */
+    function mobileWithNine(ddd = '41'): string {
+      return `${ddd}9${Math.floor(Math.random() * 40000000 + 60000000)}`;
+    }
+
+    it('cadastro COM o 9, a Meta envia SEM o 9: encontrado', async () => {
+      const national = mobileWithNine();
+      const patient = await createPatient(fixtureA, `+55${national}`);
+      expect((await repoA.findByPhone(`55${national.slice(0, 2)}${national.slice(3)}`))?.id).toBe(patient.id);
+    });
+
+    it('cadastro antigo SEM o 9, a Meta envia COM o 9: encontrado, e o cadastro não muda', async () => {
+      const national = mobileWithNine();
+      const stored = `(${national.slice(0, 2)}) ${national.slice(3, 7)}-${national.slice(7)}`;
+      const patient = await createPatient(fixtureA, stored);
+      const found = await repoA.findByPhone(`55${national}`);
+      expect(found?.id).toBe(patient.id);
+      expect(found?.phone).toBe(stored);
+    });
+
+    it('um paciente com o 9 e outro sem o 9 na mesma linha: os dois voltam (número de mais de um paciente)', async () => {
+      const national = mobileWithNine();
+      const comNove = await createPatient(fixtureA, `+55${national}`);
+      const semNove = await createPatient(fixtureA, `${national.slice(0, 2)}${national.slice(3)}`);
+      const all = await repoA.findAllByPhone(`55${national}`);
+      expect(all.map((patient) => patient.id).sort()).toEqual([comNove.id, semNove.id].sort());
+    });
+
+    it('fixo: o 9 não é inventado — "9" + fixo é outro número', async () => {
+      const landline = `41${Math.floor(Math.random() * 3000000 + 30000000)}`;
+      await createPatient(fixtureA, `+55${landline}`);
+      expect(await repoA.findByPhone(`55${landline.slice(0, 2)}9${landline.slice(2)}`)).toBeNull();
+    });
+
+    it('isolamento: a outra grafia em outra clínica nunca é devolvida', async () => {
+      const national = mobileWithNine();
+      await createPatient(fixtureB, `+55${national.slice(0, 2)}${national.slice(3)}`);
+      expect(await repoA.findByPhone(`55${national}`)).toBeNull();
+    });
+  });
+
   it('número procurado que não é do Brasil: vale a comparação exata de antes', async () => {
     const foreign = `3519${Math.floor(Math.random() * 90000000 + 10000000)}`;
     const patient = await createPatient(fixtureA, foreign);

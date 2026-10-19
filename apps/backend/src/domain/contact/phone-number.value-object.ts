@@ -19,11 +19,14 @@
  * paciente gravado como "+55…" não era reconhecido quando a Meta enviava o
  * mesmo número só em dígitos.
  *
- * Limite conhecido e aceito, registrado em ADR-0055 ("Riscos"): o nono
- * dígito de celulares brasileiros não é reconciliado automaticamente — um
- * número informado sem o nono dígito nunca é adivinhado, permanece como
- * está após a normalização do DDI. Preferimos normalizar de forma
- * determinística e nunca inventar um dígito a mais.
+ * Nono dígito — A-09 (19/10/2026, decisão do responsável pelo produto). A
+ * normalização continua sem inventar nem tirar dígito: o número é gravado
+ * como chegou. O que muda é a COMPARAÇÃO, por ninthDigitVariants(): um
+ * celular com o 9 e a mesma linha sem o 9 identificam a mesma pessoa, nos
+ * dois sentidos. A Meta às vezes entrega o remetente sem o 9 (visto no
+ * envio real de 05/10), e cadastros antigos têm o celular sem ele. Fixo não
+ * ganha nem perde dígito. Antes, o limite estava aceito na ADR-0055
+ * ("Riscos"): o paciente chegava como desconhecido.
  */
 export class InvalidPhoneNumberError extends Error {
   constructor(raw: string) {
@@ -119,6 +122,34 @@ export class PhoneNumber {
 
   equals(other: PhoneNumber): boolean {
     return this.e164Value === other.e164Value;
+  }
+
+  /**
+   * A-09 — o próprio número e, quando é celular, a mesma linha com ou sem o
+   * nono dígito. É a lista que toda busca por telefone compara.
+   *
+   * Celular, para esta regra: depois do DDD, 9 + 8 dígitos começando de 6 a
+   * 9, ou os mesmos 8 dígitos sem o 9. É a faixa dos celulares desde antes
+   * da inclusão do nono dígito; 8 dígitos começando de 2 a 5 são fixo e
+   * ficam como estão. Um "9" seguido de 2 a 5 também não vira outro número:
+   * na dúvida, não junta.
+   */
+  ninthDigitVariants(): PhoneNumber[] {
+    const national = this.toNationalDigits();
+    const ddd = national.slice(0, 2);
+    const subscriber = national.slice(2);
+    if (subscriber.length === 9 && /^9[6-9]/.test(subscriber)) {
+      return [this, new PhoneNumber(`+${BRAZIL_COUNTRY_CODE}${ddd}${subscriber.slice(1)}`)];
+    }
+    if (subscriber.length === 8 && /^[6-9]/.test(subscriber)) {
+      return [this, new PhoneNumber(`+${BRAZIL_COUNTRY_CODE}${ddd}9${subscriber}`)];
+    }
+    return [this];
+  }
+
+  /** A-09 — a mesma linha, com ou sem o nono dígito. */
+  isSameLineAs(other: PhoneNumber): boolean {
+    return this.ninthDigitVariants().some((variant) => variant.equals(other));
   }
 
   toString(): string {

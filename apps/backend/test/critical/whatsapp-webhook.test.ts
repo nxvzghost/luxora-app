@@ -476,6 +476,80 @@ describe('[Fase 3] Payload no formato documentado pela Meta', () => {
     expect((await fixturePrisma.patient.findUniqueOrThrow({ where: { id: patient.id } })).phone).toBe(stored(digits));
   });
 
+  describe('A-09 — nono dígito', () => {
+    /** Remetente como a Meta envia, COM o 9: 55 + DDD + 9 + linha começando de 6 a 9. */
+    function mobileWithNine(): string {
+      return `55419${Math.floor(Math.random() * 40000000 + 60000000)}`;
+    }
+    const withoutNine = (digits: string) => `${digits.slice(0, 4)}${digits.slice(5)}`;
+
+    async function send(from: string) {
+      const res = await postSigned(
+        metaEnvelope({ messages: [{ from, id: `wamid.${randomUUID()}`, timestamp: unixNow(), text: { body: 'Oi' }, type: 'text' }] }),
+      );
+      expect(res.status).toBe(200);
+    }
+
+    it('paciente cadastrado COM o 9 é reconhecido quando a Meta envia SEM o 9', async () => {
+      const digits = mobileWithNine();
+      const patient = await fixturePrisma.patient.create({
+        data: { tenantId: fixture.tenantId, name: `Paciente nono dígito — ${randomUUID()}`, phone: `+${digits}` },
+      });
+      fixture.patientIds.push(patient.id);
+
+      await send(withoutNine(digits));
+
+      const conversation = await fixturePrisma.conversation.findUniqueOrThrow({
+        where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: withoutNine(digits) } },
+      });
+      expect(conversation.patientId).toBe(patient.id);
+    });
+
+    it('paciente com cadastro antigo SEM o 9 é reconhecido quando a Meta envia COM o 9', async () => {
+      const digits = mobileWithNine();
+      const stored = `(${digits.slice(2, 4)}) ${digits.slice(5, 9)}-${digits.slice(9)}`;
+      const patient = await fixturePrisma.patient.create({
+        data: { tenantId: fixture.tenantId, name: `Paciente nono dígito — ${randomUUID()}`, phone: stored },
+      });
+      fixture.patientIds.push(patient.id);
+
+      await send(digits);
+
+      const conversation = await fixturePrisma.conversation.findUniqueOrThrow({
+        where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: digits } },
+      });
+      expect(conversation.patientId).toBe(patient.id);
+      expect((await fixturePrisma.patient.findUniqueOrThrow({ where: { id: patient.id } })).phone).toBe(stored);
+    });
+
+    it('a mesma pessoa escrevendo com e sem o 9: uma conversa e um contato só', async () => {
+      const digits = mobileWithNine();
+      await send(digits);
+      await send(withoutNine(digits));
+
+      const spellings = [digits, withoutNine(digits), `+${digits}`, `+${withoutNine(digits)}`];
+      expect(await fixturePrisma.conversation.count({ where: { tenantId: fixture.tenantId, phoneNumber: { in: spellings } } })).toBe(1);
+      expect(await fixturePrisma.contact.count({ where: { tenantId: fixture.tenantId, phoneNumber: { in: spellings } } })).toBe(1);
+    });
+
+    it('um paciente com o 9 e outro sem o 9 na mesma linha: ninguém é reconhecido — a conversa vai para a clínica', async () => {
+      const digits = mobileWithNine();
+      for (const phone of [`+${digits}`, `+${withoutNine(digits)}`]) {
+        const patient = await fixturePrisma.patient.create({
+          data: { tenantId: fixture.tenantId, name: `Paciente nono dígito — ${randomUUID()}`, phone },
+        });
+        fixture.patientIds.push(patient.id);
+      }
+
+      await send(digits);
+
+      const conversation = await fixturePrisma.conversation.findUniqueOrThrow({
+        where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: digits } },
+      });
+      expect(conversation.patientId).toBeNull();
+    });
+  });
+
   it('paciente com o mesmo telefone cadastrado em OUTRA clínica não é reconhecido', async () => {
     const other = await createDedicatedFixture(fixturePrisma, 'WHATSAPPWEBHOOKOUTRA');
     try {

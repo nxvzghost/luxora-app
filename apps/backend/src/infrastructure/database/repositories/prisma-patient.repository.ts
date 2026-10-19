@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Patient as PrismaPatient } from '@prisma/client';
+import { Patient as PrismaPatient, Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { Patient, PatientState } from '@domain/patient/patient.entity';
 import { PatientRepository } from '@domain-services/patient-ops/patient.repository';
@@ -94,6 +94,11 @@ export class PrismaPatientRepository implements PatientRepository {
    * um: devolve todos os pacientes da clínica com este número, do cadastro
    * mais antigo para o mais novo. Quem decide o que fazer quando há mais de
    * um é o caso de uso — e a decisão é não escolher ninguém.
+   *
+   * A-09 (19/10/2026) — compara também a mesma linha com ou sem o nono
+   * dígito (PhoneNumber.ninthDigitVariants()). Um paciente com o 9 e outro
+   * sem o 9 na mesma linha voltam os dois: é o caso de número de mais de um
+   * paciente, que o caso de uso já entrega à clínica.
    */
   async findAllByPhone(phone: string): Promise<Patient[]> {
     const normalized = PhoneNumber.tryNormalize(phone);
@@ -102,11 +107,14 @@ export class PrismaPatientRepository implements PatientRepository {
       if (!normalized) {
         return tx.patient.findMany({ where: { phone }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
       }
+      const variants = normalized.ninthDigitVariants();
+      const withCountryCode = Prisma.join(variants.map((variant) => variant.toDigits()));
+      const national = Prisma.join(variants.map((variant) => variant.toNationalDigits()));
       const matches = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id
         FROM patient
-        WHERE regexp_replace(phone, '[^0-9]', '', 'g') = ${normalized.toDigits()}
-           OR (ltrim(phone) NOT LIKE '+%' AND regexp_replace(phone, '[^0-9]', '', 'g') = ${normalized.toNationalDigits()})
+        WHERE regexp_replace(phone, '[^0-9]', '', 'g') IN (${withCountryCode})
+           OR (ltrim(phone) NOT LIKE '+%' AND regexp_replace(phone, '[^0-9]', '', 'g') IN (${national}))
         ORDER BY created_at ASC, id ASC
       `;
       if (matches.length === 0) return [];

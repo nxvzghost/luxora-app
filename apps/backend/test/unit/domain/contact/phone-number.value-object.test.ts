@@ -142,3 +142,45 @@ describe('PhoneNumber — regra única de normalização (Fase 3B, ADR-0059)', (
     });
   });
 });
+
+describe('PhoneNumber — nono dígito (A-09)', () => {
+  const variants = (raw: string) => PhoneNumber.normalize(raw).ninthDigitVariants().map((phone) => phone.toE164());
+
+  it('celular com o 9: ele mesmo e a mesma linha sem o 9', () => {
+    expect(variants('+55 41 98888-7777')).toEqual(['+5541988887777', '+554188887777']);
+  });
+
+  it('celular antigo, sem o 9: ele mesmo e a mesma linha com o 9', () => {
+    expect(variants('(41) 8888-7777')).toEqual(['+554188887777', '+5541988887777']);
+  });
+
+  it.each(['6', '7', '8', '9'])('celular começando com %s depois do 9 tem as duas grafias', (first) => {
+    expect(variants(`41 9${first}888-7777`)).toHaveLength(2);
+  });
+
+  it.each(['2', '3', '4', '5'])('fixo começando com %s: só ele mesmo, sem inventar o 9', (first) => {
+    expect(variants(`(41) ${first}333-4444`)).toEqual([`+5541${first}3334444`]);
+  });
+
+  it.each(['2', '3', '4', '5'])('"9" seguido de %s: não vira outro número — na dúvida, não junta', (first) => {
+    expect(variants(`41 9${first}333-4444`)).toEqual([`+55419${first}3334444`]);
+  });
+
+  it('o DDD é preservado (DDD 55, interior do RS)', () => {
+    expect(variants('(55) 98888-7777')).toEqual(['+5555988887777', '+555588887777']);
+  });
+
+  it('isSameLineAs(): nos dois sentidos, e nunca entre linhas diferentes', () => {
+    const withNine = PhoneNumber.normalize('41 98888-7777');
+    const withoutNine = PhoneNumber.normalize('41 8888-7777');
+    expect(withNine.isSameLineAs(withoutNine)).toBe(true);
+    expect(withoutNine.isSameLineAs(withNine)).toBe(true);
+    expect(withNine.isSameLineAs(PhoneNumber.normalize('41 98888-7778'))).toBe(false);
+    expect(withNine.isSameLineAs(PhoneNumber.normalize('51 98888-7777'))).toBe(false);
+  });
+
+  it('a normalização continua sem inventar nem tirar dígito', () => {
+    expect(PhoneNumber.normalize('(41) 8888-7777').toE164()).toBe('+554188887777');
+    expect(PhoneNumber.tryFromInternational('554188887777')?.toE164()).toBe('+554188887777');
+  });
+});

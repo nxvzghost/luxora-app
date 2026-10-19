@@ -20,11 +20,17 @@ export class PrismaConversationRepository implements ConversationRepository {
    * conversa, devolve a mais antiga. Nada gravado é alterado. A leitura é a
    * estrita (o número de uma conversa sempre veio da Meta, com o código do
    * país); um número de outro país é procurado só pelo texto exato.
+   *
+   * A-09 (19/10/2026) — entram também as grafias da mesma linha com ou sem
+   * o nono dígito: a mensagem que chega sem o 9 continua a conversa de quem
+   * escreveu com o 9.
    */
   async findByTenantAndPhone(tenantId: string, phoneNumber: string): Promise<Conversation | null> {
     const normalized = PhoneNumber.tryFromInternational(phoneNumber);
     const spellings = normalized
-      ? Array.from(new Set([phoneNumber, normalized.toE164(), normalized.toDigits()]))
+      ? Array.from(
+          new Set([phoneNumber, ...normalized.ninthDigitVariants().flatMap((variant) => [variant.toE164(), variant.toDigits()])]),
+        )
       : [phoneNumber];
 
     const record = await this.prisma.forTenant((tx) =>

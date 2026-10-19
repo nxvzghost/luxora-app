@@ -16,12 +16,21 @@ const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 export class PrismaContactRepository implements ContactRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * A-09 (19/10/2026) — a mesma linha com ou sem o nono dígito é o mesmo
+   * contato: a mensagem que chega sem o 9 não cria um segundo contato para
+   * quem já escreveu com o 9 (nem perde o vínculo aprovado nele). Havendo as
+   * duas grafias gravadas de antes, vale a exata; senão, a mais antiga.
+   */
   async findByTenantAndPhone(tenantId: string, phoneNumber: PhoneNumber): Promise<Contact | null> {
-    const record = await this.prisma.forTenant((tx) =>
-      tx.contact.findUnique({
-        where: { tenantId_phoneNumber: { tenantId, phoneNumber: phoneNumber.toE164() } },
+    const exact = phoneNumber.toE164();
+    const records = await this.prisma.forTenant((tx) =>
+      tx.contact.findMany({
+        where: { tenantId, phoneNumber: { in: phoneNumber.ninthDigitVariants().map((variant) => variant.toE164()) } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
     );
+    const record = records.find((candidate) => candidate.phoneNumber === exact) ?? records[0];
     return record ? this.toDomain(record) : null;
   }
 
