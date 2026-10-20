@@ -129,8 +129,10 @@ describe('UsuariosPage', () => {
     await user.click(within((await screen.findByText('marta@clinica.com')).closest('li') as HTMLElement).getByRole('button', { name: 'Desativar' }));
     const dialog = screen.getByRole('dialog', { name: /desativar este usuário/i });
     expect(dialog).toHaveTextContent(/perde o acesso ao painel/i);
-    // ADR-0056: o access token já emitido vale até expirar — a tela não promete corte imediato.
-    expect(dialog).toHaveTextContent(/ainda responde por até 15 minutos/i);
+    // ADR-0067: a sessão aberta deixa de valer na hora — a tela não fala mais em 15 minutos.
+    expect(dialog).toHaveTextContent(/perde o acesso ao painel na hora/i);
+    expect(dialog).toHaveTextContent(/deixa de funcionar na próxima ação/i);
+    expect(dialog).not.toHaveTextContent(/15 minutos/i);
     expect(api.sent('POST', '/users/:id/deactivate')).toHaveLength(0);
 
     await user.click(within(dialog).getByRole('button', { name: 'Desativar usuário' }));
