@@ -3,6 +3,7 @@
 **Status:** ADOTADO
 **Origem:** Fase 2 da auditoria técnica de 04/10/2026 (Segurança e dependências), riscos R4 e R12.
 **Data:** 5 de outubro de 2026
+**Atualização de 20/10/2026:** a [ADR-0067](./ADR-0067-revogacao-imediata-da-sessao-e-csp.md) estende a versão de sessão ao access token. A consequência "um access token já emitido continua válido até expirar" deixou de valer: sair, desativar e trocar o papel recusam o access token na requisição seguinte. O resto desta ADR continua valendo.
 
 ## Objetivo
 

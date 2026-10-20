@@ -4,6 +4,20 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Sessão — revogação imediata e CSP no painel (2026-10-20)
+
+A-17 da auditoria, decidido pelo responsável pelo produto depois da auditoria dos bloqueadores de 20/10 ("opção B, revogação imediata pela versão de sessão no Redis, com CSP no painel"). Decisão, alternativas e limitações na [`ADR-0067`](./docs/02-Arquitetura/ADRs/ADR-0067-revogacao-imediata-da-sessao-e-csp.md). Commits locais, sem push.
+
+- **Antes:** depois de sair, de ser desativado ou de ter o papel trocado, o access token já emitido valia por até 15 minutos; o painel, que guarda os tokens no `localStorage`, não tinha Content-Security-Policy.
+- **Access token com versão de sessão:** passa a levar `tv`, como o refresh token. O `JwtAuthGuard` recusa com 401 o token cuja versão ou papel não sejam os vigentes do usuário, ou de usuário desativado ou fora da clínica do token. Token sem `tv`, emitido antes, também: o painel renova e segue.
+- **Estado no Redis, banco como reserva:** `SessionStateCache` guarda `versão:papel` ou `inactive` por clínica e usuário, por 60 s; é relido do banco e sobrescrito depois de sair, desativar, reativar e trocar o papel. Com o Redis fora do ar, o guard lê do banco a cada requisição.
+- **Troca de papel:** o token com o papel antigo é recusado na hora; o refresh continua valendo e devolve o papel novo. Sair e desativar continuam encerrando a sessão inteira.
+- **CSP no painel:** `middleware.ts` (só para isso) gera um nonce por requisição; `script-src 'self' 'nonce-…' 'strict-dynamic'`, `connect-src` limitado à própria origem e à da API, `object-src 'none'`, `frame-ancestors 'none'`. O layout raiz passou a `force-dynamic`, para os scripts do Next receberem o nonce.
+- **Tela de Usuários:** a confirmação de desativar deixou de dizer que a sessão aberta "ainda responde por até 15 minutos".
+- **Testes:** 11 críticos novos contra Postgres e Redis reais (sair, desativar e reativar, trocar papel, token sem versão, papel forjado, outra clínica, a entrada no Redis e o prazo dela, Redis fora do ar); unitários do guard e do serviço de autenticação; 8 do painel para a política e o middleware; 3 de ponta a ponta no navegador (cabeçalho com nonce novo a cada página, nenhuma violação navegando pelo painel, handler `onerror` injetado não roda e `fetch` com os tokens para outro endereço é bloqueado).
+- **Prova por mutação:** nove mutações, todas restauradas byte a byte. Oito derrubam todos os testes-alvo. A nona, aceitar token sem versão, é pega pelo teste unitário; no teste crítico o token continua recusado porque a versão ausente não bate com a vigente.
+- **Regressão na árvore de trabalho:** `pnpm typecheck` e lint sem erro; 1.324 unitários do backend (eram 1.317), 61 de integração, 614 críticos com 1 pulado e 1 `todo` (eram 603), 291 do painel (eram 283), 36 de 36 de ponta a ponta (eram 33), com builds novos.
+
 ### WhatsApp e piloto — decisões do responsável pelo produto (2026-10-19, noite)
 
 Quatro itens que a [`ADR-0066`](./docs/02-Arquitetura/ADRs/ADR-0066-correcoes-do-whatsapp-antes-da-homologacao.md) deixava em aberto, decididos pelo responsável pelo produto e implementados em quatro commits. Detalhe, verificação e limitações na seção "Decisões do responsável pelo produto (19/10/2026, noite)" da ADR. Não autoriza o piloto; não houve deploy nem CD.

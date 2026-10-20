@@ -13,7 +13,7 @@ Uma clínica piloto percorre o ciclo principal — configurar, agendar, cobrar, 
 - **O painel não fechava o ciclo.** Havia login, listas, cadastro de paciente e de terapeuta, configurações da clínica, assinatura e quatro ações sobre agenda e cobrança (confirmar e cancelar consulta, enviar cobrança, registrar pagamento). Não havia como sair, definir disponibilidade, marcar ou remarcar consulta, criar cobrança, estornar, gerenciar usuários, conectar o WhatsApp nem ler notificações.
 - **Duas ações eram impossíveis por falta de leitura na API**, não de tela: não existia rota para descobrir as sessões a cobrar nem para chegar ao pagamento de uma cobrança (registrado em `billing.hooks.ts` desde 13/08/2026).
 - **Sessão encerrada pelo servidor caía no login sem explicação**, e não havia botão de sair.
-- **Não existe `middleware.ts`** (AD-028). A proteção de rota do painel é o `AuthGuard`, no cliente.
+- **Não existe `middleware.ts`** (AD-028). A proteção de rota do painel é o `AuthGuard`, no cliente. *(Atualização de 20/10/2026: existe um `middleware.ts` desde a [ADR-0067](./ADR-0067-revogacao-imediata-da-sessao-e-csp.md), só para a Content-Security-Policy. Ele não lê token nem protege rota; a decisão desta ADR sobre sessão continua a mesma. O access token já emitido deixou de valer até expirar: sair e desativar o recusam na hora.)*
 
 Achados que só apareceram ao percorrer o painel contra a API real, todos corrigidos nesta tarefa:
 

@@ -163,7 +163,8 @@ Este mapeamento **não foi validado**: é a leitura da documentação, sem conta
 
 ## Pontos de atenção para dimensionar
 
-- **Conexões com o banco.** A aplicação abre 16 conexões logo após subir. `PrismaClientProvider` está declarado em 15 módulos, e cada declaração cria um cliente com pool próprio (o padrão do Prisma é `2 × CPUs + 1` por pool). Num Postgres pequeno, com limite baixo de conexões, isso pesa. Mitigação sem mudar código: `?connection_limit=N` na `DATABASE_URL`. A correção de verdade (um provider só, compartilhado) fica fora desta tarefa.
+- **Conexões com o banco.** A aplicação abre 16 conexões logo após subir. `PrismaClientProvider` está declarado em 15 módulos, e cada declaração cria um cliente com pool próprio (o padrão do Prisma é `2 × CPUs + 1` por pool). Num Postgres pequeno, com limite baixo de conexões, isso pesa. Mitigação sem mudar código: `?connection_limit=N` na `DATABASE_URL`. A correção de verdade (um provider só, compartilhado) fica fora desta tarefa. Desde a ADR-0067 há mais um cliente, o do `SessionStateModule` (contagem não remedida).
+- **Redis no caminho de autenticação (ADR-0067).** Cada requisição autenticada lê o estado de sessão do usuário no Redis. Com o Redis fora do ar a API continua atendendo: o estado passa a ser lido do banco a cada requisição, e o log registra a troca uma vez. A readiness já acusa o Redis fora do ar.
 - **Imagem do job de migrations: 1,45 GB.** É o estágio de build inteiro. Serve para um job que roda uma vez por deploy; pode ser enxugada depois.
 - **Uma instância só.** Não há alta disponibilidade nesta pilha.
 

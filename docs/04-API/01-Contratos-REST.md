@@ -21,6 +21,8 @@ Qual papel (`admin`/`therapist`/`super_admin`) cada rota mutante exige não é r
 
 ADR-0056: `refresh` e `logout` recebem `{ "refreshToken": "..." }` no corpo. `refresh` responde 401 se o usuário foi desativado, se a sessão foi revogada ou se passou da duração máxima. `logout` revoga todos os refresh tokens do usuário e responde 204 (inclusive para token já inválido); sem `refreshToken` no corpo, responde 400. Só o access token é aceito como `Bearer` nas demais rotas.
 
+ADR-0067 (20/10/2026): o access token só vale enquanto a versão de sessão e o papel que ele carrega forem os vigentes do usuário. Depois de `logout`, de desativar o usuário ou de trocar o papel dele, qualquer rota autenticada responde **401** com a mensagem "Sessão encerrada ou alterada. Faça login novamente." ao token já emitido. Na troca de papel o `refresh` continua aceito e devolve um par de tokens com o papel novo; depois de `logout` e de desativar, o `refresh` também é recusado. Access token emitido antes desta mudança (sem a versão de sessão) responde 401: o cliente renova e segue.
+
 ---
 
 # Usuários (`/api/v1/users`) — AD-001 (Epic 5, Gestão de Usuários)
