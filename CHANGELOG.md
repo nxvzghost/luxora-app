@@ -4,6 +4,16 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Sessão — escrita monotônica no cache (2026-10-20)
+
+Revisão final do A-17 antes da publicação, só de leitura, pedida pelo responsável pelo produto; a correção foi autorizada por ele em seguida. Detalhe na [`ADR-0067`](./docs/02-Arquitetura/ADRs/ADR-0067-revogacao-imediata-da-sessao-e-csp.md), seções "Decisão", "Limitações" e "Verificação". Commits locais, sem push.
+
+- **Corrida corrigida:** uma releitura do estado de sessão que tivesse lido o banco antes de uma revogação e gravasse depois dela (duas gravações do mesmo usuário ao mesmo tempo, por exemplo um administrador alterando o usuário enquanto ele sai) devolvia ao Redis o estado revogado, e o access token voltava a valer por até 60 segundos. A releitura agora grava por um script Lua que só sobrescreve entrada ausente, ilegível ou com versão de sessão menor ou igual. O usuário desativado passou a ser gravado com a versão (`versão:inactive`).
+- **Comentário corrigido:** `auth.controller.ts` dizia que o access token seguia válido até expirar depois de sair.
+- **Testes:** dois críticos reproduzem a corrida para sair e para desativar, com a leitura do banco pausada entre ler e gravar; um terceiro confirma que a mesma versão continua sobrescrevendo (troca de papel e reativação). Prova por mutação: sem a comparação de versão, ou gravando com `SET` simples, os dois testes de corrida falham; recusando também a versão igual, falham a troca de papel e a desativação.
+- **Fica registrado, sem mudança:** se a sobrescrita falhar com o Redis ainda no ar, a entrada antiga vale até 60 segundos; duas alterações simultâneas do mesmo usuário que não mudam a versão podem deixar no cache a que chegou por último ao Redis. Não há teste com duas instâncias da API; elas compartilham a mesma chave no Redis e não há cache em memória.
+- **Regressão na árvore de trabalho, com builds novos:** tipos e lint sem erro; 1.324 unitários do backend, 61 de integração, 617 críticos com 1 pulado e 1 `todo` (eram 614), 291 do painel e 36 de 36 de ponta a ponta.
+
 ### Sessão — revogação imediata e CSP no painel (2026-10-20)
 
 A-17 da auditoria, decidido pelo responsável pelo produto depois da auditoria dos bloqueadores de 20/10 ("opção B, revogação imediata pela versão de sessão no Redis, com CSP no painel"). Decisão, alternativas e limitações na [`ADR-0067`](./docs/02-Arquitetura/ADRs/ADR-0067-revogacao-imediata-da-sessao-e-csp.md). Commits locais, sem push.

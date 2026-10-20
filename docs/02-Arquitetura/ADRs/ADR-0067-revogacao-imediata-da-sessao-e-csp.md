@@ -25,9 +25,10 @@ Consequência: pessoa desligada, ou com papel reduzido, agia por até 15 minutos
 
 ### 2. O estado vigente fica no Redis, com o banco como reserva
 
-- `SessionStateCache` (`src/infrastructure/auth/session-state.cache.ts`) guarda, por clínica e usuário, `versão:papel` ou `inactive`, na chave `luxora:session-state:<clínica>:<usuário>`, com prazo de 60 segundos.
+- `SessionStateCache` (`src/infrastructure/auth/session-state.cache.ts`) guarda, por clínica e usuário, `versão:papel` ou, para o usuário desativado, `versão:inactive` (usuário que não existe na clínica: `-1:inactive`), na chave `luxora:session-state:<clínica>:<usuário>`, com prazo de 60 segundos.
 - Leitura: Redis; sem a entrada, com uma entrada ilegível ou com o Redis fora do ar, o banco, numa transação escopada à clínica do token (a RLS garante que o usuário é dessa clínica). O valor lido do banco é gravado só se a chave não existir (`NX`), para nunca apagar um valor mais novo.
-- Escrita: depois de cada gravação que pode mudar o estado (sair, desativar, reativar, trocar o papel), o estado é relido do banco e sobrescreve a entrada. Se o banco não puder ser relido, a entrada é apagada.
+- Escrita: depois de cada gravação que pode mudar o estado (sair, desativar, reativar, trocar o papel), o estado é relido do banco e sobrescreve a entrada, **de forma monotônica**: um script Lua no Redis só grava se a entrada não existir, não for legível ou tiver versão de sessão menor ou igual à nova. Sair e desativar incrementam a versão; por isso uma releitura que leu o banco antes de uma revogação e grava depois dela (duas gravações do mesmo usuário ao mesmo tempo, por exemplo um administrador alterando o usuário enquanto ele sai) não devolve ao cache o estado revogado. Versão igual sobrescreve: é como a troca de papel e a reativação, que não mudam a versão, chegam ao cache. Se o banco não puder ser relido, a entrada é apagada.
+- A sobrescrita acontece antes da resposta: o `204` de `logout` e o `200` de desativar, reativar e alterar usuário só saem depois dela.
 - O Redis fora do ar não abre nada: o guard passa a ler do banco a cada requisição. O banco fora do ar recusa a requisição.
 - Global (`SessionStateModule`), porque o `JwtAuthGuard` é declarado nos providers de doze módulos: um só cache e uma só conexão com o Redis.
 
@@ -64,7 +65,9 @@ O token com o papel antigo é recusado na hora, mas o refresh token continua vá
 
 ## Limitações
 
-- Se o Redis estiver no ar mas a sobrescrita de uma revogação falhar, a entrada antiga vale até o prazo de 60 segundos. A falha fica no log.
+- Se o Redis estiver no ar mas a sobrescrita de uma revogação falhar (por exemplo, prazo de 500 ms estourado, ou um failover que deixe o Redis aceitando leitura e recusando escrita), a entrada antiga vale até o prazo de 60 segundos. A operação no banco já aconteceu e a resposta é de sucesso; a falha fica no log. Não há teste para esse caso.
+- A escrita monotônica ordena pela versão de sessão. Duas alterações do mesmo usuário que não mudam a versão (duas trocas de papel opostas, ou troca de papel e reativação) feitas no mesmo instante por administradores diferentes podem deixar no cache o estado da que gravou por último no Redis, e não o do banco, por até 60 segundos. Não afeta sair nem desativar, que mudam a versão.
+- Várias instâncias da API funcionam porque todas leem e gravam a mesma chave no mesmo Redis: não há cache em memória. Não há teste com duas instâncias.
 - O refresh token continua sem rotação nem detecção de reuso (ADR-0056); "sair" encerra a sessão em todos os dispositivos.
 - `style-src` aceita `'unsafe-inline'`.
 - A CSP é do painel. A API mantém a CSP padrão do Helmet.
@@ -72,7 +75,14 @@ O token com o papel antigo é recusado na hora, mas o refresh token continua vá
 
 ## Verificação
 
-Registrada no CHANGELOG (entrada "Sessão — revogação imediata e CSP no painel").
+Registrada no CHANGELOG (entradas "Sessão — revogação imediata e CSP no painel" e "Sessão — escrita monotônica no cache").
+
+**Revisão final de 20/10/2026, antes da publicação.** Feita a pedido do responsável pelo produto, só de leitura. Achou duas coisas, corrigidas no mesmo dia:
+
+- uma releitura atrasada podia gravar no Redis um estado mais velho por cima de uma revogação, e o access token revogado voltaria a valer por até 60 segundos. Corrigido pela escrita monotônica acima. Dois testes críticos reproduzem a corrida, com a leitura do banco pausada entre ler e gravar, para sair e para desativar; sem a comparação de versão, os dois falham;
+- o comentário de `auth.controller.ts` ainda dizia que o access token valia até expirar depois de sair.
+
+A mesma revisão conferiu a CSP no HTML do build de produção (`next start`): em `/login`, `/agenda`, `/pacientes` e numa página 404, todos os `<script>` (12 a 16 por página) levam o nonce do cabeçalho da própria resposta; nenhum fica sem; cinco respostas, cinco nonces diferentes; o HTML sai com `Cache-Control: private, no-cache, no-store`.
 
 ## Documentos relacionados
 
