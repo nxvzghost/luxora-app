@@ -16,6 +16,7 @@ describe('AuthService', () => {
     user: { findUnique: ReturnType<typeof vi.fn>; updateMany: ReturnType<typeof vi.fn> };
   };
   let clientProviderMock: { $transaction: ReturnType<typeof vi.fn> };
+  let sessionStateMock: { refresh: ReturnType<typeof vi.fn> };
   let authService: AuthService;
 
   function mockUserLookup(user: unknown) {
@@ -55,8 +56,9 @@ describe('AuthService', () => {
     clientProviderMock = {
       $transaction: vi.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(txMock)),
     };
+    sessionStateMock = { refresh: vi.fn().mockResolvedValue(undefined) };
     // @ts-expect-error — mocks propositalmente simplificados para o escopo do teste
-    authService = new AuthService(jwtServiceMock, prismaMock, clientProviderMock);
+    authService = new AuthService(jwtServiceMock, prismaMock, clientProviderMock, sessionStateMock);
   });
 
   afterEach(() => {
@@ -128,7 +130,7 @@ describe('AuthService', () => {
       expect(prismaMock.forAuthLookup).toHaveBeenCalledOnce();
     });
 
-    it('ADR-0056 — o refresh token carrega a versão de sessão do usuário e o início da sessão; o access token não', async () => {
+    it('ADR-0056/0067 — os dois tokens carregam a versão de sessão do usuário; só o refresh token carrega o início da sessão', async () => {
       mockUserLookup({
         id: USER_ID,
         tenantId: TENANT_ID,
@@ -146,8 +148,9 @@ describe('AuthService', () => {
       expect(refreshPayload.sst).toBeGreaterThanOrEqual(before);
       expect(refreshPayload.sst).toBeLessThanOrEqual(nowInSeconds());
 
+      // ADR-0067 — o JwtAuthGuard compara esta versão com a vigente a cada requisição.
       const accessPayload = signedPayloadOfType('access');
-      expect(accessPayload.tv).toBeUndefined();
+      expect(accessPayload.tv).toBe(7);
       expect(accessPayload.sst).toBeUndefined();
     });
   });
@@ -291,16 +294,28 @@ describe('AuthService', () => {
       expect(tenantIdParam).toBe(TENANT_ID);
     });
 
+    it('ADR-0067 — depois de incrementar, relê o estado de sessão do usuário, para o access token em uso ser recusado na hora', async () => {
+      mockVerifiedRefreshToken({ tv: 5 });
+
+      await authService.logout('refresh-token');
+
+      expect(sessionStateMock.refresh).toHaveBeenCalledWith(TENANT_ID, USER_ID);
+      const incrementOrder = txMock.user.updateMany.mock.invocationCallOrder[0];
+      expect(sessionStateMock.refresh.mock.invocationCallOrder[0]).toBeGreaterThan(incrementOrder);
+    });
+
     it('ADR-0056 — é silencioso para token inválido ou expirado: nada a revogar, nenhuma consulta ao banco', async () => {
       jwtServiceMock.verifyAsync.mockRejectedValue(new Error('expired'));
       await expect(authService.logout('token-invalido')).resolves.toBeUndefined();
       expect(clientProviderMock.$transaction).not.toHaveBeenCalled();
+      expect(sessionStateMock.refresh).not.toHaveBeenCalled();
     });
 
     it('ADR-0056 — é silencioso quando recebe um access token no lugar do refresh token', async () => {
       jwtServiceMock.verifyAsync.mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, role: 'admin', type: 'access' });
       await expect(authService.logout('access-token')).resolves.toBeUndefined();
       expect(clientProviderMock.$transaction).not.toHaveBeenCalled();
+      expect(sessionStateMock.refresh).not.toHaveBeenCalled();
     });
   });
 
@@ -312,6 +327,7 @@ describe('AuthService', () => {
       const refreshPayload = signedPayloadOfType('refresh');
       expect(refreshPayload.tv).toBe(0);
       expect(refreshPayload.sst).toBeGreaterThanOrEqual(before);
+      expect(signedPayloadOfType('access').tv).toBe(0);
     });
   });
 

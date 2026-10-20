@@ -7,6 +7,7 @@ import { ReadinessService } from '@infrastructure/health/readiness.service';
 import { TenantContextModule } from '@shared/tenant-context.module';
 import { CorrelationContextModule } from '@shared/correlation-context.module';
 import { MetricsModule } from '@shared/metrics.module';
+import { SessionStateModule } from '@infrastructure/auth/session-state.module';
 import { validateEnv } from '@shared/env.validation';
 import { AuthModule } from './api/auth/auth.module';
 import { PatientsModule } from './api/patients/patients.module';
@@ -41,6 +42,7 @@ import { NotificationModule } from './api/notification/notification.module';
     TenantContextModule,
     CorrelationContextModule,
     MetricsModule,
+    SessionStateModule,
     AuthModule,
     PatientsModule,
     TherapistsModule,

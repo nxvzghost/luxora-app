@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { randomUUID } from 'node:crypto';
 import { User as PrismaUser, Prisma, PrismaClient } from '@prisma/client';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
+import { SessionStateCache } from '@infrastructure/auth/session-state.cache';
 import { User, AssignableUserRole } from '@domain/user/user.entity';
 import { UserRepository } from '@domain-services/platform/user.repository';
 import { DomainEvent } from '@domain/shared/domain-event';
@@ -18,7 +19,10 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  */
 @Injectable()
 export class PrismaUserRepository implements UserRepository {
-  constructor(private readonly clientProvider: PrismaClientProvider) {}
+  constructor(
+    private readonly clientProvider: PrismaClientProvider,
+    private readonly sessionState: SessionStateCache,
+  ) {}
 
   async findById(tenantId: string, userId: string): Promise<User | null> {
     const record = await this.withTenant(tenantId, (tx) =>
@@ -68,6 +72,10 @@ export class PrismaUserRepository implements UserRepository {
       }
       throw error;
     }
+    // ADR-0067 — papel, atividade e versão de sessão podem ter mudado
+    // (trocar papel, desativar, reativar): o JwtAuthGuard passa a ver o
+    // estado novo na próxima requisição, não daqui a até 15 minutos.
+    await this.sessionState.refresh(user.tenantId, user.id);
   }
 
   /**

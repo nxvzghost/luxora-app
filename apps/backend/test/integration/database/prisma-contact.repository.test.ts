@@ -15,6 +15,7 @@ import { Contact, ContactPatientAssociation } from '@domain/contact/contact.enti
 import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 import { TenantContextModule } from '@shared/tenant-context.module';
 import { MetricsModule } from '@shared/metrics.module';
+import { SessionStateModule } from '@infrastructure/auth/session-state.module';
 import { createDedicatedFixture, cleanupDedicatedFixture, DedicatedFixture } from '../../critical/support/dedicated-fixture';
 
 /**
@@ -292,8 +293,10 @@ describe('[AD-018 Fase 3] PrismaContactRepository — persistência real', () =>
     // que o módulo é autocontido, não depende de quem o consome também
     // importar AuditModule ao lado (como AIModule já fazia, mas que
     // sozinho NÃO seria suficiente — achado real desta Fase, ver commit).
+    // SessionStateModule (ADR-0067) é global pelo mesmo motivo: o
+    // JwtAuthGuard de ContactModule depende dele.
     const moduleRef = await Test.createTestingModule({
-      imports: [TenantContextModule, MetricsModule, ContactModule],
+      imports: [TenantContextModule, MetricsModule, SessionStateModule, ContactModule],
     }).compile();
     const repository = moduleRef.get(CONTACT_REPOSITORY);
     expect(repository).toBeInstanceOf(PrismaContactRepository);

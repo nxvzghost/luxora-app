@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
+import { SessionStateCache } from '@infrastructure/auth/session-state.cache';
 
 type LuxoraRole = 'admin' | 'therapist' | 'super_admin';
 
@@ -12,7 +13,11 @@ interface LuxoraJwtPayload {
   tenantId: string;
   role: LuxoraRole;
   type: 'access' | 'refresh';
-  /** Só em refresh tokens — `User.tokenVersion` no momento da emissão (ADR-0056). */
+  /**
+   * `User.tokenVersion` no momento da emissão (ADR-0056). Nos refresh tokens
+   * desde a ADR-0056; nos access tokens desde a ADR-0067, para o
+   * `JwtAuthGuard` recusar na hora o token de uma sessão revogada.
+   */
   tv?: number;
   /** Só em refresh tokens — início da sessão (login), em segundos desde a época; preservado a cada refresh (ADR-0056). */
   sst?: number;
@@ -38,10 +43,12 @@ const SECONDS_PER_DAY = 86_400;
  * — é o que torna login por email+senha possível sem pedir identificador
  * de clínica ao usuário.
  *
- * ADR-0056 — sessão revogável. O access token continua stateless e de curta
- * duração. O refresh token deixou de ser aceito só pela assinatura: cada
- * renovação consulta o usuário no banco e exige que ele exista, esteja
- * ativo e que `tokenVersion` do token ainda seja o vigente.
+ * ADR-0056 — sessão revogável. O refresh token deixou de ser aceito só pela
+ * assinatura: cada renovação consulta o usuário no banco e exige que ele
+ * exista, esteja ativo e que `tokenVersion` do token ainda seja o vigente.
+ *
+ * ADR-0067 — o access token também carrega `tokenVersion` e deixou de ser
+ * stateless: o `JwtAuthGuard` o confere contra o estado vigente do usuário.
  */
 @Injectable()
 export class AuthService {
@@ -49,6 +56,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
     private readonly clientProvider: PrismaClientProvider,
+    private readonly sessionState: SessionStateCache,
   ) {}
 
   async login(email: string, password: string) {
@@ -109,8 +117,9 @@ export class AuthService {
   /**
    * ADR-0056 — logout com efeito real no servidor: incrementa
    * `User.tokenVersion`, invalidando todos os refresh tokens emitidos antes
-   * (em qualquer dispositivo). O access token em uso continua válido até
-   * expirar (15 minutos por padrão) — é o custo aceito de mantê-lo stateless.
+   * (em qualquer dispositivo). ADR-0067 — e também os access tokens: o cache
+   * do estado de sessão é relido logo depois, e o `JwtAuthGuard` passa a
+   * recusá-los na hora (antes valiam até expirar, 15 minutos).
    *
    * Idempotente e silencioso: um token inválido, expirado ou já revogado não
    * tem nada a revogar e não é um erro para quem está saindo. O incremento é
@@ -131,6 +140,7 @@ export class AuthService {
         data: { tokenVersion: { increment: 1 } },
       }),
     );
+    await this.sessionState.refresh(payload.tenantId, payload.sub);
   }
 
   /**
@@ -150,7 +160,7 @@ export class AuthService {
     };
 
     const accessToken = await this.jwtService.signAsync(
-      { ...basePayload, type: 'access' } satisfies LuxoraJwtPayload,
+      { ...basePayload, type: 'access', tv: tokenVersion } satisfies LuxoraJwtPayload,
       { expiresIn: process.env.JWT_EXPIRES_IN ?? '15m' },
     );
 
