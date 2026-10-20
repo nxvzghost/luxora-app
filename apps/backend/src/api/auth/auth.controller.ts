@@ -53,8 +53,9 @@ export class AuthController {
     // ADR-0056 — revoga no servidor todos os refresh tokens do usuário
     // (incrementa User.tokenVersion). Responde 204 mesmo para um token
     // inválido, expirado ou já revogado: não há nada a revogar e quem está
-    // saindo não precisa de um erro. O access token em uso segue válido até
-    // expirar (15 minutos por padrão) — custo aceito de mantê-lo stateless.
+    // saindo não precisa de um erro. ADR-0067 — o access token em uso também
+    // deixa de valer: o estado de sessão no Redis é relido antes do 204, e o
+    // JwtAuthGuard recusa o token na requisição seguinte.
     await this.authService.logout(dto.refreshToken);
   }
 }

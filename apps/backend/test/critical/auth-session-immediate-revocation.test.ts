@@ -47,6 +47,32 @@ class RedisDownSessionStateCache extends SessionStateCache {
   }
 }
 
+/**
+ * O mesmo cache, com a leitura do banco pausada entre ler e devolver: é uma
+ * releitura "atrasada", que leu o estado antes de uma revogação e só grava
+ * depois dela — a corrida entre duas gravações do mesmo usuário.
+ */
+@Injectable()
+class PausedReadSessionStateCache extends SessionStateCache {
+  readDone!: Promise<void>;
+  release!: () => void;
+  private markRead!: () => void;
+  private gate!: Promise<void>;
+
+  constructor(clientProvider: PrismaClientProvider) {
+    super(clientProvider);
+    this.readDone = new Promise((resolve) => (this.markRead = resolve));
+    this.gate = new Promise((resolve) => (this.release = resolve));
+  }
+
+  protected async readDatabase(tenantId: string, userId: string) {
+    const stored = await super.readDatabase(tenantId, userId);
+    this.markRead();
+    await this.gate;
+    return stored;
+  }
+}
+
 let app: INestApplication;
 let redisDownApp: INestApplication;
 let fixturePrisma: PrismaClient;
@@ -236,9 +262,10 @@ describe('[CRÍTICO — ADR-0067] Revogação imediata do access token', () => {
       expect((await logout(user.refreshToken)).status).toBe(204);
       expect(await redis.get(key)).toBe('1:admin');
 
+      // A desativação incrementa a versão de novo; o desativado guarda a versão, para a escrita continuar monotônica.
       const deactivate = await http().post(`/api/v1/users/${user.userId}/deactivate`).set(bearer(admin.accessToken));
       expect(deactivate.status).toBe(200);
-      expect(await redis.get(key)).toBe('inactive');
+      expect(await redis.get(key)).toBe('2:inactive');
     });
 
     it('é consultado antes do banco; sem a entrada, o banco decide', async () => {
@@ -259,6 +286,70 @@ describe('[CRÍTICO — ADR-0067] Revogação imediata do access token', () => {
       const key = sessionStateKey(fixture.tenantId, user.userId);
       await redis.set(key, 'lixo', 'EX', SESSION_STATE_TTL_SECONDS);
 
+      expect((await listUsers(user.accessToken)).status).toBe(200);
+    });
+  });
+
+  describe('corrida: uma releitura antiga gravada depois da revogação', () => {
+    it('depois de sair, a releitura atrasada com a versão anterior não volta ao cache e o token continua recusado', async () => {
+      const user = await createUserAndLogin();
+      const key = sessionStateKey(fixture.tenantId, user.userId);
+      expect((await listUsers(user.accessToken)).status).toBe(200);
+      expect(await redis.get(key)).toBe('0:admin');
+
+      const late = new PausedReadSessionStateCache(app.get(PrismaClientProvider, { strict: false }));
+      try {
+        const pending = late.refresh(fixture.tenantId, user.userId);
+        await late.readDone; // leu a versão 0 do banco e parou antes de gravar
+
+        expect((await logout(user.refreshToken)).status).toBe(204);
+        expect(await redis.get(key)).toBe('1:admin');
+
+        late.release();
+        await pending; // tenta gravar "0:admin" por cima de "1:admin"
+
+        expect(await redis.get(key)).toBe('1:admin');
+        expect((await listUsers(user.accessToken)).status).toBe(401);
+      } finally {
+        late.release();
+        await late.onModuleDestroy();
+      }
+    });
+
+    it('depois de desativar, a releitura atrasada com o usuário ainda ativo não volta ao cache', async () => {
+      const admin = await createUserAndLogin();
+      const target = await createUserAndLogin();
+      const key = sessionStateKey(fixture.tenantId, target.userId);
+      expect((await listUsers(target.accessToken)).status).toBe(200);
+
+      const late = new PausedReadSessionStateCache(app.get(PrismaClientProvider, { strict: false }));
+      try {
+        const pending = late.refresh(fixture.tenantId, target.userId);
+        await late.readDone; // leu "versão 0, ativo"
+
+        const deactivate = await http().post(`/api/v1/users/${target.userId}/deactivate`).set(bearer(admin.accessToken));
+        expect(deactivate.status).toBe(200);
+        expect(await redis.get(key)).toBe('1:inactive');
+
+        late.release();
+        await pending;
+
+        expect(await redis.get(key)).toBe('1:inactive');
+        expect((await listUsers(target.accessToken)).status).toBe(401);
+      } finally {
+        late.release();
+        await late.onModuleDestroy();
+      }
+    });
+
+    it('a mesma versão continua sobrescrevendo: é assim que a troca de papel e a reativação chegam ao cache', async () => {
+      const user = await createUserAndLogin();
+      const key = sessionStateKey(fixture.tenantId, user.userId);
+      await redis.set(key, '0:therapist', 'EX', SESSION_STATE_TTL_SECONDS);
+
+      await app.get(SessionStateCache).refresh(fixture.tenantId, user.userId);
+
+      expect(await redis.get(key)).toBe('0:admin');
       expect((await listUsers(user.accessToken)).status).toBe(200);
     });
   });
