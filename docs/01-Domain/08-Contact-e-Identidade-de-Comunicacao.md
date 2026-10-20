@@ -84,6 +84,8 @@ Dois relógios de retenção diferentes, não um só:
 
 Este documento registra a política recomendada; a decisão final de prazos exatos (quantos dias) é operacional, não arquitetural, e cabe à Luxora definir antes da implementação do expurgo automático.
 
+> **Nota de 20/10/2026 (A-14):** a "exigência regulatória de prontuário" citada acima não foi validada juridicamente, e o Princípio 08 diz que a Luxora não é prontuário. Nenhum desses prazos está aplicado; `Contact.anonimizar()` existe e nada a chama. Estado real e decisões pendentes em [`12-Privacidade-e-Dados/02-Retencao-Exclusao-e-Backups.md`](../12-Privacidade-e-Dados/02-Retencao-Exclusao-e-Backups.md).
+
 ## Alternativas descartadas
 
 - **Bounded Context próprio para Contact** (ex.: "Identity"/"Engagement"): avaliado e rejeitado. A linguagem ubíqua de "contato" e "paciente" não diverge o suficiente para justificar uma fronteira de contexto separada — ambos pertencem ao vocabulário natural da mesma operação de recepção da clínica. `Contact` vive no Bounded Context de Paciente, como um segundo Aggregate.

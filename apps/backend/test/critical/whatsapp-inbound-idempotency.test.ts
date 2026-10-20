@@ -608,3 +608,67 @@ describe('[AD-036] Idempotência ponta-a-ponta do processamento assíncrono (ADR
     await fixturePrisma.inboxEntry.deleteMany({ where: { tenantId: fixture.tenantId, externalId } });
   });
 });
+
+describe('[A-14] O que sai para a Anthropic numa mensagem de paciente reconhecido', () => {
+  it(
+    'as três chamadas levam só modelo, limite, instrução e conversa — nenhum telefone, nome cadastrado ou identificador interno',
+    async () => {
+      const fetchMock = mockAnthropicFetch();
+      vi.stubGlobal('fetch', fetchMock);
+      try {
+        // O número do paciente principal da fixture: a mensagem chega como de
+        // um paciente reconhecido, o caso em que o sistema mais conhece a pessoa.
+        const patient = await fixturePrisma.patient.findUniqueOrThrow({ where: { id: fixture.patientId } });
+        const from = `+55${patient.phone}`;
+        // Duas mensagens: na segunda o histórico já tem a primeira e a resposta
+        // dela, e é o histórico que vai inteiro para a IA a cada turno.
+        const firstWamid = `wamid.${randomUUID()}`;
+        const first = await postSigned(inboundMessagePayload(firstWamid, from, `A-14 primeira ${firstWamid}`));
+        expect(first.status).toBe(200);
+        await waitForInboxStatusAtLeast(firstWamid, 'dispatched');
+
+        const wamid = `wamid.${randomUUID()}`;
+        const messageText = `A-14 o que vai para a IA ${wamid}`;
+        const res = await postSigned(inboundMessagePayload(wamid, from, messageText));
+        expect(res.status).toBe(200);
+        await waitForInboxStatusAtLeast(wamid, 'generated');
+
+        const bodies = fetchMock.mock.calls
+          .map(([, opts]) => (opts as { body: string }).body)
+          .filter((body) => body.includes(wamid));
+        expect(bodies).toHaveLength(3);
+
+        const conversation = await fixturePrisma.conversation.findUniqueOrThrow({
+          where: { tenantId_phoneNumber: { tenantId: fixture.tenantId, phoneNumber: from } },
+        });
+        const contact = await fixturePrisma.contact.findFirstOrThrow({
+          where: { tenantId: fixture.tenantId, phoneNumber: from },
+        });
+        const neverSent = [
+          patient.phone, // com e sem DDI, com e sem o nono dígito: o trecho final cobre todos
+          patient.phone.slice(-8),
+          patient.name,
+          fixture.tenantId,
+          fixture.patientId,
+          contact.id,
+          conversation.id,
+          phoneNumberId,
+        ];
+
+        for (const raw of bodies) {
+          const body = JSON.parse(raw) as Record<string, unknown>;
+          expect(Object.keys(body).sort()).toEqual(['max_tokens', 'messages', 'model', 'system']);
+          for (const value of neverSent) expect(raw).not.toContain(value);
+        }
+        // O texto do paciente vai, e é o que precisa ir: sem ele o teste não provaria nada.
+        expect(bodies.every((raw) => raw.includes(messageText))).toBe(true);
+        expect(bodies.every((raw) => raw.includes(firstWamid))).toBe(true);
+
+        await waitForInboxStatusAtLeast(wamid, 'dispatched');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+    35000,
+  );
+});

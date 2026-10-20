@@ -4,6 +4,16 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Governança dos dados — revisão do A-14 (2026-10-20)
+
+A-14 da auditoria, revisto no código do commit `8730a29` a pedido do responsável pelo produto. O A-14 **continua aberto**: nada foi adotado como política. Proposta na [`ADR-0068`](./docs/02-Arquitetura/ADRs/ADR-0068-governanca-dos-dados-a-14.md); rascunhos em [`docs/12-Privacidade-e-Dados/`](./docs/12-Privacidade-e-Dados/README.md), todos marcados como pendentes de aprovação. Alterações locais, sem commit nem push.
+
+- **Inventário com evidência:** o que entra pelo WhatsApp, o que fica no banco, o que vai para Anthropic, Meta e Asaas, o que aparece em logs, traces, filas, avisos e auditoria, quem acessa, e o que sobrevive em backup. Achados confirmados: a conversa inteira vai à IA a cada mensagem; nenhum prazo de guarda fora do Redis; nenhuma exclusão, anonimização ou exportação por titular; o paciente não é informado do atendimento automatizado; `audit_log` é imutável só na API e guarda o nome informado por contatos; `result_payload` guarda texto e telefone sem limpeza; backups só no disco do servidor, sem rotação.
+- **Rascunhos:** retenção e backups (sem prazos, com as opções), aviso ao paciente e uso de IA, roteiro de responsabilidades entre clínica e fornecedor, procedimento provisório de titulares e incidentes, matriz de lacunas, decisões pendentes (técnicas, de produto e jurídicas) e critérios para encerrar o A-14.
+- **Teste novo (único código alterado):** crítico `[A-14]` em `whatsapp-inbound-idempotency.test.ts`. Numa conversa de paciente reconhecido, com histórico, as três chamadas à Anthropic levam só `model`, `max_tokens`, `system` e `messages`, sem telefone, nome cadastrado ou ids de clínica, paciente, contato, conversa ou número da Meta. Prova por mutação: campo extra no corpo, telefone no histórico e id da clínica na instrução derrubam o teste; código de produção restaurado depois de cada uma.
+- **Documentos corrigidos:** `05-IA/00-Provedor-e-Interface.md` dizia que o conteúdo enviado à IA era "estritamente administrativo"; `08-Contact-e-Identidade-de-Comunicacao.md` ganhou nota sobre a "exigência regulatória de prontuário", não validada.
+- **Verificação:** `pnpm typecheck` sem erro; ESLint do backend sem `--fix`, limpo; suíte crítica completa 618 com 1 pulado e 1 `todo` (eram 617). Unitários, integração, painel e ponta a ponta não rodaram de novo: nenhum código de produção mudou.
+
 ### Sessão — escrita monotônica no cache (2026-10-20)
 
 Revisão final do A-17 antes da publicação, só de leitura, pedida pelo responsável pelo produto; a correção foi autorizada por ele em seguida. Detalhe na [`ADR-0067`](./docs/02-Arquitetura/ADRs/ADR-0067-revogacao-imediata-da-sessao-e-csp.md), seções "Decisão", "Limitações" e "Verificação". Commits locais, sem push.
