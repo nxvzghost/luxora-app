@@ -52,7 +52,18 @@ test.describe('Sessão', () => {
   });
 
   test('sessão encerrada pelo servidor: uma tentativa de renovar, depois o login com o aviso', async ({ page, clinic }) => {
+    // O cenário começa com a tela parada: as buscas que a entrada dispara já
+    // responderam. Com a revogação imediata (ADR-0067), uma delas ainda a
+    // caminho quando o usuário é desativado volta 401 e a própria página
+    // encerra a sessão antes do `goto` abaixo — que recarrega e apaga o aviso,
+    // guardado só em memória (CI 39366761928).
+    const entryLoaded = Promise.all(
+      ['/dashboard/summary', '/patients', '/notifications/unread-count'].map((path) =>
+        page.waitForResponse((response) => new URL(response.url()).pathname.endsWith(path) && response.ok()),
+      ),
+    );
     await signIn(page, clinic.therapistUser);
+    await entryLoaded;
 
     // O administrador desativa o usuário enquanto ele está com o painel
     // aberto, e o token de acesso dele vence (aqui, invalidado na aba).
