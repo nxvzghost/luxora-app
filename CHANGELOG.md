@@ -4,6 +4,15 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Governança dos dados — alinhamento ao escopo administrativo (2026-10-20)
+
+A pedido do responsável pelo produto, os documentos do A-14 passaram a refletir o escopo oficial do Vertex: agenda, cobranças e cadastro básico de pacientes (nome e contato), sem prontuário, laudos, exames ou informação clínica. Só documentos; nenhum código mudou. O A-14 continua aberto.
+
+- **Escopo explícito** no README e no inventário (`docs/12-Privacidade-e-Dados/`): o que o produto usa, o que não faz parte dele e o único caminho por onde informação de saúde pode entrar (o texto livre do paciente, que o produto não pede nem usa, mas não filtra).
+- **Fatos registrados sem alteração:** o banco não tem campo clínico; a IA recebe a instrução "nunca mencione dado clínico ou de prontuário" e encaminha a humano o que fuja do administrativo; os três textos fixos da IA descrevem toda clínica como "de saúde mental" (L16 nova, pendente de decisão).
+- **Documento 06 refeito:** pendências separadas em decisões de produto necessárias para operar (D-A, D-F reduzida, D-G, D-H, termo com a clínica, L16), tarefas técnicas (D-B, D-C, D-D, L11), verificação externa (L8), itens que podem esperar (D-E, D-I, L13) e questões jurídicas (J-1 a J-5, com J-2 e J-4 reduzidas ao escopo administrativo). Corrigidas as recomendações de D-C e D-G. Critérios de fechamento revistos, de 12 para 11.
+- **Afirmação sem base corrigida** em `05-IA/00-Provedor-e-Interface.md`: não existe validação do texto "na camada de montagem do contexto"; o que o paciente escreve vai ao provedor como está.
+
 ### Governança dos dados — revisão do A-14 (2026-10-20)
 
 A-14 da auditoria, revisto no código do commit `8730a29` a pedido do responsável pelo produto. O A-14 **continua aberto**: nada foi adotado como política. Proposta na [`ADR-0068`](./docs/02-Arquitetura/ADRs/ADR-0068-governanca-dos-dados-a-14.md); rascunhos em [`docs/12-Privacidade-e-Dados/`](./docs/12-Privacidade-e-Dados/README.md), todos marcados como pendentes de aprovação. Alterações locais, sem commit nem push.

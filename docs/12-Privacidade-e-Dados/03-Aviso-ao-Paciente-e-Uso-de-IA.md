@@ -19,7 +19,7 @@
 
 Para a primeira mensagem de cada contato, antes da resposta da secretária. Precisa caber numa mensagem e não pode prometer o que o sistema não faz.
 
-> Olá! Aqui é o atendimento da [nome da clínica]. As mensagens deste número são respondidas por um assistente automático, com inteligência artificial, que ajuda a marcar consultas e tirar dúvidas administrativas. A equipe da clínica acompanha e assume quando necessário. [Se preferir falar só com a equipe, responda EQUIPE.] Saiba como seus dados são tratados: [link].
+> Olá! Aqui é o atendimento da [nome da clínica]. As mensagens deste número são respondidas por um assistente automático, com inteligência artificial, que ajuda a marcar consultas e tirar dúvidas administrativas. Este número é só para agendamentos e cobranças: por favor, não envie informações sobre sua saúde por aqui. A equipe da clínica acompanha e assume quando necessário. [Se preferir falar só com a equipe, responda EQUIPE.] Saiba como seus dados são tratados: [link].
 
 Notas:
 - "A equipe acompanha e assume quando necessário" é verdade hoje: casos delicados, ambíguos ou fora do administrativo são encaminhados à clínica com aviso no painel. A frase **não** pode dizer que a equipe lê todas as mensagens, porque o painel não mostra o conteúdo das conversas.
@@ -31,7 +31,7 @@ Notas:
 >
 > **Quem é responsável.** [A definir: a clínica, como responsável pelo atendimento; a Luxora, fornecedora do sistema Vertex, conforme o papel que a avaliação jurídica definir.]
 >
-> **O que é guardado.** Seu número de telefone, o nome que você informar, as mensagens que você troca com este número, suas consultas marcadas e as cobranças das sessões. Não pedimos informações sobre sua saúde por este canal; se você escrever algo assim, essa mensagem também é guardada e processada como as demais.
+> **O que é guardado.** Seu número de telefone, o nome que você informar, as mensagens que você troca com este número, suas consultas marcadas e as cobranças das sessões. O sistema é administrativo: não guarda prontuário, laudos, exames nem informação clínica, e o seu atendimento clínico é com o profissional. Não pedimos informações sobre sua saúde por este canal; se você escrever algo assim, essa mensagem também é guardada e processada como as demais.
 >
 > **Atendimento automático.** As mensagens de texto são lidas por um assistente com inteligência artificial fornecida pela Anthropic. Para responder, o assistente recebe a conversa deste número com a clínica [inteira / das últimas N mensagens — a decidir], o nome da clínica e dos terapeutas e o resultado das ações que fizer (por exemplo, o horário marcado). Ele não recebe seu número de telefone. Áudios, fotos e figurinhas não são lidos pelo assistente: a clínica é avisada e responde depois.
 >

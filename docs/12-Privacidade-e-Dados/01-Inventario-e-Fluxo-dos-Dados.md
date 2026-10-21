@@ -2,6 +2,14 @@
 
 > **PENDENTE DE APROVAÇÃO.** Levantamento feito no código do commit `8730a29` em 20/10/2026. Precisa ser revisado pelo responsável pelo produto e, na parte de papéis e bases legais, por avaliação jurídica. Nenhum dado real de paciente foi usado: só código, testes e documentos.
 
+## 0. Escopo: dados administrativos e informação clínica
+
+- **O que o produto usa:** nome e telefone de pacientes e contatos; agenda (horário, modalidade, estado); cobranças e pagamentos; as mensagens trocadas para marcar, remarcar, cancelar, confirmar e cobrar.
+- **O que não faz parte do produto:** prontuário, laudos, exames, diagnósticos, anotações de sessão. O banco não tem campo para nada disso: `patient` guarda nome, telefone, estado e política de cobrança; `session` guarda só estado e data (`apps/backend/prisma/schema.prisma`).
+- **Onde informação de saúde pode entrar:** só no texto livre que o paciente decide escrever no WhatsApp da clínica. O produto não a pede nem a usa, mas nada filtra o texto: ele é guardado e vai à IA como está (seções 3 e 4).
+- **O que a IA recebe como instrução:** "nunca mencione dado clínico ou de prontuário" e encaminhar a um humano tudo o que fuja do administrativo ou seja emocionalmente delicado (`system-prompt.builder.ts`, `anthropic-ai.provider.ts`). São instruções ao modelo, não um filtro técnico.
+- **Pressuposto fixo no código:** os três textos de instrução da IA descrevem toda clínica como "clínica de saúde mental" (`anthropic-ai.provider.ts`, `contact-intent-prompt-builder.ts`, `system-prompt.builder.ts`). Registrado como L16 no documento 06; não foi alterado.
+
 ## 1. Quem são os titulares
 
 | Titular | Como entra no sistema |
@@ -33,7 +41,7 @@ Todas as tabelas com clínica têm RLS (`apps/backend/prisma/rls/enable-rls.sql`
 |---|---|---|
 | Identificação do paciente | `patient`: nome, telefone, estado (ativo, inativo, alta), política de cobrança | Exclusão só lógica (`deleted_at`); não há rota que apague. |
 | Identificação do contato | `contact`: telefone, nome informado, estado; `contact_patient_association` | `Contact.anonimizar()` existe no domínio e **nada a chama**. |
-| Conteúdo das conversas | `conversation.phone_number`; `message.content` (texto integral, entrada e saída) | **Pode conter dado de saúde** escrito pelo próprio paciente: nada filtra o texto. Nenhuma rota da API devolve esse conteúdo; só o banco. |
+| Conteúdo das conversas | `conversation.phone_number`; `message.content` (texto integral, entrada e saída) | **Pode conter informação de saúde que o próprio paciente decida escrever**: o produto não a pede nem a usa, mas nada filtra o texto. Nenhuma rota da API devolve esse conteúdo; só o banco. |
 | Envios | `message_log`: telefone de destino e texto integral | Rastro de cada envio, com o status. |
 | Cache de processamento | `inbound_processing_inbox.result_payload`: texto da resposta e telefone de destino | Cache técnico para retomar o despacho (ADR-0054), sem prazo de limpeza. |
 | Agenda | `appointment`, `recurring_block`, `session` (horário, modalidade, estado) | `session` não tem campo de anotação clínica: só estado e data. |

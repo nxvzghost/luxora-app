@@ -6,6 +6,7 @@
 
 | Fato | Evidência |
 |---|---|
+| O Vertex é administrativo: agenda, cobrança e cadastro de nome e contato. Não guarda prontuário, laudos, exames nem informação clínica; o atendimento clínico é do profissional com o paciente. | Banco sem campo clínico (`schema.prisma`); Princípio 08 |
 | A clínica decide quem é paciente, marca, cobra e dá alta. | Telas e rotas do painel |
 | O sistema da Luxora responde sozinho às mensagens de texto, com IA de terceiro, e age (marca, remarca, cancela, cadastra paciente novo com confirmação). | `IntentActionRouter`, `ContactIntentActionRouter`, ADR-0063 |
 | Cada clínica usa o próprio número de WhatsApp e o próprio token da Meta. | `whatsapp_integration`, ADR-0049 |

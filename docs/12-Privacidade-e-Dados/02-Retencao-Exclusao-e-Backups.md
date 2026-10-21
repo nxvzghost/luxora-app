@@ -25,15 +25,17 @@
 
 ## 2. O que precisa ser decidido, categoria por categoria
 
+No escopo administrativo, a decisão necessária para operar cobre as categorias de maior volume — texto das conversas, contatos que nunca viraram pacientes e backups (D-F no documento 06). As demais esperam a avaliação jurídica (J-4).
+
 Para cada categoria, a decisão tem três partes: **por que se guarda** (finalidade), **por quanto tempo** e **o que acontece no fim** (apagar, anonimizar ou arquivar). Os prazos não estão aqui de propósito: dependem da finalidade decidida e, em parte, de avaliação jurídica.
 
 | Categoria | Pergunta a decidir | Ponto que depende de avaliação jurídica |
 |---|---|---|
-| Texto das conversas | A clínica precisa do texto integral depois que o atendimento foi resolvido? Por quanto tempo? | Se o conteúdo pode ser dado de saúde; se há dever de guarda da clínica que alcance esse registro. O Princípio 08 diz que a Luxora não é prontuário. |
+| Texto das conversas | A clínica precisa do texto integral depois que o atendimento foi resolvido? Por quanto tempo? | O texto serve ao agendamento e à cobrança. O produto não pede informação de saúde, mas o texto livre pode trazê-la: se isso muda o tratamento exigido (J-2). O Vertex não é prontuário (Princípio 08). |
 | Envios (`message_log`) | O rastro precisa do texto, ou basta data, destinatário mascarado e status? | Prova de cobrança enviada, se a clínica quiser essa prova. |
 | Cache de resposta | Pode ser limpo depois do despacho? | Nenhum: é técnico. |
 | Contatos nunca qualificados | Prazo sem interação até anonimizar (o domínio recomenda 90 a 180 dias, sem decisão) | Base legal para guardar contato que nunca virou paciente. |
-| Pacientes inativos ou com alta | Quanto tempo depois da alta os dados de identificação ficam? | Dever de guarda da clínica; o documento de domínio fala em "exigência regulatória de prontuário", afirmação ainda não validada. |
+| Pacientes inativos ou com alta | Quanto tempo depois da alta os dados de identificação ficam? | Prazo mínimo de guarda de registros administrativos da clínica (J-4). O cadastro do Vertex é só nome e contato, sem conteúdo de prontuário; a "exigência regulatória de prontuário" citada no documento de domínio não foi validada e não descreve o que o Vertex guarda. |
 | Financeiro | Quanto tempo os registros de cobrança e pagamento ficam? | Obrigações fiscais e contábeis da clínica. |
 | Auditoria | Quanto tempo; e como conciliar a imutabilidade com a exclusão de dado pessoal no `payload` | O documento `08-Auditoria.md` pede "no mínimo o prazo legal", sem dizer qual. |
 | Logs e traces | Prazo no destino escolhido (A-12) | — |

@@ -6,7 +6,7 @@
 
 ## Contexto
 
-O Vertex trata dados de pacientes de clínicas de saúde mental: identificação, agenda, cobranças e o texto das conversas no WhatsApp, que o próprio paciente pode usar para falar da sua saúde. Os documentos de arquitetura falam em minimização, retenção e LGPD como intenção (`10-Armazenamento.md`, `12-Seguranca.md`, `13-Backup-e-Restore.md`, `08-Contact-e-Identidade-de-Comunicacao.md`), sem regra aplicada. A revisão de 20/10 confirmou no código, com evidência no [inventário](../../12-Privacidade-e-Dados/01-Inventario-e-Fluxo-dos-Dados.md):
+O Vertex é um sistema administrativo de clínicas e consultórios: agenda, cobranças e cadastro básico de pacientes (nome e contato). Não guarda prontuário, laudos, exames nem informação clínica; o atendimento clínico é do profissional com o paciente. O canal do paciente é o WhatsApp da própria clínica, em texto livre: o produto não pede informação de saúde, mas não impede que o paciente a escreva, e esse texto é guardado e vai à IA. Os documentos de arquitetura falam em minimização, retenção e LGPD como intenção (`10-Armazenamento.md`, `12-Seguranca.md`, `13-Backup-e-Restore.md`, `08-Contact-e-Identidade-de-Comunicacao.md`), sem regra aplicada. A revisão de 20/10 confirmou no código, com evidência no [inventário](../../12-Privacidade-e-Dados/01-Inventario-e-Fluxo-dos-Dados.md):
 
 - a conversa inteira vai à Anthropic a cada mensagem, sem limite;
 - nenhum prazo de guarda existe fora das filas do Redis;
@@ -21,6 +21,7 @@ O Vertex trata dados de pacientes de clínicas de saúde mental: identificação
 2. **Nenhuma regra de retenção, exclusão automática, consentimento ou aviso entra no código antes da decisão correspondente** (documento 06, decisões D-A a D-I) e, onde marcado, da avaliação jurídica (J-1 a J-5). Uma obrigação jurídica incerta não vira regra arbitrária de código.
 3. **O que o sistema já não envia à IA passa a ser protegido por teste.** Teste crítico `[A-14]` em `test/critical/whatsapp-inbound-idempotency.test.ts`: numa conversa de paciente reconhecido, com histórico, as três chamadas à Anthropic levam só `model`, `max_tokens`, `system` e `messages`, e nenhuma contém o telefone, o nome cadastrado, nem ids de clínica, paciente, contato, conversa ou número da Meta. Prova por mutação: campo extra no corpo, telefone no histórico e id da clínica na instrução derrubam o teste.
 4. **A afirmação de `05-IA/00-Provedor-e-Interface.md` de que o conteúdo enviado à IA é "estritamente administrativo" foi corrigida.** O Princípio 08 trata do que a plataforma armazena por iniciativa própria; não impede o paciente de escrever sobre a própria saúde.
+5. **As medidas são proporcionais ao escopo administrativo** (revisão de 20/10/2026, à noite): o documento 06 separa as decisões de produto necessárias para operar, as tarefas técnicas e as questões que dependem de avaliação jurídica; o que não impede operar fica registrado como "pode esperar".
 
 ## Propostas técnicas que aguardam autorização
 
