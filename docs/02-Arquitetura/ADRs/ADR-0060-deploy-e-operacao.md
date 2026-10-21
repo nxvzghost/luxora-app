@@ -31,7 +31,7 @@ Ter um caminho de deploy reproduzível e um rollback testado, sem contratar infr
 
 **Deploy em portões, com rollback automático.** `infra/scripts/deploy.sh`: backup → migrations → troca → readiness → smoke → registro. Falha no backup ou na migration não toca a aplicação. Falha na readiness ou no smoke devolve a versão anterior sozinha.
 
-**O rollback troca só a aplicação.** O banco não volta. Em consequência, toda migration tem de ser compatível com a versão anterior da aplicação (expand/contract). É uma regra de processo: nada no código a impõe.
+**O rollback troca só a aplicação.** O banco não volta. Em consequência, toda migration tem de ser compatível com a versão anterior da aplicação (expand/contract). É uma regra de processo: nada no código a impõe. Há **uma exceção aprovada**, em escopo restrito: ver "Exceção aprovada em 21/10/2026", abaixo.
 
 **Observabilidade sem serviço pago.** Logs em JSON (uma linha por registro) em produção. O destino dos traces vem das variáveis padrão do OpenTelemetry: OTLP quando há endpoint, nada em produção sem endpoint, console fora dela. O SDK monta o exportador sozinho; nenhuma dependência nova entrou.
 
@@ -66,6 +66,21 @@ Ter um caminho de deploy reproduzível e um rollback testado, sem contratar infr
 - Dockerfile anterior, em checkout limpo: falha em 31 s (`ERR_PNPM_NO_LOCKFILE`, depois do aviso de que o `pnpm-workspace.yaml` não existe).
 - Dockerfiles novos, em checkout limpo e sem cache: backend em 133 s (543 MB), job de migrations em 47 s, painel em 102 s (405 MB).
 - Ensaio local: 68 de 68 verificações — imagem, primeiro deploy, papéis do banco, borda HTTP em produção, logs, rollback automático, rollback manual, readiness com Redis e Postgres parados, traces no coletor, encerramento gracioso (2 s, código 0), restauração de backup (28 tabelas, 23 com RLS forçada, 19 migrations) e painel.
+
+## Exceção aprovada em 21/10/2026
+
+O responsável pelo produto aprovou **uma única exceção** à regra de compatibilidade com a versão anterior. Ela vale **só** no escopo descrito na [ADR-0069, seção 9.4](./ADR-0069-ciclo-de-vida-da-consulta.md) (bloqueador K2):
+
+- **O que muda:** depois da migration do K2, versões sem a capacidade `billing-eligibility-v1`:
+  - continuam operando em modo degradado;
+  - **não conseguem criar cobrança nem vínculo de cobrança**, porque o banco recusa (restrições declarativas, sem trigger);
+  - não conseguem alterar consulta que já tem desfecho registrado.
+- **O que não muda:** o restante da regra desta ADR. Nenhum enum existente é ampliado (o desfecho da consulta fica em tabela própria, `appointment_outcome`, conforme a ADR-0069, seção 2.4), e a versão anterior continua lendo os dados.
+- **Rollback:**
+  - o automático, no deploy que introduz a exigência, pode voltar à versão anterior em modo degradado, com registro em `history.jsonl`;
+  - o manual para versão sem a capacidade é recusado, salvo `--allow-degraded` com motivo, também registrado;
+  - nenhuma restauração de backup sobe a aplicação sem reaplicar as migrations e conferir as restrições.
+- **Situação:** só a exceção foi aprovada. A ADR-0069 continua proposta em revisão, nada foi implementado, e a exceção só produz efeito quando a implementação for autorizada e o K2 for encerrado pelas provas exigidas (testes das restrições no PostgreSQL 16 e ensaios de deploy, rollback e restauração).
 
 ## Referências
 
