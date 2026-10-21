@@ -1,6 +1,6 @@
 # Privacidade e dados — Vertex
 
-> **PENDENTE DE APROVAÇÃO, COM DECISÕES DE PRODUTO REGISTRADAS.** Nenhum aviso foi publicado e nenhum contrato existe. Em 20/10/2026 o responsável pelo produto aprovou a D-A, a D-G (opção C), a D-H (como diretriz) e parte da D-F ([documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0); nada disso está implementado, e o plano está no [documento 07](./07-Plano-de-Implementacao-das-Decisoes.md). O resto são rascunhos para resolver o bloqueador **A-14** (governança dos dados de pacientes) antes do piloto, dependentes de decisão e, nos pontos marcados, de avaliação jurídica. Nenhum documento daqui declara conformidade com a LGPD.
+> **PENDENTE DE APROVAÇÃO, COM DECISÕES DE PRODUTO REGISTRADAS.** Nenhum aviso foi publicado e nenhum contrato existe. Em 20/10/2026 o responsável pelo produto aprovou a D-A, a D-G (opção C), a D-H (como diretriz) e parte da D-F ([documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0); só a D-A está implementada (publicada em 21/10/2026, `6d307e0`), e o plano está no [documento 07](./07-Plano-de-Implementacao-das-Decisoes.md). O resto são rascunhos para resolver o bloqueador **A-14** (governança dos dados de pacientes) antes do piloto, dependentes de decisão e, nos pontos marcados, de avaliação jurídica. Nenhum documento daqui declara conformidade com a LGPD.
 
 **Origem:** achado A-14 da auditoria de 13/10/2026, aprofundado na auditoria dos bloqueadores de 20/10/2026 (Painel do Projeto, seção "Auditoria 20 out") e verificado de novo no código em 20/10/2026, no commit `8730a29`.
 **Decisão de arquitetura correspondente:** [ADR-0068](../02-Arquitetura/ADRs/ADR-0068-governanca-dos-dados-a-14.md) (proposta).
@@ -23,7 +23,7 @@ Os documentos descrevem o que o sistema **faz hoje**, com o arquivo e o teste qu
 | 04 | [Responsabilidades entre clínica e fornecedor](./04-Responsabilidades-Clinica-e-Fornecedor.md) | Roteiro do termo entre a clínica e a Luxora | Roteiro, sem aprovação jurídica |
 | 05 | [Solicitações de titulares e incidentes](./05-Solicitacoes-de-Titulares-e-Incidentes.md) | Como atender acesso, correção, exclusão e incidente com o que existe hoje | Procedimento provisório |
 | 06 | [Lacunas, decisões e fechamento do A-14](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md) | Lacunas, pendências separadas em decisões de produto, tarefas técnicas e questões jurídicas, e critérios para encerrar o A-14, no escopo administrativo | D-A, D-G e D-H aprovadas e D-F em parte, em 20/10/2026; demais aguardam |
-| 07 | [Plano de implementação das decisões](./07-Plano-de-Implementacao-das-Decisoes.md) | Etapas, mudanças, testes e pendências para implementar D-A, D-H, D-G e D-F | Etapa 1 (D-A) implementada em 21/10/2026, sem push; demais não iniciadas |
+| 07 | [Plano de implementação das decisões](./07-Plano-de-Implementacao-das-Decisoes.md) | Etapas, mudanças, testes e pendências para implementar D-A, D-H, D-G e D-F | Etapa 1 (D-A) implementada e publicada em 21/10/2026 (`6d307e0`); demais não iniciadas |
 
 ## Legenda de estado usada em todos os documentos
 

@@ -1,6 +1,6 @@
 # 06 — Lacunas, decisões e fechamento do A-14
 
-> **PENDENTE DE APROVAÇÃO, COM DECISÕES DE PRODUTO REGISTRADAS.** Estado em 20/10/2026, no código publicado em `274151a`. O A-14 **continua aberto**. Em 20/10/2026, à noite, o responsável pelo produto aprovou a D-A, a D-G (opção C) e a D-H (como diretriz) e aprovou parte da D-F (seção 0). A D-A foi implementada em 21/10/2026, com testes, sem push; as outras não. As questões jurídicas e contratuais continuam em aberto, e as demais decisões abaixo não foram tomadas.
+> **PENDENTE DE APROVAÇÃO, COM DECISÕES DE PRODUTO REGISTRADAS.** Estado em 20/10/2026, no código publicado em `274151a`. O A-14 **continua aberto**. Em 20/10/2026, à noite, o responsável pelo produto aprovou a D-A, a D-G (opção C) e a D-H (como diretriz) e aprovou parte da D-F (seção 0). A D-A foi implementada em 21/10/2026, com testes, e publicada no mesmo dia no `6d307e0` (CI 39594279031 verde nos 7 jobs); as outras não. As questões jurídicas e contratuais continuam em aberto, e as demais decisões abaixo não foram tomadas.
 
 ## Escopo considerado
 
@@ -10,11 +10,11 @@ O único ponto em que informação de saúde pode entrar é o **texto livre** qu
 
 ## 0. Decisões do responsável pelo produto (20/10/2026, noite)
 
-Parecer dado no chat em 20/10/2026, depois da análise das quatro decisões. **Nenhuma está implementada.** O plano de implementação está no [documento 07](./07-Plano-de-Implementacao-das-Decisoes.md); cada etapa, commit e push depende de autorização própria. O que não está na coluna "Aprovado" continua em aberto.
+Parecer dado no chat em 20/10/2026, depois da análise das quatro decisões. **Na data do parecer, nenhuma estava implementada; a D-A foi implementada e publicada em 21/10/2026 (`6d307e0`).** O plano de implementação está no [documento 07](./07-Plano-de-Implementacao-das-Decisoes.md); cada etapa, commit e push depende de autorização própria. O que não está na coluna "Aprovado" continua em aberto.
 
 | Decisão | Aprovado | Continua em aberto |
 |---|---|---|
-| **D-A** — histórico enviado à IA | As últimas **20 mensagens, desde que das últimas 72 horas**, iguais para todas as clínicas no início, ajustáveis por configuração | Nada de produto. **Implementada em 21/10/2026, sem push**; falta conferir com o modelo real |
+| **D-A** — histórico enviado à IA | As últimas **20 mensagens, desde que das últimas 72 horas**, iguais para todas as clínicas no início, ajustáveis por configuração | Nada de produto. **Implementada e publicada em 21/10/2026** (`6d307e0`); falta conferir com o modelo real |
 | **D-F** — retenção | **Parcialmente.** **90 dias** para o texto das conversas e para os contatos que não viraram pacientes (arquivar e anonimizar) | Prazos de cadastro, agenda, cobranças e pagamentos e auditoria: revisão jurídica (J-4). Backups: dependem da hospedagem (A-12). Texto do registro de envios (`message_log`) e limpeza do cache de resposta (D-C): não citados no parecer, ficam a confirmar. Se os 90 dias contam por mensagem ou pela última mensagem da conversa: a confirmar (documento 07, seção 7) |
 | **D-G** — exclusão a pedido | **Opção C:** anonimização por solicitação, executada por comando pela Luxora a pedido da clínica, sem tela e sem agendador, testada antes do piloto | Tratamento do número compartilhado por mais de um paciente ("precisa de tratamento cuidadoso"): regra a definir antes da implementação. Pessoa que volta a escrever depois de anonimizada: proposta registrada, a confirmar. Nome nos registros antigos da auditoria: depende da D-D |
 | **D-H** — aviso de atendimento automatizado | **Como diretriz:** aviso fixo, enviado pelo código na primeira resposta a cada número, em nome da clínica, explicando o atendimento administrativo automatizado | Texto final e link do texto completo: pendentes de revisão (J-5, J-1, L8). Aviso quando o primeiro contato é uma cobrança enviada pela clínica: ligado ao A-07 |
@@ -23,7 +23,7 @@ Parecer dado no chat em 20/10/2026, depois da análise das quatro decisões. **N
 
 | # | Lacuna | Evidência | Risco | Estado |
 |---|---|---|---|---|
-| L1 | Histórico inteiro da conversa vai à Anthropic a cada mensagem, sem limite | `prisma-conversation.repository.ts` (sem `take`), `processar-mensagem-whatsapp.use-case.ts` | Exposição maior que a necessária; custo cresce com a conversa | Implementado e testado (D-A, 21/10/2026), sem push |
+| L1 | Histórico inteiro da conversa vai à Anthropic a cada mensagem, sem limite | `prisma-conversation.repository.ts` (sem `take`), `processar-mensagem-whatsapp.use-case.ts` | Exposição maior que a necessária; custo cresce com a conversa | Implementado, testado e publicado (D-A, 21/10/2026, `6d307e0`) |
 | L2 | O texto das conversas não tem prazo e pode conter informação de saúde que o paciente decida escrever | `message.content`; nada filtra | Guarda indefinida de texto que o produto não precisa depois do atendimento | Decidido (D-F, 90 dias), não implementado |
 | L3 | Nenhum prazo de guarda aplicado fora do Redis | Documento 02 | Acúmulo sem finalidade | Parcialmente decidido (D-F): conversas e contatos sim; cadastro, agenda, financeiro e auditoria dependem do J-4; backups, do A-12 |
 | L4 | Sem exclusão, anonimização ou exportação por titular | Nenhuma rota `DELETE`; `anonimizar()` sem chamador | Pedido de titular só atendível no banco, à mão | Decidido (D-G, opção C), não implementado; número compartilhado a definir |
@@ -93,7 +93,7 @@ Proposta revista em 20/10/2026 para o escopo administrativo; substitui a lista d
 | Inventário dos dados revisado e aceito pelo responsável pelo produto | Implementado, não aprovado (documento 01) |
 | Termo com a clínica revisado (J-1, J-5) e assinado, com as decisões comerciais tomadas | Dependente de terceiros e de decisão |
 | Aviso ao paciente aprovado e enviado na primeira mensagem (D-H, J-5) | Diretriz decidida; texto e link pendentes de revisão; não implementado |
-| Limite do que vai à IA implementado e testado (D-A, D-B) | D-A implementada e testada (21/10/2026, sem push); D-B pendente |
+| Limite do que vai à IA implementado e testado (D-A, D-B) | D-A implementada, testada e publicada (21/10/2026, `6d307e0`); D-B pendente |
 | Corpo da chamada à IA sem telefone e sem identificadores internos | Implementado e testado; falta aprovação do inventário |
 | Retenção de conversas, contatos e backups decidida e aplicada (D-F; J-4 para o resto) | Conversas e contatos decididos (90 dias), não aplicados; backups dependem do A-12 |
 | Pedido de exclusão atendível sem operação manual no banco (D-G) | Decidido (comando), não implementado |

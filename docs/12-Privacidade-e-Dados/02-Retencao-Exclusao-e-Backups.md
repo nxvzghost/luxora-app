@@ -77,7 +77,7 @@ Aprovada em parte. **Nada disto está implementado**; a rotina está no [documen
 
 | Categoria | Decisão | Finalidade e fim |
 |---|---|---|
-| Texto das conversas (`message.content`) | **90 dias** | O texto serve ao agendamento e à cobrança do momento; o painel não mostra conversas e, com a D-A (implementada em 21/10/2026, sem push), a IA só recebe as últimas 20 mensagens das últimas 72 horas. No fim, o texto é apagado; a linha fica com data, direção e status |
+| Texto das conversas (`message.content`) | **90 dias** | O texto serve ao agendamento e à cobrança do momento; o painel não mostra conversas e, com a D-A (implementada e publicada em 21/10/2026, `6d307e0`), a IA só recebe as últimas 20 mensagens das últimas 72 horas. No fim, o texto é apagado; a linha fica com data, direção e status |
 | Contatos que nunca viraram pacientes | **90 dias sem interação** | Arquivar e anonimizar (`Contact.arquivar()` e `anonimizar()` já existem para `Novo` e `Conversando`) |
 | Registro de envios (`message_log`) | A confirmar | Proposta da análise: o texto sai no mesmo prazo, ficam data, status e o final do número. Não citado no parecer |
 | Cache de resposta (`result_payload`) | A confirmar | Proposta técnica (D-C): limpar ao despachar, com a correção da retomada. Não citado no parecer |

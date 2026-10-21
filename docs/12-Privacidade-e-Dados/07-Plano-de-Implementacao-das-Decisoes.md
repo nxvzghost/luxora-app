@@ -1,6 +1,6 @@
 # 07 — Plano de implementação das decisões do A-14
 
-> **PLANO EM ANDAMENTO.** Preparado em 20/10/2026, à noite, no código de `274151a`, a partir do parecer do responsável pelo produto registrado no [documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0. A etapa 1 (D-A) foi implementada em 21/10/2026, com testes e prova por mutação, sem push; as demais não começaram. Cada etapa só começa com autorização; cada commit e cada push pedem autorização própria. O A-14 continua aberto e nenhum documento desta pasta declara conformidade com a LGPD.
+> **PLANO EM ANDAMENTO.** Preparado em 20/10/2026, à noite, no código de `274151a`, a partir do parecer do responsável pelo produto registrado no [documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0. A etapa 1 (D-A) foi implementada em 21/10/2026, com testes e prova por mutação, e publicada no mesmo dia no `6d307e0` (CI 39594279031 verde nos 7 jobs; sem deploy); as demais não começaram. Cada etapa só começa com autorização; cada commit e cada push pedem autorização própria. O A-14 continua aberto e nenhum documento desta pasta declara conformidade com a LGPD.
 
 ## 1. Regras que valem para todas as etapas
 
@@ -21,7 +21,7 @@
 
 ## 3. Etapa 1 — D-A: 20 mensagens dentro de 72 horas
 
-**Estado em 21/10/2026: implementada, sem push.** O que saiu diferente do plano:
+**Estado em 21/10/2026: implementada e publicada** (`6d307e0`, CI 39594279031 verde nos 7 jobs; sem deploy e sem chamada real à Anthropic). O que saiu diferente do plano:
 - A mensagem atual é excluída pelo WAMID do job, não pela posição na lista; uma mensagem que tenha chegado depois dela também não entra.
 - Se o trecho cortado começar por respostas do assistente, elas ficam de fora: a API da Anthropic recusa uma lista que começa por `assistant`. Por isso, numa conversa que alterna paciente e resposta, o trecho tem 19 mensagens; tem 20 quando o paciente escreveu duas vezes seguidas.
 - O índice foi conferido com `EXPLAIN` num banco descartável com 20 mil mensagens em 200 conversas: com ele, a consulta usa o índice; sem ele, varre a tabela inteira. A migração aplica num banco vazio, sem diferença entre `schema.prisma` e as migrações.

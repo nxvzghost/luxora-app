@@ -282,7 +282,7 @@ Comparação das alternativas pedidas na Fase 3B (mesmas premissas da estimativa
 
 **Decidido em 20/10/2026** pelo responsável pelo produto (A-14, D-A): as últimas 20 mensagens, desde que das últimas 72 horas, iguais para todas as clínicas no início e ajustáveis por configuração. Plano em `docs/12-Privacidade-e-Dados/07-Plano-de-Implementacao-das-Decisoes.md`, etapa 1.
 
-**Implementado em 21/10/2026** (commit local, sem push):
+**Implementado em 21/10/2026** e publicado no mesmo dia (`6d307e0`, CI 39594279031 verde nos 7 jobs; sem deploy):
 
 - **Busca:** `ProcessarMensagemWhatsAppUseCase` usa `findRecentMessagesBefore` em vez da conversa inteira. A busca traz as mensagens da conversa das últimas 72 horas anteriores à mensagem atual, das mais novas para as mais antigas, com limite de 19: a atual é a vigésima e entra uma vez só, no fim.
 - **Começo do trecho:** se o trecho começar por respostas do assistente, elas ficam de fora, porque a API recusa uma lista que começa por `assistant`.

@@ -6,7 +6,7 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ### IA recebe só o trecho recente da conversa — D-A do A-14 (2026-10-21)
 
-Decisão D-A do responsável pelo produto: cada chamada à IA leva no máximo 20 mensagens, contando a atual, e só as das últimas 72 horas, com a mesma regra para todas as clínicas. Commit local, sem push. O A-14 continua aberto.
+Decisão D-A do responsável pelo produto: cada chamada à IA leva no máximo 20 mensagens, contando a atual, e só as das últimas 72 horas, com a mesma regra para todas as clínicas. Publicado em 21/10/2026 no `6d307e0`, com CI 39594279031 verde nos 7 jobs no GitHub; sem deploy. O A-14 continua aberto.
 
 - **Corte no banco:** `ConversationRepository.findRecentMessagesBefore` traz as 19 mensagens mais recentes da conversa criadas nas últimas 72 horas e anteriores à mensagem atual, em ordem cronológica. `ProcessarMensagemWhatsAppUseCase` passa a usá-la no lugar da conversa inteira. Nada gravado muda.
 - **Mensagem atual uma vez só:** ela é excluída da busca pelo WAMID do job, não pela posição na lista, e entra no fim, como antes. Uma mensagem que tenha chegado depois dela não entra.

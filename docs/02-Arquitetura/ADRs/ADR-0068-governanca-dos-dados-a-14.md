@@ -1,6 +1,6 @@
 # ADR-0068 — Governança dos dados dos pacientes (A-14)
 
-**Status:** PROPOSTA — pendente de avaliação jurídica. Em 20/10/2026, à noite, o responsável pelo produto aprovou a D-A, a D-G (opção C), a D-H (como diretriz) e parte da D-F; nenhuma está implementada (seção "Decisões de produto"). A única mudança de código desta revisão é um teste.
+**Status:** PROPOSTA — pendente de avaliação jurídica. Em 20/10/2026, à noite, o responsável pelo produto aprovou a D-A, a D-G (opção C), a D-H (como diretriz) e parte da D-F (seção "Decisões de produto"). A D-A foi implementada em 21/10/2026 e publicada no mesmo dia no `6d307e0` (CI 39594279031 verde nos 7 jobs); as demais não estão implementadas. A única mudança de código da revisão de 20/10/2026 foi um teste.
 **Origem:** achado **A-14** da auditoria (governança dos dados de pacientes), aprofundado na auditoria dos bloqueadores de 20/10/2026 e revisto no código do commit `8730a29` em 20/10/2026.
 **Documentos:** [`docs/12-Privacidade-e-Dados/`](../../12-Privacidade-e-Dados/README.md) — inventário, retenção, aviso ao paciente, responsabilidades, titulares e incidentes, lacunas e critérios de fechamento.
 
@@ -38,7 +38,7 @@ Cada uma só entra em código com autorização e teste; nenhuma apaga dado de p
 
 | Proposta | Depende de |
 |---|---|
-| Limitar o histórico enviado à IA por quantidade e tempo | D-A (aprovada; implementada em 21/10/2026, sem push) |
+| Limitar o histórico enviado à IA por quantidade e tempo | D-A (aprovada; implementada e publicada em 21/10/2026, `6d307e0`) |
 | Enviar só o primeiro nome no resultado do cadastro feito pela conversa | D-B |
 | Apagar `result_payload` quando a entrada chega a `dispatched` | D-C |
 | Tirar o nome do `payload` de `ContatoIdentificado`; tornar `audit_log` imutável no banco | D-D |
