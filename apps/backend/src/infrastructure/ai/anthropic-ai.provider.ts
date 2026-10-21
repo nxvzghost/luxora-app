@@ -68,7 +68,7 @@ export class AnthropicAIProvider implements IAIProvider {
   ) {}
 
   async interpretIntent(input: ConversationInput): Promise<IntentResult> {
-    const systemPrompt = `Você identifica a intenção de mensagens de pacientes para uma clínica de saúde mental.
+    const systemPrompt = `Você identifica a intenção de mensagens de pacientes para uma clínica ou consultório.
 Responda APENAS com um JSON válido, sem texto adicional, no formato:
 {"intent": string, "confidence": number (0-1), "entities": object, "requiresEscalation": boolean, "escalationReason": string opcional}
 

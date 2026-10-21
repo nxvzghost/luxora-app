@@ -27,7 +27,7 @@ O único ponto em que informação de saúde pode entrar é o **texto livre** qu
 | L13 | Sem registro de leitura de dados (painel e banco) | Auditoria só registra ações | Sem rastreio de acesso indevido | Pode esperar |
 | L14 | Documento de IA afirmava conteúdo "estritamente administrativo" | `05-IA/00-Provedor-e-Interface.md` | Premissa falsa para a avaliação jurídica | **Corrigido** (documento) |
 | L15 | Afirmação "telefone e ids não vão à IA" sem teste | — | Regressão silenciosa | **Implementado e testado** (teste `[A-14]`) |
-| L16 | Os textos fixos da IA dizem que toda clínica é "de saúde mental" | `anthropic-ai.provider.ts`, `contact-intent-prompt-builder.ts`, `system-prompt.builder.ts` | Pressuposto fora do escopo, se o produto atender outras especialidades | Pendente de decisão |
+| L16 | Os textos fixos da IA diziam que toda clínica é "de saúde mental" | `anthropic-ai.provider.ts`, `contact-intent-prompt-builder.ts`, `system-prompt.builder.ts` | Pressuposto fora do escopo de clínicas e consultórios em geral | **Implementado e testado** (20/10/2026, sem push; teste `L16 (A-14)`) |
 
 ## 2. Pendências, no escopo administrativo
 
@@ -43,7 +43,7 @@ O único ponto em que informação de saúde pode entrar é o **texto livre** qu
 
 **Termo com a clínica (documento 04).** Decisões comerciais que entram no termo: métricas que a Luxora faz por conta própria (item 2); devolução, exportação e exclusão no fim do contrato (item 6); duração e fim da cortesia do piloto (item 11; A-16); em que situações a Luxora acessa dados (item 9, D-I); titular da conta na Meta (A-07).
 
-**Textos fixos da IA (L16).** Se o Vertex atende clínicas e consultórios em geral, os textos fixos não deveriam presumir saúde mental. **Recomendação:** decidir junto com a primeira clínica fora dessa especialidade; para o piloto, só se a clínica não for de saúde mental. Mudar o texto muda o comportamento da IA e exige teste.
+**Textos fixos da IA (L16) — resolvido.** Decidido pelo responsável pelo produto em 20/10/2026: o Vertex atende clínicas e consultórios em geral, e os textos fixos não presumem especialidade. Os três textos passaram a dizer "clínica ou consultório" e "profissionais desta clínica"; o princípio de acolhimento ficou ("pode estar passando por um momento delicado"), sem citar saúde mental. Intents, critério de escalonamento e as regras de agenda, cancelamento, remarcação e cobrança não mudaram. Testes unitários `L16 (A-14)` verificam os três textos contra uma lista de termos de especialidade (`test/unit/use-cases/ai/support/specialty-terms.ts`); voltar qualquer um dos textos antigos derruba o teste. Falta validar o comportamento com o modelo real (chamada com custo, só com autorização).
 
 ### Tarefas técnicas
 

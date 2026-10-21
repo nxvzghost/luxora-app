@@ -4,6 +4,14 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### IA sem especialidade presumida — L16 do A-14 (2026-10-20)
+
+A pedido do responsável pelo produto: o Vertex atende clínicas e consultórios em geral, e os textos fixos da IA deixaram de presumir saúde mental. Commit local, sem push.
+
+- **Textos fixos neutros:** o classificador de intenção (`anthropic-ai.provider.ts`) e o de vínculo de contato (`contact-intent-prompt-builder.ts`) falam em "clínica ou consultório"; a instrução de recepção (`system-prompt.builder.ts`) mantém o princípio de acolhimento sem citar saúde mental e lista os "profissionais desta clínica". Intents, critério de escalonamento e regras de agenda e cobrança não mudaram.
+- **Testes:** `L16 (A-14)` nos testes unitários dos dois construtores e do provedor (o corpo enviado à Anthropic nas duas chamadas), contra a lista de termos em `test/unit/use-cases/ai/support/specialty-terms.ts`. Prova por mutação: cada texto antigo derruba o teste.
+- **Documentos do A-14:** L16 marcada como implementada e testada nos documentos 01 e 06. Falta validar com o modelo real.
+
 ### Governança dos dados — alinhamento ao escopo administrativo (2026-10-20)
 
 A pedido do responsável pelo produto, os documentos do A-14 passaram a refletir o escopo oficial do Vertex: agenda, cobranças e cadastro básico de pacientes (nome e contato), sem prontuário, laudos, exames ou informação clínica. Só documentos; nenhum código mudou. O A-14 continua aberto.

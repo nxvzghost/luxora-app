@@ -3,6 +3,7 @@ import { AnthropicAIProvider } from '@infrastructure/ai/anthropic-ai.provider';
 import { ConversationInput, ConversationContext, IntentResult } from '@domain-services/ai/ai-provider';
 import { MetricsService } from '@shared/metrics.service';
 import { REAL_INTENT_RESPONSE } from '../../use-cases/ai/support/real-anthropic-responses';
+import { SPECIALTY_TERMS } from '../../use-cases/ai/support/specialty-terms';
 
 function baseIntentInput(overrides: Partial<ConversationInput> = {}): ConversationInput {
   return { tenantId: 't1', conversationHistory: [], message: 'Olá', ...overrides };
@@ -105,6 +106,24 @@ describe('AnthropicAIProvider — ADR-0055 (AD-018), Fase 8.1 (hardening)', () =
       expect(result.intent).toBe('outro');
       expect(result.requiresEscalation).toBe(true);
       expect(result.escalationReason).toBe('Falha ao interpretar resposta do modelo.');
+    });
+  });
+
+  describe('L16 (A-14) — textos fixos sem especialidade presumida', () => {
+    it('interpretIntent() e generateResponse() enviam instruções neutras, com intents e critério de escalonamento preservados', async () => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(okIntentResponse()).mockResolvedValueOnce(okGenerateResponse());
+      vi.stubGlobal('fetch', fetchMock);
+      const { provider } = makeProvider();
+
+      const intent = await provider.interpretIntent(baseIntentInput());
+      await provider.generateResponse(baseGenerateContext(intent));
+
+      const [intentSystem, responseSystem] = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body).system as string);
+      expect(intentSystem).not.toMatch(SPECIALTY_TERMS);
+      expect(intentSystem).toContain('clínica ou consultório');
+      expect(intentSystem).toContain('agendar_consulta, remarcar_consulta, cancelar_consulta');
+      expect(intentSystem).toContain('emocionalmente delicado');
+      expect(responseSystem).not.toMatch(SPECIALTY_TERMS);
     });
   });
 

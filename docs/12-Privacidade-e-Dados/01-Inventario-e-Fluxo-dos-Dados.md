@@ -8,7 +8,7 @@
 - **O que não faz parte do produto:** prontuário, laudos, exames, diagnósticos, anotações de sessão. O banco não tem campo para nada disso: `patient` guarda nome, telefone, estado e política de cobrança; `session` guarda só estado e data (`apps/backend/prisma/schema.prisma`).
 - **Onde informação de saúde pode entrar:** só no texto livre que o paciente decide escrever no WhatsApp da clínica. O produto não a pede nem a usa, mas nada filtra o texto: ele é guardado e vai à IA como está (seções 3 e 4).
 - **O que a IA recebe como instrução:** "nunca mencione dado clínico ou de prontuário" e encaminhar a um humano tudo o que fuja do administrativo ou seja emocionalmente delicado (`system-prompt.builder.ts`, `anthropic-ai.provider.ts`). São instruções ao modelo, não um filtro técnico.
-- **Pressuposto fixo no código:** os três textos de instrução da IA descrevem toda clínica como "clínica de saúde mental" (`anthropic-ai.provider.ts`, `contact-intent-prompt-builder.ts`, `system-prompt.builder.ts`). Registrado como L16 no documento 06; não foi alterado.
+- **Textos fixos da IA sem especialidade (L16, corrigido em 20/10/2026, commit local sem push):** os três textos de instrução da IA (`anthropic-ai.provider.ts`, `contact-intent-prompt-builder.ts`, `system-prompt.builder.ts`) descreviam toda clínica como "clínica de saúde mental" e o paciente como alguém "buscando ajuda clínica para saúde mental". Agora falam em "clínica ou consultório" e em "profissionais desta clínica", sem presumir especialidade; intents, critério de escalonamento e regras de agenda e cobrança não mudaram. Teste unitário `L16 (A-14)` nos três pontos, com prova por mutação.
 
 ## 1. Quem são os titulares
 

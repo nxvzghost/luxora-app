@@ -1,10 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { buildSystemPrompt } from '@use-cases/ai/system-prompt.builder';
+import { SPECIALTY_TERMS } from './support/specialty-terms';
 
 describe('buildSystemPrompt', () => {
   it('inclui o princípio fundador de acolhimento', () => {
     const prompt = buildSystemPrompt({ clinicName: 'Clínica X', therapistNames: ['Dra. Ana'] });
-    expect(prompt).toContain('vulnerabilidade real');
+    expect(prompt).toContain('momento delicado');
+    expect(prompt).toContain('respeito, afeto e cuidado');
+  });
+
+  it('L16 (A-14): não presume especialidade médica ou psicológica', () => {
+    const prompt = buildSystemPrompt({ clinicName: 'Clínica X', therapistNames: ['Ana Souza'] });
+    expect(prompt).not.toMatch(SPECIALTY_TERMS);
+    expect(prompt).toContain('# Profissionais desta clínica');
   });
 
   it('inclui o critério de autonomia e a instrução de nunca decidir sozinho fora dele', () => {

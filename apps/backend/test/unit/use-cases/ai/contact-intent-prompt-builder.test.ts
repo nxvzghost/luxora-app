@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildContactIntentPrompt } from '@use-cases/ai/contact-intent-prompt-builder';
+import { SPECIALTY_TERMS } from './support/specialty-terms';
 
 describe('buildContactIntentPrompt — ADR-0055 (AD-018), Fase 7', () => {
   it('inclui o estado atual do Contact e a contagem de associações', () => {
@@ -30,5 +31,11 @@ describe('buildContactIntentPrompt — ADR-0055 (AD-018), Fase 7', () => {
   it('ADR-0063: ASSOCIAR cobre o número novo de quem já é paciente — o backend nunca vincula por isso', () => {
     const prompt = buildContactIntentPrompt({ contactState: 'Conversando', associationCount: 0 });
     expect(prompt).toContain('número novo');
+  });
+
+  it('L16 (A-14): não presume especialidade médica ou psicológica', () => {
+    const prompt = buildContactIntentPrompt({ contactState: 'Novo', associationCount: 0 });
+    expect(prompt).not.toMatch(SPECIALTY_TERMS);
+    expect(prompt).toContain('clínica ou consultório');
   });
 });

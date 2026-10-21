@@ -10,7 +10,9 @@ Este é o primeiro documento da documentação técnica calibrado com dado de co
 
 # Princípio fundador: acolhimento, não apenas eficiência
 
-Antes de qualquer padrão tático, existe um princípio que domina todos os outros: **a pessoa do outro lado da conversa está, com frequência, em um momento de vulnerabilidade real** — buscando ajuda clínica para saúde mental. Isso não é um detalhe de tom, é o contexto que dá sentido a cada palavra que o agente escolhe.
+Antes de qualquer padrão tático, existe um princípio que domina todos os outros: **a pessoa do outro lado da conversa procura atendimento na clínica e pode estar passando por um momento delicado.** Isso não é um detalhe de tom, é o contexto que dá sentido a cada palavra que o agente escolhe.
+
+*(Alinhado em 20/10/2026, L16 do A-14: o Vertex atende clínicas e consultórios em geral, e este princípio não presume especialidade. O texto fixo correspondente está em `apps/backend/src/use-cases/ai/system-prompt.builder.ts`.)*
 
 Por isso, o agente deve tratar cada interação — mesmo uma tão administrativa quanto confirmar um horário ou cobrar um pagamento — com o máximo de respeito, afeto e cuidado, mantendo formalidade suficiente para transmitir segurança e profissionalismo. Não é calor humano descartável nem formalidade fria — é a combinação das duas coisas que faz o paciente se sentir acolhido, em casa, cuidado, mesmo numa mensagem sobre PIX ou horário de consulta.
 
@@ -18,7 +20,7 @@ Isso é o que a conversa de referência demonstra na prática: eficiência (reso
 
 **Consequência prática:** o agente nunca deve soar apressado, seco ou puramente transacional, mesmo quando a tarefa em si é simples (confirmar um agendamento, pedir um comprovante). Velocidade e cuidado devem andar juntos — nunca um às custas do outro.
 
-**Conexão com a arquitetura já definida:** isso reforça, com um motivo humano concreto, por que o Princípio 03 (IA nunca decide sozinha) e o Princípio 22 (IA como interface conversacional) existem — a interação com alguém em momento de vulnerabilidade não pode depender de uma IA "resolvendo" algo por conta própria sem supervisão do Motor Operacional. Do mesmo modo, RN-018/RN-019 do PRD (escalonamento para o terapeuta quando foge do escopo administrativo) ganham peso adicional: se o paciente demonstrar qualquer sinal de sofrimento além do administrativo, o agente deve escalonar para o terapeuta, nunca tentar "acolher" além do que é seguro para uma IA fazer.
+**Conexão com a arquitetura já definida:** isso reforça, com um motivo humano concreto, por que o Princípio 03 (IA nunca decide sozinha) e o Princípio 22 (IA como interface conversacional) existem — a interação com alguém em momento delicado não pode depender de uma IA "resolvendo" algo por conta própria sem supervisão do Motor Operacional. Do mesmo modo, RN-018/RN-019 do PRD (escalonamento para um humano quando foge do escopo administrativo) ganham peso adicional: se o paciente demonstrar qualquer sinal de sofrimento além do administrativo, o agente deve escalonar para a equipe da clínica, nunca tentar "acolher" além do que é seguro para uma IA fazer.
 
 ---
 
@@ -51,7 +53,7 @@ Toda mensagem relevante do atendente inclui o primeiro nome do paciente ("Olá P
 
 Depois que o paciente escolhe, a resposta é direta e sem ambiguidade: *"Perfeito Pedro, agendado para você amanhã às 15:00 presencial."* Nunca deixar o paciente sem saber se a ação realmente aconteceu.
 
-**Justificativa confirmada pela liderança, direto ligada ao princípio fundador de acolhimento:** a confirmação imediata não é só cortesia — o paciente já está em um momento de vulnerabilidade, e não pode ficar em dúvida ou confuso sobre se algo foi resolvido. Ser imediato também ajuda a própria pessoa a organizar a agenda dela, além de organizar a agenda da clínica. Velocidade de confirmação, aqui, é uma forma concreta de cuidado — não é sobre eficiência operacional isolada.
+**Justificativa confirmada pela liderança, direto ligada ao princípio fundador de acolhimento:** a confirmação imediata não é só cortesia — o paciente pode estar em um momento delicado, e não pode ficar em dúvida ou confuso sobre se algo foi resolvido. Ser imediato também ajuda a própria pessoa a organizar a agenda dela, além de organizar a agenda da clínica. Velocidade de confirmação, aqui, é uma forma concreta de cuidado — não é sobre eficiência operacional isolada.
 
 ## 5. Mensagens curtas, quebradas em blocos — nunca um parágrafo longo
 
@@ -116,7 +118,7 @@ Esta seção conecta os padrões acima ao já definido em `00-Provedor-e-Interfa
 - `interpretIntent` deve sempre tentar resolver a consulta de disponibilidade real (via API) **antes** de formular a resposta ao paciente — nunca responder com pergunta genérica quando o dado real já pode ser consultado (Padrão 3).
 - Mensagens de cobrança geradas pelo agente devem usar **exatamente** o template literal definido no Padrão 7 — não é uma inspiração de estilo, é o texto de referência a ser reproduzido com os campos dinâmicos preenchidos pelo Motor Operacional.
 - O agente deve ter acesso ao primeiro nome do paciente em todo turno de conversa (Padrão 1) — isso já é garantido pelo `TenantContext` e pelos dados de `Patient` já modelados no Domain.
-- `IntentResult.requiresEscalation` (interface já definida em `00-Provedor-e-Interface.md`) deve considerar não apenas fuga de escopo administrativo, mas qualquer sinal de sofrimento do paciente além do administrativo — nesse caso, o agente acolhe brevemente e escalona para o terapeuta humano, nunca tenta prosseguir sozinho. Isso opera junto com RN-018 e RN-019 do PRD.
+- `IntentResult.requiresEscalation` (interface já definida em `00-Provedor-e-Interface.md`) deve considerar não apenas fuga de escopo administrativo, mas qualquer sinal de sofrimento do paciente além do administrativo — nesse caso, o agente acolhe brevemente e escalona para a equipe da clínica, nunca tenta prosseguir sozinho. Isso opera junto com RN-018 e RN-019 do PRD.
 
 ---
 
@@ -164,7 +166,7 @@ Este é, segundo a liderança, o padrão de funcionamento que qualquer empresa d
 
 # Rotina de controle de agenda (nova automação — ver `05-IA/02-Rotina-de-Controle-de-Agenda.md`)
 
-Além da jornada com o paciente, a liderança descreveu uma rotina de controle de agenda voltada ao **terapeuta/clínica**, ainda não documentada tecnicamente antes desta conversa. Foi formalizada em documento próprio, por ter público-alvo (terapeuta, não paciente) e cadência (diária/semanal) diferentes deste documento — ver `05-IA/02-Rotina-de-Controle-de-Agenda.md`.
+Além da jornada com o paciente, a liderança descreveu uma rotina de controle de agenda voltada ao **profissional/clínica**, ainda não documentada tecnicamente antes desta conversa. Foi formalizada em documento próprio, por ter público-alvo (profissional, não paciente) e cadência (diária/semanal) diferentes deste documento — ver `05-IA/02-Rotina-de-Controle-de-Agenda.md`.
 
 - **Dados reais da conversa** (nome do paciente, telefone, chave PIX, nome do favorecido, valor específico de R$ 400) foram deliberadamente **omitidos** deste documento — são dados pessoais/financeiros de uma interação real e não devem circular em documentação de especificação técnica. O padrão de estrutura foi extraído; o dado específico, não.
 - Este documento não substitui a validação com piloto real já recomendada em `00-Provedor-e-Interface.md` — é um passo a mais na calibração, não a calibração completa.

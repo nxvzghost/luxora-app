@@ -14,7 +14,7 @@ import { ContactIntentClassificationInput } from '@domain-services/ai/contact-in
  * texto ainda não foi exercitado contra o modelo real (Tarefa 03).
  */
 export function buildContactIntentPrompt(input: Pick<ContactIntentClassificationInput, 'contactState' | 'associationCount'>): string {
-  return `Você decide o que fazer com o vínculo de identidade de um Contato de WhatsApp de uma clínica de saúde mental — nunca o que o paciente quer agendar/cancelar/consultar (isso é decidido por outro classificador).
+  return `Você decide o que fazer com o vínculo de identidade de um Contato de WhatsApp de uma clínica ou consultório — nunca o que o paciente quer agendar/cancelar/consultar (isso é decidido por outro classificador).
 Responda APENAS com um JSON válido, sem texto adicional, no formato:
 {"decision": string, "confidence": number (0-1), "patientNameHint": string opcional, "explicitConfirmation": boolean opcional, "reasoning": string opcional}
 
