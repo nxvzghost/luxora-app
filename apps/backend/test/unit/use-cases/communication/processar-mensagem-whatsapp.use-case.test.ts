@@ -22,6 +22,8 @@ function makeDeps(opts: { conversation?: Conversation | null; history?: Message[
   const conversationRepo = {
     findById: vi.fn().mockResolvedValue(conversation),
     findMessagesByConversationId: vi.fn().mockResolvedValue(opts.history ?? []),
+    // D-A do A-14 — o histórico da IA vem desta busca, já cortada e sem a mensagem atual.
+    findRecentMessagesBefore: vi.fn().mockResolvedValue(opts.history ?? []),
     findByTenantAndPhone: vi.fn(),
     save: vi.fn(),
     appendMessages: vi.fn().mockResolvedValue(undefined),
@@ -53,8 +55,27 @@ describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007), escopo revisad
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('exclui o próprio turno atual do histórico passado a ProcessarMensagemUseCase (evita duplicar a mensagem)', async () => {
-    const history = [fakeMessage('m1', 'entrada', 'Oi'), fakeMessage('m2', 'saida', 'Olá!'), fakeMessage('m3', 'entrada', 'Tem horário amanhã?')];
+  it('D-A (A-14): pede ao banco só o trecho permitido — até 19 mensagens anteriores à atual, das últimas 72 horas — e não lê a conversa inteira', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2031-03-10T12:00:00.000Z'));
+    try {
+      const { useCase, conversationRepo } = makeDeps({});
+      await useCase.execute({ tenantId: TENANT_ID, conversationId: 'c1', patientId: 'p1', message: 'Tem horário amanhã?', externalId: 'wamid.3' });
+
+      expect(conversationRepo.findRecentMessagesBefore).toHaveBeenCalledWith({
+        conversationId: 'c1',
+        currentExternalId: 'wamid.3',
+        since: new Date('2031-03-07T12:00:00.000Z'),
+        limit: 19,
+      });
+      expect(conversationRepo.findMessagesByConversationId).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a mensagem atual vai uma vez só: o histórico vem do banco sem ela, e ela segue à parte para ProcessarMensagemUseCase', async () => {
+    const history = [fakeMessage('m1', 'entrada', 'Oi'), fakeMessage('m2', 'saida', 'Olá!')];
     const { useCase, processarMensagem } = makeDeps({ history });
 
     await useCase.execute({ tenantId: TENANT_ID, conversationId: 'c1', patientId: 'p1', message: 'Tem horário amanhã?', externalId: 'wamid.3' });
@@ -66,6 +87,22 @@ describe('ProcessarMensagemWhatsAppUseCase — ADR-0053 (AD-007), escopo revisad
           { role: 'assistant', content: 'Olá!' },
         ],
         message: 'Tem horário amanhã?',
+      }),
+    );
+  });
+
+  it('D-A (A-14): o histórico entregue nunca começa por uma resposta do assistente', async () => {
+    const history = [fakeMessage('m0', 'saida', 'resposta cuja pergunta ficou fora do corte'), fakeMessage('m1', 'entrada', 'Oi'), fakeMessage('m2', 'saida', 'Olá!')];
+    const { useCase, processarMensagem } = makeDeps({ history });
+
+    await useCase.execute({ tenantId: TENANT_ID, conversationId: 'c1', patientId: 'p1', message: 'Tem horário amanhã?', externalId: 'wamid.3' });
+
+    expect(processarMensagem.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationHistory: [
+          { role: 'user', content: 'Oi' },
+          { role: 'assistant', content: 'Olá!' },
+        ],
       }),
     );
   });

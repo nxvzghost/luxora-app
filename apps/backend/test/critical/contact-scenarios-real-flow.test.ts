@@ -70,7 +70,8 @@ interface Script {
   intent: Pick<IntentResult, 'intent' | 'entities'>;
   decision: ContactIntentDecision;
   patientNameHint?: string;
-  explicitConfirmation?: boolean;
+  /** Fixo, ou calculado a partir do que o classificador recebeu (D-A: o que ele consegue ver). */
+  explicitConfirmation?: boolean | ((input: ContactIntentClassificationInput) => boolean);
 }
 
 interface Clinic {
@@ -140,7 +141,8 @@ const scriptedClassifier: ContactIntentClassifier = {
       decision: script.decision,
       confidence: 0.95,
       patientNameHint: script.patientNameHint,
-      explicitConfirmation: script.explicitConfirmation,
+      explicitConfirmation:
+        typeof script.explicitConfirmation === 'function' ? script.explicitConfirmation(input) : script.explicitConfirmation,
       usage: NO_USAGE,
     };
   },
@@ -1146,6 +1148,98 @@ describe('[Contact] identidade no fluxo real do WhatsApp — ADR-0063 (AD-037, A
       expect(inB.responseContext.patientId).toBe(patientOfB);
       expect(inA.responseContext.patientId).toBeUndefined();
       expect((await contactOf(FROM, clinicA))?.associations).toHaveLength(0);
+    });
+  });
+
+  describe('D-A do A-14 — a confirmação do cadastro e a janela de 72 horas do histórico', () => {
+    // O classificador roteirizado faz o que a instrução dele pede ao modelo:
+    // só confirma um nome que consegue ver — na conversa que recebeu ou na
+    // própria mensagem. Assim o teste mostra o efeito do corte: o que ficou
+    // fora da janela não chega ao classificador.
+    const confirmsOnlyAVisibleName =
+      (name: string) =>
+      (input: ContactIntentClassificationInput): boolean =>
+        [...input.conversationHistory.map((message) => message.content), input.message].some((content) => content.includes(name));
+    const HOUR = 60 * 60 * 1000;
+
+    describe('dentro da janela', () => {
+      const FROM = '5541988880121';
+      const NAME = 'Renata Lima Teste';
+      let patientsBefore: number;
+      let confirmation: Turn;
+
+      beforeAll(async () => {
+        patientsBefore = await patientCount();
+        await turn(FROM, 'Oi, quero me cadastrar.', { intent: SMALL_TALK, decision: 'PROMOVER' });
+        await turn(FROM, `Meu nome completo é ${NAME}.`, { intent: SMALL_TALK, decision: 'PROMOVER', patientNameHint: NAME });
+        confirmation = await turn(FROM, 'Sim, confirmo.', {
+          intent: SMALL_TALK,
+          decision: 'PROMOVER',
+          explicitConfirmation: confirmsOnlyAVisibleName(NAME),
+        });
+      }, 60_000);
+
+      it('a mensagem com o nome chega ao classificador junto com a confirmação', () => {
+        const history = confirmation.classifierInput?.conversationHistory ?? [];
+        expect(history.some((message) => message.role === 'user' && message.content.includes(NAME))).toBe(true);
+      });
+
+      it('o cadastro é feito com o nome informado', async () => {
+        expect(await patientCount()).toBe(patientsBefore + 1);
+        const contact = await contactOf(FROM);
+        expect(contact?.state).toBe('Promovido');
+        expect(contact?.name).toBe(NAME);
+      });
+    });
+
+    describe('fora da janela', () => {
+      const FROM = '5541988880122';
+      const NAME = 'Paulo Reis Teste';
+      let patientsBefore: number;
+      let lateConfirmation: Turn;
+      let patientsAfterLateConfirmation: number;
+      let renewedConfirmation: Turn;
+
+      beforeAll(async () => {
+        patientsBefore = await patientCount();
+        await turn(FROM, 'Oi, quero me cadastrar.', { intent: SMALL_TALK, decision: 'PROMOVER' });
+        await turn(FROM, `Meu nome completo é ${NAME}.`, { intent: SMALL_TALK, decision: 'PROMOVER', patientNameHint: NAME });
+        // A pessoa só responde dias depois: tudo o que já foi dito passa para 73 horas atrás.
+        const conversation = await conversationOf(FROM);
+        await fixturePrisma.message.updateMany({
+          where: { conversationId: conversation?.id },
+          data: { createdAt: new Date(Date.now() - 73 * HOUR) },
+        });
+        lateConfirmation = await turn(FROM, 'Sim, confirmo.', {
+          intent: SMALL_TALK,
+          decision: 'PROMOVER',
+          explicitConfirmation: confirmsOnlyAVisibleName(NAME),
+        });
+        patientsAfterLateConfirmation = await patientCount();
+        renewedConfirmation = await turn(FROM, `Sim, confirmo: sou ${NAME}.`, {
+          intent: SMALL_TALK,
+          decision: 'PROMOVER',
+          explicitConfirmation: confirmsOnlyAVisibleName(NAME),
+        });
+      }, 60_000);
+
+      it('o que foi dito há mais de 72 horas não chega à IA nem ao classificador', () => {
+        expect(lateConfirmation.classifierInput?.conversationHistory).toEqual([]);
+        expect(lateConfirmation.intentInput.conversationHistory).toEqual([]);
+      });
+
+      it('sem ver o nome, a confirmação não cadastra ninguém: a pergunta é feita de novo, com o nome guardado', () => {
+        expect(patientsAfterLateConfirmation).toBe(patientsBefore);
+        expect(lateConfirmation.instructions).toEqual([`[Pergunte ao paciente: ${askNameConfirmation(NAME)}]`]);
+      });
+
+      it('confirmando de novo, com o nome à vista, o cadastro é feito', async () => {
+        expect(renewedConfirmation.classifierInput?.conversationHistory.map((message) => message.content)).toContain('Sim, confirmo.');
+        expect(await patientCount()).toBe(patientsBefore + 1);
+        const contact = await contactOf(FROM);
+        expect(contact?.state).toBe('Promovido');
+        expect(contact?.name).toBe(NAME);
+      });
     });
   });
 

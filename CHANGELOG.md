@@ -4,6 +4,20 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### IA recebe só o trecho recente da conversa — D-A do A-14 (2026-10-21)
+
+Decisão D-A do responsável pelo produto: cada chamada à IA leva no máximo 20 mensagens, contando a atual, e só as das últimas 72 horas, com a mesma regra para todas as clínicas. Commit local, sem push. O A-14 continua aberto.
+
+- **Corte no banco:** `ConversationRepository.findRecentMessagesBefore` traz as 19 mensagens mais recentes da conversa criadas nas últimas 72 horas e anteriores à mensagem atual, em ordem cronológica. `ProcessarMensagemWhatsAppUseCase` passa a usá-la no lugar da conversa inteira. Nada gravado muda.
+- **Mensagem atual uma vez só:** ela é excluída da busca pelo WAMID do job, não pela posição na lista, e entra no fim, como antes. Uma mensagem que tenha chegado depois dela não entra.
+- **Trecho começa pelo paciente:** respostas do assistente no início do trecho ficam de fora, porque a API da Anthropic recusa uma lista que começa por `assistant` (`use-cases/communication/ai-history-window.ts`).
+- **Configuração:** `AI_HISTORY_MAX_MESSAGES` e `AI_HISTORY_MAX_AGE_HOURS` (padrões 20 e 72), opcionais e validadas no boot (`env.validation.ts`); documentadas no `.env.example`.
+- **Índice:** `message (conversation_id, created_at)`, migração `20261021120000_add_message_conversation_created_at_index`. Num banco descartável com 20 mil mensagens, o `EXPLAIN` mostra a consulta pelo índice; sem ele, a tabela inteira.
+- **Sem mudança:** regra de 6 horas da resposta a áudio e imagem, intenções, agenda, cadastro e financeiro.
+- **Testes:** unitários do corte e do caso de uso; 7 de integração com Postgres e RLS (quantidade, tempo, os dois juntos, ordem, mensagem atual, outra clínica); 2 casos novos no crítico `[A-14]` (conversa longa e conversa curta com mensagens antigas), mantendo as checagens de telefone, nome e identificadores; confirmação de cadastro dentro e fora da janela em `contact-scenarios-real-flow.test.ts`. Prova por mutação: sem o limite de quantidade, sem o limite de tempo, sem o descarte das respostas iniciais e com a atual fora da conta, cada mutação derruba testes.
+- **Documentos:** D2 do documento de contratos, nota de `05-IA/00`, documentos 01, 02, 03, 06 e 07 de `12-Privacidade-e-Dados`, README da pasta e ADR-0068.
+- **Pendências:** comportamento real com a Anthropic não testado (sem chamada paga); mensagens seguidas do mesmo papel, que já existiam e não foram alteradas; ordem de mensagens gravadas com o mesmo horário. Detalhe no documento 07, etapa 1.
+
 ### Governança dos dados — decisões de produto do A-14 e plano (2026-10-20)
 
 Parecer do responsável pelo produto, registrado nos documentos do A-14. Só documentos; nenhum código mudou, nada implementado. O A-14 continua aberto.

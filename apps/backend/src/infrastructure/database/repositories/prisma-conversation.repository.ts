@@ -3,7 +3,7 @@ import { PhoneNumber } from '@domain/contact/phone-number.value-object';
 import { Conversation as PrismaConversation, Message as PrismaMessage, Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { Conversation, Message, MessageDirection } from '@domain/communication/conversation.entity';
-import { ConversationRepository } from '@domain-services/communication/conversation.repository';
+import { ConversationRepository, RecentMessagesQuery } from '@domain-services/communication/conversation.repository';
 
 const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 
@@ -101,6 +101,26 @@ export class PrismaConversationRepository implements ConversationRepository {
       tx.message.findMany({ where: { conversationId }, orderBy: { createdAt: 'asc' } }),
     );
     return records.map((r) => this.messageToDomain(r));
+  }
+
+  async findRecentMessagesBefore({ conversationId, currentExternalId, since, limit }: RecentMessagesQuery): Promise<Message[]> {
+    if (limit <= 0) return [];
+    const records = await this.prisma.forTenant(async (tx) => {
+      // A mensagem atual já foi gravada pelo webhook. Ela é o limite superior
+      // do trecho e fica de fora — quem a entrega à IA, uma vez só, é o
+      // processamento. Uma mensagem que tenha chegado depois dela não entra.
+      const current = await tx.message.findUnique({ where: { externalId: currentExternalId } });
+      return tx.message.findMany({
+        where: {
+          conversationId,
+          createdAt: current ? { gte: since, lte: current.createdAt } : { gte: since },
+          ...(current ? { id: { not: current.id } } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      });
+    });
+    return records.reverse().map((r) => this.messageToDomain(r));
   }
 
   private toDomain(record: PrismaConversation): Conversation {

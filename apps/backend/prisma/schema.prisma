@@ -157,6 +157,10 @@ model Message {
   status         String            @default("enviada") // enviada | entregue | lida — atualizado por statuses[] da Meta
   createdAt      DateTime          @default(now()) @map("created_at")
 
+  // D-A do A-14 — o histórico da IA é lido por conversa, do mais novo para o
+  // mais antigo, com limite (findRecentMessagesBefore). Sem este índice, cada
+  // mensagem recebida varria a tabela inteira de mensagens.
+  @@index([conversationId, createdAt])
   @@map("message")
 }
 

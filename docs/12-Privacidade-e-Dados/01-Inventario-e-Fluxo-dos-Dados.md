@@ -60,7 +60,7 @@ Todas as tabelas com clínica têm RLS (`apps/backend/prisma/rls/enable-rls.sql`
 
 **O quê, comprovado no código:**
 
-- **A conversa inteira**, desde a primeira mensagem, sem limite de quantidade nem de tempo: `prisma-conversation.repository.ts` lê todas as mensagens da conversa (`findMany` ordenado, sem `take`), e `processar-mensagem-whatsapp.use-case.ts` passa o histórico às três chamadas. Inclui as respostas anteriores do agente.
+- **O trecho recente da conversa** (D-A, implementada em 21/10/2026, sem push): até 20 mensagens, contando a atual, só das últimas 72 horas. `findRecentMessagesBefore` (`prisma-conversation.repository.ts`) já busca no banco só esse trecho, e `processar-mensagem-whatsapp.use-case.ts` o passa às três chamadas. Inclui as respostas anteriores do agente; se o trecho começar por respostas, elas ficam de fora. Até 21/10/2026 ia a conversa inteira, sem limite (`findMessagesByConversationId`, que continua servindo à regra da resposta a áudio e imagem).
 - **O texto da mensagem atual.**
 - **Nome da clínica e nomes de todos os terapeutas** (na instrução de `generateResponse`, `anthropic-ai.provider.ts` e `system-prompt.builder.ts`).
 - **Resultados de ação**, como texto: horário marcado ou remarcado, valor e estado de uma cobrança, horários livres, e "Cadastro de *nome completo* realizado" quando um paciente novo é cadastrado pela conversa (`intent-action-router.ts`, `contact-intent-action-router.ts`).

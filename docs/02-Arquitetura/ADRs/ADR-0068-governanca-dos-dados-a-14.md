@@ -38,7 +38,7 @@ Cada uma só entra em código com autorização e teste; nenhuma apaga dado de p
 
 | Proposta | Depende de |
 |---|---|
-| Limitar o histórico enviado à IA por quantidade e tempo | D-A (aprovada) |
+| Limitar o histórico enviado à IA por quantidade e tempo | D-A (aprovada; implementada em 21/10/2026, sem push) |
 | Enviar só o primeiro nome no resultado do cadastro feito pela conversa | D-B |
 | Apagar `result_payload` quando a entrada chega a `dispatched` | D-C |
 | Tirar o nome do `payload` de `ContatoIdentificado`; tornar `audit_log` imutável no banco | D-D |

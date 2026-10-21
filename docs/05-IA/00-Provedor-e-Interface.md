@@ -120,7 +120,7 @@ Além de custo, todo agente deve ser avaliado por:
 
 Reforçando regras já definidas em RN-018, RN-019 (PRD) e Princípio 22 (Arquitetura):
 
-- O agente nunca recebe mais contexto do que o necessário para a tarefa em execução. *(Nota de 20/10/2026, A-14: hoje o histórico inteiro da conversa vai a cada mensagem; o limite foi decidido na mesma noite (D-A: últimas 20 mensagens, desde que das últimas 72 horas) e ainda não está implementado; documentos 06 e 07 de `12-Privacidade-e-Dados`.)*
+- O agente nunca recebe mais contexto do que o necessário para a tarefa em execução. *(Nota de 20/10/2026, A-14: o histórico inteiro da conversa ia a cada mensagem; o limite decidido na mesma noite (D-A: até 20 mensagens, contando a atual, só das últimas 72 horas) foi implementado em 21/10/2026, sem push; documentos 06 e 07 de `12-Privacidade-e-Dados`.)*
 - O agente nunca tem acesso a dados de outro Tenant — `IAIProvider` sempre recebe o `TenantContext` já resolvido (mesmo mecanismo de `07-Multitenancy.md`).
 - Nenhum dado clínico (Princípio 08) é enviado ao provedor de IA sob nenhuma circunstância — validado na camada de montagem do contexto, antes da chamada. *(Nota de 20/10/2026, A-14: o sistema não guarda dado clínico, então nenhum sai do banco; mas não existe validação do texto na montagem do contexto, e o que o próprio paciente escreve vai ao provedor como está. Ver o inventário em `12-Privacidade-e-Dados/01`.)*
 

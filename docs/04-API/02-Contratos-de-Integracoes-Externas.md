@@ -125,7 +125,7 @@ Conferido no código (`anthropic-ai.provider.ts`, `anthropic-contact-intent-clas
 
 | Dado | Vai? | Onde |
 |---|---|---|
-| Texto das mensagens do paciente — **toda** a conversa, sem limite de tamanho | Sim | `messages`, nas 3 chamadas |
+| Texto das mensagens do paciente — até as 20 mais recentes, contando a atual, só das últimas 72 horas (D2) | Sim | `messages`, nas 3 chamadas |
 | Respostas anteriores do agente | Sim | `messages` |
 | Nome da clínica e nomes dos terapeutas | Sim | Prompt de sistema de `generateResponse` |
 | Resultado de ação executada: data e hora da consulta, horários livres, valor e estado da cobrança, nome do paciente recém-cadastrado | Sim | `messages` de `generateResponse` |
@@ -135,7 +135,7 @@ Conferido no código (`anthropic-ai.provider.ts`, `anthropic-contact-intent-clas
 | Prontuário ou qualquer registro clínico do sistema | Não | — |
 | Tokens e chaves | Não | — |
 
-O texto do paciente é livre. O sistema não envia dado clínico, mas não tem como impedir que o próprio paciente escreva algo sensível, e esse texto segue para o provider como está — e volta a ser enviado em todos os turnos seguintes, porque o histórico não tem limite (D2).
+O texto do paciente é livre. O sistema não envia dado clínico, mas não tem como impedir que o próprio paciente escreva algo sensível, e esse texto segue para o provider como está — e volta a ser enviado nos turnos seguintes enquanto estiver entre as 20 mensagens mais recentes das últimas 72 horas (D2).
 
 ### Resposta e erros
 
@@ -280,7 +280,16 @@ Comparação das alternativas pedidas na Fase 3B (mesmas premissas da estimativa
 
 **Não há regra escrita que defina o tamanho do histórico.** `05-IA/00-Provedor-e-Interface.md` calcula o orçamento supondo "histórico curto", sem dizer o que é curto. Por isso nada foi escolhido nem alterado: **decisão pendente**.
 
-**Decidido em 20/10/2026** pelo responsável pelo produto (A-14, D-A): as últimas 20 mensagens, desde que das últimas 72 horas, iguais para todas as clínicas no início e ajustáveis por configuração. Ainda não implementado; plano em `docs/12-Privacidade-e-Dados/07-Plano-de-Implementacao-das-Decisoes.md`, etapa 1.
+**Decidido em 20/10/2026** pelo responsável pelo produto (A-14, D-A): as últimas 20 mensagens, desde que das últimas 72 horas, iguais para todas as clínicas no início e ajustáveis por configuração. Plano em `docs/12-Privacidade-e-Dados/07-Plano-de-Implementacao-das-Decisoes.md`, etapa 1.
+
+**Implementado em 21/10/2026** (commit local, sem push):
+
+- **Busca:** `ProcessarMensagemWhatsAppUseCase` usa `findRecentMessagesBefore` em vez da conversa inteira. A busca traz as mensagens da conversa das últimas 72 horas anteriores à mensagem atual, das mais novas para as mais antigas, com limite de 19: a atual é a vigésima e entra uma vez só, no fim.
+- **Começo do trecho:** se o trecho começar por respostas do assistente, elas ficam de fora, porque a API recusa uma lista que começa por `assistant`.
+- **Configuração e índice:** os valores ficam em `AI_HISTORY_MAX_MESSAGES` e `AI_HISTORY_MAX_AGE_HOURS` (padrões 20 e 72), validados no boot. O índice `message (conversation_id, created_at)` evita varrer a tabela de mensagens a cada mensagem recebida.
+- **O que não mudou:** a regra de 6 horas da resposta a áudio e imagem continua lendo a conversa como antes.
+- **Custo:** o teto por mensagem respondida fica perto da linha "Últimas 20 mensagens" da tabela acima, cerca de R$ 0,036; é estimativa, não medição. A única medição real, de 19/10/2026 e sem histórico, deu cerca de R$ 0,019 pelas três chamadas. Nenhuma chamada real foi feita com o limite.
+- **Pendências:** o comportamento real com a Anthropic não foi testado; mensagens seguidas do mesmo papel (que a API pode recusar) já existiam antes e não foram alteradas; mensagens gravadas na mesma operação têm o mesmo horário e ordem não garantida. Detalhe no documento 07 de `12-Privacidade-e-Dados`, etapa 1.
 
 Recomendação técnica: começar pelo limite de mensagens combinado com uma janela de tempo — é a mudança pequena, com teto de custo e que reduz o dado enviado ao provider. Resumo só se o produto precisar de memória longa. A retenção das mensagens em si (apagar ou anonimizar) é outra decisão, de LGPD.
 

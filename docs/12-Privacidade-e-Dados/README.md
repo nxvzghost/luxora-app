@@ -23,7 +23,7 @@ Os documentos descrevem o que o sistema **faz hoje**, com o arquivo e o teste qu
 | 04 | [Responsabilidades entre clínica e fornecedor](./04-Responsabilidades-Clinica-e-Fornecedor.md) | Roteiro do termo entre a clínica e a Luxora | Roteiro, sem aprovação jurídica |
 | 05 | [Solicitações de titulares e incidentes](./05-Solicitacoes-de-Titulares-e-Incidentes.md) | Como atender acesso, correção, exclusão e incidente com o que existe hoje | Procedimento provisório |
 | 06 | [Lacunas, decisões e fechamento do A-14](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md) | Lacunas, pendências separadas em decisões de produto, tarefas técnicas e questões jurídicas, e critérios para encerrar o A-14, no escopo administrativo | D-A, D-G e D-H aprovadas e D-F em parte, em 20/10/2026; demais aguardam |
-| 07 | [Plano de implementação das decisões](./07-Plano-de-Implementacao-das-Decisoes.md) | Etapas, mudanças, testes e pendências para implementar D-A, D-H, D-G e D-F | Plano, não iniciado |
+| 07 | [Plano de implementação das decisões](./07-Plano-de-Implementacao-das-Decisoes.md) | Etapas, mudanças, testes e pendências para implementar D-A, D-H, D-G e D-F | Etapa 1 (D-A) implementada em 21/10/2026, sem push; demais não iniciadas |
 
 ## Legenda de estado usada em todos os documentos
 

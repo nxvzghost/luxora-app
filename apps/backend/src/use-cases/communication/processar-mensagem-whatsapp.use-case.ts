@@ -1,6 +1,5 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ConversationMessage } from '@domain-services/ai/ai-provider';
 import { ConversationRepository, CONVERSATION_REPOSITORY } from '@domain-services/communication/conversation.repository';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { ProcessarMensagemUseCase } from '@use-cases/ai/processar-mensagem.use-case';
@@ -8,6 +7,7 @@ import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-o
 import { ResolverIdentidadeDoContatoUseCase } from '@use-cases/contact/resolver-identidade-do-contato.use-case';
 import { WhatsAppInboundJobData } from '@infrastructure/messaging/whatsapp-inbound-queue.producer';
 import { MetricsService } from '@shared/metrics.service';
+import { aiHistoryWindow, toAiHistory } from '@use-cases/communication/ai-history-window';
 
 export interface ProcessarMensagemWhatsAppResult {
   responseMessage: string;
@@ -73,15 +73,19 @@ export class ProcessarMensagemWhatsAppUseCase {
       throw new NotFoundException(`Conversation ${input.conversationId} não encontrada.`);
     }
 
-    const history = await this.conversationRepo.findMessagesByConversationId(input.conversationId);
-    // A própria mensagem de entrada deste job já foi persistida
-    // sincronamente (ReceberMensagemWhatsAppUseCase) — exclui o último
-    // turno do histórico passado a ProcessarMensagemUseCase, que já
-    // recebe `input.message` separadamente e o anexa internamente.
-    const conversationHistory: ConversationMessage[] = history.slice(0, -1).map((m) => ({
-      role: m.direction === 'entrada' ? 'user' : 'assistant',
-      content: m.content,
-    }));
+    // D-A do A-14 — só o trecho recente da conversa vai para a IA (até 20
+    // mensagens, contando a atual, das últimas 72 horas; ai-history-window.ts).
+    // A mensagem deste job já foi gravada (ReceberMensagemWhatsAppUseCase) e
+    // fica de fora da busca: ProcessarMensagemUseCase a recebe em
+    // `input.message` e a anexa uma única vez, no fim.
+    const window = aiHistoryWindow(new Date());
+    const previous = await this.conversationRepo.findRecentMessagesBefore({
+      conversationId: input.conversationId,
+      currentExternalId: input.externalId,
+      since: window.since,
+      limit: window.previousLimit,
+    });
+    const conversationHistory = toAiHistory(previous);
 
     const contact = await this.reconhecerOuCriarContato.execute(input.tenantId, conversation.phoneNumber);
 

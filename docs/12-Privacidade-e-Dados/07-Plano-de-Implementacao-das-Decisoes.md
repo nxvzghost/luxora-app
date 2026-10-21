@@ -1,6 +1,6 @@
 # 07 — Plano de implementação das decisões do A-14
 
-> **PLANO, NÃO INICIADO.** Preparado em 20/10/2026, à noite, no código de `274151a`, a partir do parecer do responsável pelo produto registrado no [documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0. Nenhuma linha de código mudou. Cada etapa só começa com autorização; cada commit e cada push pedem autorização própria. O A-14 continua aberto e nenhum documento desta pasta declara conformidade com a LGPD.
+> **PLANO EM ANDAMENTO.** Preparado em 20/10/2026, à noite, no código de `274151a`, a partir do parecer do responsável pelo produto registrado no [documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0. A etapa 1 (D-A) foi implementada em 21/10/2026, com testes e prova por mutação, sem push; as demais não começaram. Cada etapa só começa com autorização; cada commit e cada push pedem autorização própria. O A-14 continua aberto e nenhum documento desta pasta declara conformidade com a LGPD.
 
 ## 1. Regras que valem para todas as etapas
 
@@ -20,6 +20,17 @@
 | 4 | D-F — retenção de 90 dias | Média | Leitura dos 90 dias (seção 7). Etapa 3, para os contatos já identificados | — |
 
 ## 3. Etapa 1 — D-A: 20 mensagens dentro de 72 horas
+
+**Estado em 21/10/2026: implementada, sem push.** O que saiu diferente do plano:
+- A mensagem atual é excluída pelo WAMID do job, não pela posição na lista; uma mensagem que tenha chegado depois dela também não entra.
+- Se o trecho cortado começar por respostas do assistente, elas ficam de fora: a API da Anthropic recusa uma lista que começa por `assistant`. Por isso, numa conversa que alterna paciente e resposta, o trecho tem 19 mensagens; tem 20 quando o paciente escreveu duas vezes seguidas.
+- O índice foi conferido com `EXPLAIN` num banco descartável com 20 mil mensagens em 200 conversas: com ele, a consulta usa o índice; sem ele, varre a tabela inteira. A migração aplica num banco vazio, sem diferença entre `schema.prisma` e as migrações.
+- O teste `[A-14]` ganhou dois casos: uma conversa longa, em que corta a quantidade, e uma curta com mensagens antigas, em que corta o tempo. A confirmação de cadastro dentro e fora da janela está em `contact-scenarios-real-flow.test.ts`, e a busca, em `test/integration/database/prisma-conversation-ai-history.repository.test.ts`.
+
+**Pendências da etapa 1, registradas e não resolvidas:**
+- **Comportamento real com a Anthropic não testado.** Os testes conferem o que o código monta e envia, com respostas simuladas; nenhuma chamada real foi feita com o limite. Conferir só com autorização de custo.
+- **Mensagens seguidas do mesmo papel.** A documentação de erros da API também cita 400 para mensagens consecutivas de mesmo papel. Isso já acontece antes da D-A (duas mensagens seguidas do paciente; as instruções que o backend acrescenta antes da resposta) e não foi alterado: falta conferir numa chamada real.
+- **Mensagens com o mesmo horário.** A mensagem de áudio ou imagem e a resposta fixa a ela são gravadas na mesma operação e recebem o mesmo `created_at`; a ordem entre as duas não é garantida, e o corte por quantidade pode cair entre elas. Já era assim antes da D-A.
 
 **Hoje.** `ProcessarMensagemWhatsAppUseCase` lê `findMessagesByConversationId` (sem limite) e manda o histórico inteiro, menos a mensagem atual, nas até três chamadas à IA. A conversa é uma por clínica e telefone, para sempre.
 

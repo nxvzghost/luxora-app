@@ -671,4 +671,125 @@ describe('[A-14] O que sai para a Anthropic numa mensagem de paciente reconhecid
     },
     35000,
   );
+
+  /**
+   * D-A — conversa de um paciente reconhecido, só do teste que a chama,
+   * semeada direto no banco: `oldCount` mensagens de 85 horas atrás em diante
+   * (fora da janela) e `recentCount` de 62 horas atrás em diante, duas horas
+   * entre cada uma, alternando paciente e resposta. A mensagem atual entra
+   * pelo webhook real; devolve o que saiu nas três chamadas à Anthropic.
+   */
+  async function sendOverSeededHistory(oldCount: number, recentCount: number) {
+    const runId = randomUUID().slice(0, 8);
+    const phone = `419${randomUUID().replace(/\D/g, '').slice(0, 8)}`;
+    const patient = await fixturePrisma.patient.create({
+      data: { tenantId: fixture.tenantId, name: `Paciente Janela ${runId}`, phone, state: 'Cadastrado' },
+    });
+    fixture.patientIds.push(patient.id);
+    const from = `+55${phone}`;
+    const conversation = await fixturePrisma.conversation.create({
+      data: { tenantId: fixture.tenantId, phoneNumber: from, patientId: patient.id },
+    });
+    const HOUR = 60 * 60 * 1000;
+    const now = Date.now();
+    const old = Array.from({ length: oldCount }, (_, i) => ({
+      content: `JANELA-ANTIGA-${i + 1}-${runId}`,
+      direction: i % 2 === 0 ? ('entrada' as const) : ('saida' as const),
+      createdAt: new Date(now - (85 - i) * HOUR),
+    }));
+    const recent = Array.from({ length: recentCount }, (_, i) => ({
+      content: `JANELA-RECENTE-${String(i + 1).padStart(2, '0')}-${runId}`,
+      direction: i % 2 === 0 ? ('entrada' as const) : ('saida' as const),
+      createdAt: new Date(now - (62 - 2 * i) * HOUR),
+    }));
+    await fixturePrisma.message.createMany({
+      data: [...old, ...recent].map((m) => ({ tenantId: fixture.tenantId, conversationId: conversation.id, ...m })),
+    });
+
+    const wamid = `wamid.${randomUUID()}`;
+    const messageText = `JANELA-ATUAL ${wamid}`;
+    const res = await postSigned(inboundMessagePayload(wamid, from, messageText));
+    expect(res.status).toBe(200);
+    await waitForInboxStatusAtLeast(wamid, 'generated');
+
+    const contact = await fixturePrisma.contact.findFirstOrThrow({ where: { tenantId: fixture.tenantId, phoneNumber: from } });
+    return {
+      wamid,
+      messageText,
+      old,
+      recent,
+      conversation,
+      neverSent: [patient.phone, patient.phone.slice(-8), patient.name, fixture.tenantId, patient.id, contact.id, conversation.id, phoneNumberId],
+    };
+  }
+
+  /** O que vale para as três chamadas, em qualquer conversa: o formato, o corte e nada que identifique alguém. */
+  function expectOnlyAllowedHistory(raw: string, expected: string[], seeded: { messageText: string; neverSent: string[] }) {
+    const body = JSON.parse(raw) as { messages: Array<{ role: string; content: string }> };
+    expect(Object.keys(body).sort()).toEqual(['max_tokens', 'messages', 'model', 'system']);
+    expect(body.messages.length).toBeLessThanOrEqual(20);
+    expect(body.messages[0].role).toBe('user');
+    expect(body.messages.map((m) => m.content)).toEqual(expected);
+    expect(body.messages.filter((m) => m.content === seeded.messageText)).toHaveLength(1);
+    expect(raw).not.toContain('JANELA-ANTIGA-');
+    for (const value of seeded.neverSent) expect(raw).not.toContain(value);
+  }
+
+  it(
+    'D-A: numa conversa longa e com mensagens antigas, cada chamada leva no máximo 20 mensagens, todas das últimas 72 horas, em ordem, com a atual uma única vez e no fim',
+    async () => {
+      const fetchMock = mockAnthropicFetch();
+      vi.stubGlobal('fetch', fetchMock);
+      try {
+        // 6 antigas e 31 recentes. A última recente é do paciente — duas
+        // mensagens dele seguidas, como quando escreve de novo antes da
+        // resposta —, então as 19 anteriores à atual começam por uma mensagem
+        // dele e o trecho enviado fica com exatamente 20.
+        const seeded = await sendOverSeededHistory(6, 31);
+        const bodies = fetchMock.mock.calls
+          .map(([, opts]) => (opts as { body: string }).body)
+          .filter((body) => body.includes(seeded.wamid));
+        expect(bodies).toHaveLength(3);
+
+        const expected = [...seeded.recent.slice(12).map((m) => m.content), seeded.messageText];
+        expect(expected).toHaveLength(20);
+        for (const raw of bodies) expectOnlyAllowedHistory(raw, expected, seeded);
+
+        // O corte vale só para o que sai para a IA: a conversa gravada continua inteira.
+        const stored = await fixturePrisma.message.findMany({ where: { conversationId: seeded.conversation.id }, select: { content: true } });
+        expect(stored.filter((m) => m.content.startsWith('JANELA-ANTIGA-'))).toHaveLength(6);
+        expect(stored.filter((m) => m.content.startsWith('JANELA-RECENTE-'))).toHaveLength(31);
+        expect(stored.filter((m) => m.content === seeded.messageText)).toHaveLength(1);
+
+        await waitForInboxStatusAtLeast(seeded.wamid, 'dispatched');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+    35000,
+  );
+
+  it(
+    'D-A: numa conversa curta, as mensagens com mais de 72 horas também ficam de fora — mesmo com folga no limite de 20',
+    async () => {
+      const fetchMock = mockAnthropicFetch();
+      vi.stubGlobal('fetch', fetchMock);
+      try {
+        const seeded = await sendOverSeededHistory(6, 4);
+        const bodies = fetchMock.mock.calls
+          .map(([, opts]) => (opts as { body: string }).body)
+          .filter((body) => body.includes(seeded.wamid));
+        expect(bodies).toHaveLength(3);
+
+        const expected = [...seeded.recent.map((m) => m.content), seeded.messageText];
+        expect(expected).toHaveLength(5);
+        for (const raw of bodies) expectOnlyAllowedHistory(raw, expected, seeded);
+
+        await waitForInboxStatusAtLeast(seeded.wamid, 'dispatched');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+    35000,
+  );
 });

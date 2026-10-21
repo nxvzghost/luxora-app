@@ -1,6 +1,6 @@
 # 06 — Lacunas, decisões e fechamento do A-14
 
-> **PENDENTE DE APROVAÇÃO, COM DECISÕES DE PRODUTO REGISTRADAS.** Estado em 20/10/2026, no código publicado em `274151a`. O A-14 **continua aberto**. Em 20/10/2026, à noite, o responsável pelo produto aprovou a D-A, a D-G (opção C) e a D-H (como diretriz) e aprovou parte da D-F (seção 0). Nenhuma está implementada; as questões jurídicas e contratuais continuam em aberto, e as demais decisões abaixo não foram tomadas.
+> **PENDENTE DE APROVAÇÃO, COM DECISÕES DE PRODUTO REGISTRADAS.** Estado em 20/10/2026, no código publicado em `274151a`. O A-14 **continua aberto**. Em 20/10/2026, à noite, o responsável pelo produto aprovou a D-A, a D-G (opção C) e a D-H (como diretriz) e aprovou parte da D-F (seção 0). A D-A foi implementada em 21/10/2026, com testes, sem push; as outras não. As questões jurídicas e contratuais continuam em aberto, e as demais decisões abaixo não foram tomadas.
 
 ## Escopo considerado
 
@@ -14,7 +14,7 @@ Parecer dado no chat em 20/10/2026, depois da análise das quatro decisões. **N
 
 | Decisão | Aprovado | Continua em aberto |
 |---|---|---|
-| **D-A** — histórico enviado à IA | As últimas **20 mensagens, desde que das últimas 72 horas**, iguais para todas as clínicas no início, ajustáveis por configuração | Nada de produto |
+| **D-A** — histórico enviado à IA | As últimas **20 mensagens, desde que das últimas 72 horas**, iguais para todas as clínicas no início, ajustáveis por configuração | Nada de produto. **Implementada em 21/10/2026, sem push**; falta conferir com o modelo real |
 | **D-F** — retenção | **Parcialmente.** **90 dias** para o texto das conversas e para os contatos que não viraram pacientes (arquivar e anonimizar) | Prazos de cadastro, agenda, cobranças e pagamentos e auditoria: revisão jurídica (J-4). Backups: dependem da hospedagem (A-12). Texto do registro de envios (`message_log`) e limpeza do cache de resposta (D-C): não citados no parecer, ficam a confirmar. Se os 90 dias contam por mensagem ou pela última mensagem da conversa: a confirmar (documento 07, seção 7) |
 | **D-G** — exclusão a pedido | **Opção C:** anonimização por solicitação, executada por comando pela Luxora a pedido da clínica, sem tela e sem agendador, testada antes do piloto | Tratamento do número compartilhado por mais de um paciente ("precisa de tratamento cuidadoso"): regra a definir antes da implementação. Pessoa que volta a escrever depois de anonimizada: proposta registrada, a confirmar. Nome nos registros antigos da auditoria: depende da D-D |
 | **D-H** — aviso de atendimento automatizado | **Como diretriz:** aviso fixo, enviado pelo código na primeira resposta a cada número, em nome da clínica, explicando o atendimento administrativo automatizado | Texto final e link do texto completo: pendentes de revisão (J-5, J-1, L8). Aviso quando o primeiro contato é uma cobrança enviada pela clínica: ligado ao A-07 |
@@ -23,7 +23,7 @@ Parecer dado no chat em 20/10/2026, depois da análise das quatro decisões. **N
 
 | # | Lacuna | Evidência | Risco | Estado |
 |---|---|---|---|---|
-| L1 | Histórico inteiro da conversa vai à Anthropic a cada mensagem, sem limite | `prisma-conversation.repository.ts` (sem `take`), `processar-mensagem-whatsapp.use-case.ts` | Exposição maior que a necessária; custo cresce com a conversa | Decidido (D-A), não implementado |
+| L1 | Histórico inteiro da conversa vai à Anthropic a cada mensagem, sem limite | `prisma-conversation.repository.ts` (sem `take`), `processar-mensagem-whatsapp.use-case.ts` | Exposição maior que a necessária; custo cresce com a conversa | Implementado e testado (D-A, 21/10/2026), sem push |
 | L2 | O texto das conversas não tem prazo e pode conter informação de saúde que o paciente decida escrever | `message.content`; nada filtra | Guarda indefinida de texto que o produto não precisa depois do atendimento | Decidido (D-F, 90 dias), não implementado |
 | L3 | Nenhum prazo de guarda aplicado fora do Redis | Documento 02 | Acúmulo sem finalidade | Parcialmente decidido (D-F): conversas e contatos sim; cadastro, agenda, financeiro e auditoria dependem do J-4; backups, do A-12 |
 | L4 | Sem exclusão, anonimização ou exportação por titular | Nenhuma rota `DELETE`; `anonimizar()` sem chamador | Pedido de titular só atendível no banco, à mão | Decidido (D-G, opção C), não implementado; número compartilhado a definir |
@@ -44,7 +44,7 @@ Parecer dado no chat em 20/10/2026, depois da análise das quatro decisões. **N
 
 ### Decisões de produto necessárias para operar
 
-**D-A — Quanto da conversa vai para a IA (L1, D2 de `02-Contratos-de-Integracoes-Externas.md`).** Hoje vai a conversa inteira. Alternativas: (1) últimas N mensagens; (2) últimas X horas; (3) as duas; (4) resumo. **Recomendação:** (3), com N e X fixados por teste de conversa real na homologação. O corte fica no caso de uso da IA: o repositório também serve à regra da resposta a áudio e imagem (`receber-mensagem-whatsapp.use-case.ts`). **Aprovado em 20/10/2026:** 20 mensagens dentro de 72 horas, iguais para todas as clínicas no início. Não implementado (documento 07, etapa 1).
+**D-A — Quanto da conversa vai para a IA (L1, D2 de `02-Contratos-de-Integracoes-Externas.md`).** Hoje vai a conversa inteira. Alternativas: (1) últimas N mensagens; (2) últimas X horas; (3) as duas; (4) resumo. **Recomendação:** (3), com N e X fixados por teste de conversa real na homologação. O corte fica no caso de uso da IA: o repositório também serve à regra da resposta a áudio e imagem (`receber-mensagem-whatsapp.use-case.ts`). **Aprovado em 20/10/2026:** 20 mensagens dentro de 72 horas, iguais para todas as clínicas no início. **Implementado em 21/10/2026** (documento 07, etapa 1). Pendências: conferir com o modelo real; mensagens seguidas do mesmo papel, que já existiam; ordem de mensagens gravadas no mesmo instante.
 
 **D-F — Retenção, reduzida ao que tem volume (L2, L3).** Decidir finalidade e fim (apagar ou anonimizar) de três categorias: texto das conversas, contatos que nunca viraram pacientes e backups. Agenda, financeiro e auditoria esperam o J-4. Não há agendador: no piloto a rotina seria manual, com simulação antes. **Recomendação:** o texto das conversas serve ao agendamento e à cobrança; um prazo curto depois da última mensagem é proporcional, com o prazo decidido por você. **Aprovado em parte em 20/10/2026:** 90 dias para o texto das conversas e para os contatos que não viraram pacientes; agenda, financeiro e auditoria esperam o J-4, e os backups, a hospedagem (A-12). Não implementado (documento 07, etapa 4).
 
@@ -93,7 +93,7 @@ Proposta revista em 20/10/2026 para o escopo administrativo; substitui a lista d
 | Inventário dos dados revisado e aceito pelo responsável pelo produto | Implementado, não aprovado (documento 01) |
 | Termo com a clínica revisado (J-1, J-5) e assinado, com as decisões comerciais tomadas | Dependente de terceiros e de decisão |
 | Aviso ao paciente aprovado e enviado na primeira mensagem (D-H, J-5) | Diretriz decidida; texto e link pendentes de revisão; não implementado |
-| Limite do que vai à IA implementado e testado (D-A, D-B) | D-A decidida, não implementada; D-B pendente |
+| Limite do que vai à IA implementado e testado (D-A, D-B) | D-A implementada e testada (21/10/2026, sem push); D-B pendente |
 | Corpo da chamada à IA sem telefone e sem identificadores internos | Implementado e testado; falta aprovação do inventário |
 | Retenção de conversas, contatos e backups decidida e aplicada (D-F; J-4 para o resto) | Conversas e contatos decididos (90 dias), não aplicados; backups dependem do A-12 |
 | Pedido de exclusão atendível sem operação manual no banco (D-G) | Decidido (comando), não implementado |
