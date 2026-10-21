@@ -5,6 +5,7 @@ import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
+import { findCcvLeaks } from '../support/card-secret-leaks';
 
 /**
  * [CRÍTICO — Fase 2 da auditoria, R5] Dado de cartão não fica exposto.
@@ -17,6 +18,11 @@ import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFi
  *
  * A rede é substituída (fetch global) e ASAAS_BASE_URL aponta para um
  * endereço inválido durante o arquivo: nenhuma chamada real à Asaas.
+ *
+ * O número do cartão é procurado como texto (16 dígitos não aparecem por
+ * acaso). O CCV tem 4 dígitos e aparece por acaso em ids de span,
+ * timestamps e portas: é procurado como valor, por `findCcvLeaks`
+ * (test/support/card-secret-leaks.ts) — CI 39610045522.
  */
 
 const PAN = '4111111111111111';
@@ -137,7 +143,7 @@ describe('[CRÍTICO — R5] Dado de cartão não fica exposto', () => {
 
     expect(JSON.stringify(res.body)).not.toContain(PAN);
     expect(output).not.toContain(PAN);
-    expect(output).not.toContain(CCV);
+    expect(findCcvLeaks(output, CCV)).toEqual([]);
   });
 
   it('pior caso: a Asaas devolve erro ecoando o cartão — resposta genérica, e o log do erro não contém número nem CCV', async () => {
@@ -156,13 +162,13 @@ describe('[CRÍTICO — R5] Dado de cartão não fica exposto', () => {
     expect(res.status).toBe(500);
     expect(res.body.error.code).toBe('INTERNAL_SERVER_ERROR');
     expect(res.text).not.toContain(PAN);
-    expect(res.text).not.toContain(CCV);
+    expect(findCcvLeaks(res.text, CCV)).toEqual([]);
 
     // O erro FOI logado (o filtro registra todo 500) — sem o dado de cartão.
     expect(output).toContain('Falha na chamada Asaas PUT');
     expect(output).toContain('invalid_creditCard');
     expect(output).not.toContain(PAN);
-    expect(output).not.toContain(CCV);
+    expect(findCcvLeaks(output, CCV)).toEqual([]);
   });
 
   it('erro de validação não ecoa o valor enviado', async () => {
@@ -176,7 +182,7 @@ describe('[CRÍTICO — R5] Dado de cartão não fica exposto', () => {
 
     expect(res.status).toBe(400);
     expect(res.text).not.toContain(PAN);
-    expect(res.text).not.toContain(CCV);
+    expect(findCcvLeaks(res.text, CCV)).toEqual([]);
     expect(output).not.toContain(PAN);
     expect(fetchMock).not.toHaveBeenCalled();
   });
