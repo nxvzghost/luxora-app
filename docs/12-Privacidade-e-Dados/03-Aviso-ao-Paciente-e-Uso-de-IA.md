@@ -41,7 +41,7 @@ Notas:
 >
 > **Outros serviços.** As mensagens passam pelo WhatsApp, da Meta. [Condições da Meta e da Anthropic sobre guarda e uso dos dados: a preencher depois de verificadas nos contratos das contas usadas.] [Local de processamento: a verificar.]
 >
-> **Por quanto tempo.** O texto das mensagens é apagado depois de 90 dias, e o contato de quem não chegou a ser paciente é anonimizado depois de 90 dias sem conversa. O cadastro, as consultas e as cobranças ficam pelo prazo que a clínica precisa manter [a definir com avaliação jurídica, J-4]. *(Prazos aprovados em 20/10/2026 e ainda não aplicados: esta frase só pode ser publicada quando a rotina estiver em uso.)*
+> **Por quanto tempo.** As mensagens são guardadas como histórico administrativo da clínica [prazo e condições a definir com avaliação jurídica, J-2 e J-4], e o contato de quem não chegou a ser paciente é anonimizado depois de 90 dias sem conversa. O cadastro, as consultas e as cobranças ficam pelo prazo que a clínica precisa manter [a definir com avaliação jurídica, J-4]. *(O rascunho de 20/10/2026 dizia que o texto seria apagado em 90 dias; a decisão foi revista em 21/10/2026 e o histórico é preservado. O prazo dos contatos ainda não está aplicado: esta frase só pode ser publicada quando a rotina estiver em uso.)*
 >
 > **Seus direitos.** Você pode pedir acesso, correção ou exclusão dos seus dados [pelo canal: a definir]. A exclusão é feita por anonimização: o nome e o telefone saem, e os registros de consultas e pagamentos que a clínica precisa manter ficam sem identificação. [Prazo de resposta: a definir com avaliação jurídica.] Alguns registros podem precisar ser mantidos por obrigação da clínica [a confirmar quais].
 >
@@ -51,5 +51,5 @@ Notas:
 
 - Que os dados não são usados para treinar modelos, ou que a Anthropic ou a Meta apagam os dados em determinado prazo: depende das condições das contas, não verificadas.
 - Que os dados ficam no Brasil.
-- Que as mensagens são apagadas depois de um prazo: o prazo de 90 dias foi decidido em 20/10/2026, mas não está aplicado.
+- Que as mensagens são apagadas depois de um prazo: o histórico é preservado, sem exclusão automática (revisão de 21/10/2026). A exclusão só acontece a pedido, por anonimização (D-G), ainda não implementada.
 - Que a equipe revisa as respostas antes do envio: não revisa.

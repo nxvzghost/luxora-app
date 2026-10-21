@@ -1,6 +1,6 @@
 # Privacidade e dados — Vertex
 
-> **PENDENTE DE APROVAÇÃO, COM DECISÕES DE PRODUTO REGISTRADAS.** Nenhum aviso foi publicado e nenhum contrato existe. Em 20/10/2026 o responsável pelo produto aprovou a D-A, a D-G (opção C), a D-H (como diretriz) e parte da D-F ([documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0); só a D-A está implementada (publicada em 21/10/2026, `6d307e0`), e o plano está no [documento 07](./07-Plano-de-Implementacao-das-Decisoes.md). O resto são rascunhos para resolver o bloqueador **A-14** (governança dos dados de pacientes) antes do piloto, dependentes de decisão e, nos pontos marcados, de avaliação jurídica. Nenhum documento daqui declara conformidade com a LGPD.
+> **PENDENTE DE APROVAÇÃO, COM DECISÕES DE PRODUTO REGISTRADAS.** Nenhum aviso foi publicado e nenhum contrato existe. Em 20/10/2026 o responsável pelo produto aprovou a D-A, a D-G (opção C), a D-H (como diretriz) e parte da D-F ([documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0); em 21/10/2026 a D-F foi revista para o histórico das conversas, preservado sem exclusão automática; só a D-A está implementada (publicada em 21/10/2026, `6d307e0`), e o plano está no [documento 07](./07-Plano-de-Implementacao-das-Decisoes.md). O resto são rascunhos para resolver o bloqueador **A-14** (governança dos dados de pacientes) antes do piloto, dependentes de decisão e, nos pontos marcados, de avaliação jurídica. Nenhum documento daqui declara conformidade com a LGPD.
 
 **Origem:** achado A-14 da auditoria de 13/10/2026, aprofundado na auditoria dos bloqueadores de 20/10/2026 (Painel do Projeto, seção "Auditoria 20 out") e verificado de novo no código em 20/10/2026, no commit `8730a29`.
 **Decisão de arquitetura correspondente:** [ADR-0068](../02-Arquitetura/ADRs/ADR-0068-governanca-dos-dados-a-14.md) (proposta).
@@ -11,14 +11,14 @@ O Vertex é administrativo: agenda (marcar, cancelar, remarcar, consultar horár
 
 ## Regra desta pasta
 
-Os documentos descrevem o que o sistema **faz hoje**, com o arquivo e o teste que sustentam cada afirmação. Intenção escrita em outro documento não conta como controle implementado. Onde não há prova, o texto diz "não comprovado". Prazos, bases legais, papéis na LGPD e compromissos de fornecedor **não** são afirmados aqui: aparecem como pergunta em aberto. Exceção: os 90 dias aprovados na D-F (documento 02, seção 5), que são decisão de produto, não prazo legal.
+Os documentos descrevem o que o sistema **faz hoje**, com o arquivo e o teste que sustentam cada afirmação. Intenção escrita em outro documento não conta como controle implementado. Onde não há prova, o texto diz "não comprovado". Prazos, bases legais, papéis na LGPD e compromissos de fornecedor **não** são afirmados aqui: aparecem como pergunta em aberto. Exceção: as decisões de produto da D-F (documento 02, seção 5) — 90 dias para contatos que não viraram pacientes e, desde 21/10/2026, o histórico das conversas preservado sem exclusão automática —, que não são prazo legal.
 
 ## Documentos
 
 | # | Documento | Para quê | Estado |
 |---|---|---|---|
 | 01 | [Inventário e fluxo dos dados](./01-Inventario-e-Fluxo-dos-Dados.md) | Que dado entra, onde fica, para onde sai, quem acessa | Levantado no código; precisa de revisão |
-| 02 | [Retenção, exclusão e backups](./02-Retencao-Exclusao-e-Backups.md) | O que hoje é guardado e por quanto tempo, e as opções de política | 90 dias para conversas e contatos aprovados em 20/10/2026, não implementados; o resto depende do J-4 e do A-12 |
+| 02 | [Retenção, exclusão e backups](./02-Retencao-Exclusao-e-Backups.md) | O que hoje é guardado e por quanto tempo, e as opções de política | Histórico das conversas preservado, sem exclusão automática (revisão de 21/10/2026); 90 dias para contatos, não implementados; o resto depende do J-4 e do A-12 |
 | 03 | [Aviso ao paciente e uso de IA](./03-Aviso-ao-Paciente-e-Uso-de-IA.md) | Rascunho do texto ao paciente | Diretriz aprovada em 20/10/2026; texto e link pendentes de revisão |
 | 04 | [Responsabilidades entre clínica e fornecedor](./04-Responsabilidades-Clinica-e-Fornecedor.md) | Roteiro do termo entre a clínica e a Luxora | Roteiro, sem aprovação jurídica |
 | 05 | [Solicitações de titulares e incidentes](./05-Solicitacoes-de-Titulares-e-Incidentes.md) | Como atender acesso, correção, exclusão e incidente com o que existe hoje | Procedimento provisório |

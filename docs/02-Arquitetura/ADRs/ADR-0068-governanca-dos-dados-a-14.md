@@ -1,6 +1,6 @@
 # ADR-0068 — Governança dos dados dos pacientes (A-14)
 
-**Status:** PROPOSTA — pendente de avaliação jurídica. Em 20/10/2026, à noite, o responsável pelo produto aprovou a D-A, a D-G (opção C), a D-H (como diretriz) e parte da D-F (seção "Decisões de produto"). A D-A foi implementada em 21/10/2026 e publicada no mesmo dia no `6d307e0` (CI 39594279031 verde nos 7 jobs); as demais não estão implementadas. A única mudança de código da revisão de 20/10/2026 foi um teste.
+**Status:** PROPOSTA — pendente de avaliação jurídica. Em 20/10/2026, à noite, o responsável pelo produto aprovou a D-A, a D-G (opção C), a D-H (como diretriz) e parte da D-F (seção "Decisões de produto"); em 21/10/2026 revisou a D-F para o histórico das conversas, preservado sem exclusão automática. A D-A foi implementada em 21/10/2026 e publicada no mesmo dia no `6d307e0` (CI 39594279031 verde nos 7 jobs); as demais não estão implementadas. A única mudança de código da revisão de 20/10/2026 foi um teste.
 **Origem:** achado **A-14** da auditoria (governança dos dados de pacientes), aprofundado na auditoria dos bloqueadores de 20/10/2026 e revisto no código do commit `8730a29` em 20/10/2026.
 **Documentos:** [`docs/12-Privacidade-e-Dados/`](../../12-Privacidade-e-Dados/README.md) — inventário, retenção, aviso ao paciente, responsabilidades, titulares e incidentes, lacunas e critérios de fechamento.
 
@@ -28,7 +28,7 @@ O Vertex é um sistema administrativo de clínicas e consultórios: agenda, cobr
 Registradas no [documento 06](../../12-Privacidade-e-Dados/06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0, com plano no [documento 07](../../12-Privacidade-e-Dados/07-Plano-de-Implementacao-das-Decisoes.md):
 
 - **D-A:** últimas 20 mensagens dentro das últimas 72 horas, iguais para todas as clínicas no início.
-- **D-F, em parte:** 90 dias para o texto das conversas e para os contatos que não viraram pacientes. Cadastro, agenda, financeiro e auditoria esperam o J-4; backups, a hospedagem (A-12).
+- **D-F, em parte:** em 20/10/2026, 90 dias para o texto das conversas e para os contatos que não viraram pacientes. **Revista em 21/10/2026:** o histórico das conversas é preservado como registro administrativo, sem exclusão automática; os 90 dias continuam para os contatos. A adequação jurídica da guarda do histórico depende do J-2 e do J-4. Cadastro, agenda, financeiro e auditoria esperam o J-4; backups, a hospedagem (A-12).
 - **D-G:** anonimização por solicitação, executada por comando e testada antes do piloto; o número compartilhado precisa de regra própria.
 - **D-H, como diretriz:** aviso fixo na primeira resposta, em nome da clínica; texto final e link pendentes de revisão.
 

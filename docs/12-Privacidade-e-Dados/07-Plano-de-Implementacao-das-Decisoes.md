@@ -1,6 +1,6 @@
 # 07 — Plano de implementação das decisões do A-14
 
-> **PLANO EM ANDAMENTO.** Preparado em 20/10/2026, à noite, no código de `274151a`, a partir do parecer do responsável pelo produto registrado no [documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0. A etapa 1 (D-A) foi implementada em 21/10/2026, com testes e prova por mutação, e publicada no mesmo dia no `6d307e0` (CI 39594279031 verde nos 7 jobs; sem deploy); as demais não começaram. Cada etapa só começa com autorização; cada commit e cada push pedem autorização própria. O A-14 continua aberto e nenhum documento desta pasta declara conformidade com a LGPD.
+> **PLANO EM ANDAMENTO.** Preparado em 20/10/2026, à noite, no código de `274151a`, a partir do parecer do responsável pelo produto registrado no [documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0. A etapa 1 (D-A) foi implementada em 21/10/2026, com testes e prova por mutação, e publicada no mesmo dia no `6d307e0` (CI 39594279031 verde nos 7 jobs; sem deploy); as demais não começaram. Em 21/10/2026 a D-F foi revista: o histórico das conversas é preservado, sem exclusão automática, e a etapa 4 ficou só com os contatos. Cada etapa só começa com autorização; cada commit e cada push pedem autorização própria. O A-14 continua aberto e nenhum documento desta pasta declara conformidade com a LGPD.
 
 ## 1. Regras que valem para todas as etapas
 
@@ -17,7 +17,7 @@
 | 1 | D-A — histórico enviado à IA | Pequena | Nada | A frase do aviso completo sobre o que a IA recebe |
 | 2 | D-H — aviso de atendimento automatizado | Média (uma migração) | Onde fica o texto completo (link). O uso com paciente real precisa do texto revisado (J-5, J-1, L8) | — |
 | 3 | D-G — anonimização por solicitação | Grande | Regra do número compartilhado. A parte da auditoria antiga depende da D-D | As transições de contato que a etapa 4 usa |
-| 4 | D-F — retenção de 90 dias | Média | Leitura dos 90 dias (seção 7). Etapa 3, para os contatos já identificados | — |
+| 4 | D-F — 90 dias para contatos que não viraram pacientes (histórico das conversas preservado, revisão de 21/10/2026) | Média | Etapa 3, para os contatos já identificados | — |
 
 ## 3. Etapa 1 — D-A: 20 mensagens dentro de 72 horas
 
@@ -113,23 +113,26 @@
 
 **Documentos depois:** documento 05 (procedimento real), 02, 01, `08-Contact`, roteiro de operação em `docs/07-Infra/`, ADR-0068.
 
-## 6. Etapa 4 — D-F: 90 dias para conversas e contatos
+## 6. Etapa 4 — D-F: 90 dias para contatos (histórico das conversas preservado)
+
+> **Revisão de 21/10/2026:** o responsável pelo produto decidiu preservar o histórico das conversas, sem exclusão automática por prazo ([documento 06](./06-Lacunas-Decisoes-e-Fechamento-do-A-14.md), seção 0). A parte do comando que apagaria o texto das conversas foi retirada do plano e fica abaixo, riscada, como registro da proposta anterior. Os 90 dias continuam valendo para os contatos que não viraram pacientes.
 
 **Hoje.** Os únicos prazos aplicados são os do Redis (24 horas, 7 e 14 dias; cache de sessão de 60 segundos). Não há agendador (A-19).
 
 **Mudanças**
-- Comando de retenção por clínica, com `--simular`, que faz duas coisas:
-  - apaga o texto das conversas vencidas, conforme a leitura dos 90 dias confirmada (seção 7), mantendo data, direção e status;
+- Comando de retenção por clínica, com `--simular`, que fazia duas coisas e passa a fazer só a segunda:
+  - ~~apaga o texto das conversas vencidas, conforme a leitura dos 90 dias confirmada (seção 7), mantendo data, direção e status;~~ retirado em 21/10/2026: nenhuma mensagem é apagada por prazo;
   - arquiva e anonimiza os contatos que não viraram pacientes depois de 90 dias sem interação (já existe para `Novo` e `Conversando`; para `Identificado` nunca vinculado, usa o caminho da etapa 3).
 - Cada execução fica registrada (quando, quem, contagens por tabela).
 - **Fora do comando:**
   - cadastro, agenda, cobranças e pagamentos e auditoria (J-4);
   - backups (A-12);
-  - o texto do registro de envios e o cache de resposta (D-C), até a confirmação de cada um.
+  - o histórico das conversas e o registro de envios, preservados (revisão de 21/10/2026);
+  - o cache de resposta (D-C), até a confirmação.
 - No piloto, a execução é manual e mensal, com a simulação antes; o agendador fica para o A-19.
 
 **Testes** (críticos, com relógio controlado)
-- Só o que passou de 90 dias é tocado; a conversa ativa segue a leitura confirmada.
+- Só os contatos com mais de 90 dias sem interação são tocados; nenhuma mensagem nem registro de envio é alterado.
 - O contato que virou paciente nunca é tocado; financeiro e agenda intactos.
 - Isolamento entre clínicas; rodar duas vezes não muda nada; a simulação não altera nada.
 - A regra de 6 horas da mídia continua funcionando.
@@ -141,8 +144,8 @@
 
 | Pendência | Quem decide | Bloqueia |
 |---|---|---|
-| Os 90 dias do texto contam **por mensagem** (o texto de cada mensagem sai 90 dias depois de enviado) ou **pela última mensagem da conversa** (sai tudo 90 dias depois da última troca)? Na segunda leitura, uma conversa ativa guarda todo o texto antigo. Recomendação técnica: por mensagem | Responsável pelo produto | Etapa 4 |
-| Texto do registro de envios (`message_log`) no mesmo prazo, ficando data, status e final do número | Responsável pelo produto | Parte da etapa 4 |
+| ~~Os 90 dias do texto contam **por mensagem** (o texto de cada mensagem sai 90 dias depois de enviado) ou **pela última mensagem da conversa** (sai tudo 90 dias depois da última troca)? Na segunda leitura, uma conversa ativa guarda todo o texto antigo. Recomendação técnica: por mensagem~~ **Superada em 21/10/2026:** o histórico das conversas não é apagado por prazo | Responsável pelo produto | — |
+| ~~Texto do registro de envios (`message_log`) no mesmo prazo, ficando data, status e final do número~~ **Revista em 21/10/2026:** os registros de envio e entrega são preservados com o histórico, sem exclusão automática | Responsável pelo produto | — |
 | Limpeza do cache de resposta (D-C), com a correção da retomada | Responsável pelo produto (tarefa técnica) | Parte da etapa 4 |
 | Regra do número compartilhado | Responsável pelo produto | Etapa 3 |
 | Pessoa que volta a escrever depois de anonimizada entra como contato novo | Responsável pelo produto | Etapa 3 |
@@ -150,6 +153,7 @@
 | Onde fica o texto completo do aviso (link) | Responsável pelo produto | Etapa 2 |
 | Aviso quando o primeiro contato é uma cobrança enviada pela clínica | Responsável pelo produto, com o A-07 | Fora da etapa 2 |
 | Texto final do aviso e do texto completo | Avaliação jurídica (J-5); responsável (J-1); fornecedores (L8) | Uso com paciente real |
+| Adequação da guarda do histórico das conversas sem prazo automático (texto livre que pode conter informação de saúde) | Avaliação jurídica (J-2, J-4) | Nenhuma etapa |
 | Prazos de cadastro, agenda, financeiro e auditoria | Avaliação jurídica (J-4) | Nenhuma etapa |
 | Backups (rotação e cópia externa) | Escolha da hospedagem (A-12) | Nenhuma etapa |
 
@@ -159,4 +163,4 @@ D-B, D-D (só a dependência citada), D-E, D-I, L13, a opção "falar só com a 
 
 ## 9. Efeito no fechamento do A-14
 
-Cumprir as quatro etapas atende, no documento 06, seção 3, os critérios do limite do que vai à IA (com a D-B ainda pendente), do aviso enviado (com o texto ainda dependente do J-5), da retenção de conversas e contatos e da exclusão sem operação manual no banco. O A-14 só fecha com os demais critérios: termo com a clínica, textos aprovados pelo jurídico, condições dos fornecedores (L8), auditoria protegida (D-D) e backup externo (A-12).
+Cumprir as quatro etapas atende, no documento 06, seção 3, os critérios do limite do que vai à IA (com a D-B ainda pendente), do aviso enviado (com o texto ainda dependente do J-5), da retenção de contatos (o histórico das conversas é preservado sem exclusão automática por decisão de 21/10/2026, com a adequação jurídica pendente, J-2 e J-4) e da exclusão sem operação manual no banco. O A-14 só fecha com os demais critérios: termo com a clínica, textos aprovados pelo jurídico, condições dos fornecedores (L8), auditoria protegida (D-D) e backup externo (A-12).

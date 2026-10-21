@@ -116,7 +116,7 @@ Todas as tabelas com clínica têm RLS (`apps/backend/prisma/rls/enable-rls.sql`
 | Corpo da chamada à Anthropic sem telefone e sem identificadores internos | Implementado, testado (A-14, 20/10) |
 | Retenção das filas no Redis | Implementado (24 h / 7 d / 14 d) |
 | Limite do histórico enviado à IA | Ausente — pendente de decisão (D2) |
-| Retenção de conversas, envios, contatos, avisos, auditoria, backups | Ausente — pendente de decisão |
+| Retenção de conversas, envios, contatos, avisos, auditoria, backups | Ausente. Conversas e envios: preservados, sem exclusão automática, por decisão de 21/10/2026; contatos: 90 dias decididos, não aplicados; demais pendentes de decisão (J-4, A-12) |
 | Exclusão, correção e exportação a pedido do titular | Ausente (só pelo banco) |
 | Aviso ao paciente sobre atendimento automatizado e IA | Ausente |
 | Política de privacidade e termo no painel | Ausente |

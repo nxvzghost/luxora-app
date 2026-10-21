@@ -4,6 +4,15 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Histórico das conversas preservado — D-F do A-14 revista (2026-10-21)
+
+Decisão do responsável pelo produto, registrada só em documentos; nenhum código mudou e nada foi implementado. O A-14 continua aberto.
+
+- **Revista:** em 20/10/2026 a D-F previa apagar o texto das conversas em 90 dias. Agora o histórico das conversas sobre agendamentos, cancelamentos, remarcações e cobranças é preservado como registro administrativo da clínica, sem exclusão automática por prazo e sem rotina de exclusão, com datas, horários, origem das mensagens e os registros disponíveis de envio e entrega.
+- **Sem mudança:** a D-A (a IA recebe no máximo 20 mensagens, contando a atual, das últimas 72 horas, `6d307e0`); os 90 dias para contatos que não viraram pacientes; a anonimização a pedido (D-G); as permissões de acesso (o painel continua sem mostrar o conteúdo das conversas).
+- **Pendente:** adequação jurídica da guarda do histórico sem prazo automático (J-2, J-4); limpeza do cache de resposta (D-C).
+- **Documentos:** README, 01, 02, 03, 06 e 07 de `12-Privacidade-e-Dados` e ADR-0068.
+
 ### IA recebe só o trecho recente da conversa — D-A do A-14 (2026-10-21)
 
 Decisão D-A do responsável pelo produto: cada chamada à IA leva no máximo 20 mensagens, contando a atual, e só as das últimas 72 horas, com a mesma regra para todas as clínicas. Publicado em 21/10/2026 no `6d307e0`, com CI 39594279031 verde nos 7 jobs no GitHub; sem deploy. O A-14 continua aberto.
