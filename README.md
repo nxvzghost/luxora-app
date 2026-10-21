@@ -2,7 +2,7 @@
 
 "Tecnologia que ilumina decisões."
 
-Plataforma operacional para clínicas de saúde mental — automação de agenda, cobrança e follow-up via agente de IA no WhatsApp, com o terapeuta sempre no centro da decisão clínica.
+Sistema integrado de agendamento e gestão financeira para clínicas e consultórios — agenda, cobranças e cadastro básico de pacientes, com atendimento administrativo por agente de IA no WhatsApp de cada clínica. É um sistema administrativo: não guarda prontuário, laudos nem exames, e o atendimento clínico é do profissional com o paciente.
 
 **Nomenclatura.** Luxora é a plataforma/ecossistema-base; Vertex é o produto/projeto que está sendo construído dentro da Luxora. O repositório técnico é `luxora-app` e os identificadores técnicos (pacotes `@luxora/*`, pastas, imports) mantêm o nome `luxora` — a relação Vertex/Luxora é de nomenclatura de produto e não implica renomear código. Os títulos e marcos de alguns documentos (CHANGELOG, PLANO de execução, `ARCHITECTURE_MILESTONE`) usam "Vertex" ou "Vertex/Luxora" para este mesmo projeto.
 

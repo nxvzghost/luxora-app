@@ -2,7 +2,7 @@
   "name": "luxora",
   "private": true,
   "version": "0.1.0",
-  "description": "Luxora — Plataforma operacional para clínicas de saúde mental. Tecnologia que ilumina decisões.",
+  "description": "Luxora — Sistema integrado de agendamento e gestão financeira para clínicas e consultórios. Tecnologia que ilumina decisões.",
   "workspaces": [
     "apps/*",
     "packages/*"

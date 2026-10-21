@@ -4,6 +4,14 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Descrições alinhadas ao escopo oficial (2026-10-20)
+
+A pedido do responsável pelo produto, as descrições do produto deixaram de falar em "clínicas de saúde mental" e em participação na decisão clínica. Referência: "Sistema integrado de agendamento e gestão financeira para clínicas e consultórios." Só textos; nenhuma funcionalidade mudou. Commit local, sem push.
+
+- `README.md`: abertura reescrita (agenda, cobranças e cadastro básico; sistema administrativo, sem prontuário, laudos ou exames).
+- `apps/frontend/app/layout.tsx`: descrição da página do painel (`metadata.description`).
+- `package.json`: descrição interna do monorepo.
+
 ### IA sem especialidade presumida — L16 do A-14 (2026-10-20)
 
 A pedido do responsável pelo produto: o Vertex atende clínicas e consultórios em geral, e os textos fixos da IA deixaram de presumir saúde mental. Commit local, sem push.

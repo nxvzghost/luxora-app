@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Luxora — Tecnologia que ilumina decisões',
-  description: 'Plataforma operacional para clínicas de saúde mental.',
+  description: 'Sistema integrado de agendamento e gestão financeira para clínicas e consultórios.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
