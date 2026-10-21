@@ -4,6 +4,15 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Governança dos dados — decisões de produto do A-14 e plano (2026-10-20)
+
+Parecer do responsável pelo produto, registrado nos documentos do A-14. Só documentos; nenhum código mudou, nada implementado. O A-14 continua aberto.
+
+- **Aprovadas:** D-A (últimas 20 mensagens dentro de 72 horas), D-G (anonimização por solicitação, por comando, testada antes do piloto) e D-H como diretriz (aviso fixo na primeira resposta, em nome da clínica). **Em parte:** D-F (90 dias para o texto das conversas e para os contatos que não viraram pacientes).
+- **Em aberto:** prazos de cadastro, agenda, financeiro e auditoria (J-4); backups (A-12); regra do número compartilhado na D-G; texto final e link do aviso (J-5, J-1, L8); se os 90 dias contam por mensagem ou por conversa.
+- **Plano:** `docs/12-Privacidade-e-Dados/07-Plano-de-Implementacao-das-Decisoes.md`, em quatro etapas (D-A, D-H, D-G, D-F), cada uma com autorização própria.
+- Registrado também na D2 do documento de contratos, na nota de `05-IA/00-Provedor-e-Interface.md`, nos documentos 02, 03, 05 e 06, no README da pasta e na ADR-0068.
+
 ### Descrições alinhadas ao escopo oficial (2026-10-20)
 
 A pedido do responsável pelo produto, as descrições do produto deixaram de falar em "clínicas de saúde mental" e em participação na decisão clínica. Referência: "Sistema integrado de agendamento e gestão financeira para clínicas e consultórios." Só textos; nenhuma funcionalidade mudou. Commit local, sem push.

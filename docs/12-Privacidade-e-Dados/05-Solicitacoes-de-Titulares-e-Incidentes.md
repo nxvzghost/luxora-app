@@ -22,6 +22,7 @@
    - **Acesso:** relatório montado à mão, sem texto de outras pessoas (número compartilhado por responsável e dependente, ADR-0063).
    - **Correção:** pelo painel.
    - **Exclusão:** hoje não há rotina segura. Antes do piloto, a decisão é entre (a) não aceitar exclusão no piloto e informar isso no termo e no aviso, ou (b) escrever e testar uma rotina de anonimização por paciente e por contato (documento 02, seção 3) antes de abrir o piloto. Apagar linhas à mão no banco quebra a contabilidade e a trilha e não é recomendado.
+     **Decidido em 20/10/2026 (D-G):** opção (b), na forma de um comando executado pela Luxora a pedido da clínica, sem tela e sem agendador, testado antes do piloto ([documento 07](./07-Plano-de-Implementacao-das-Decisoes.md), etapa 3). Até ele existir, nenhum pedido é atendido apagando linhas à mão. O número compartilhado por mais de um paciente precisa de regra própria, a definir antes da implementação.
 5. **Backups.** O dado continua nos backups feitos antes da exclusão até eles vencerem. O registro do pedido serve para reaplicar a exclusão se um backup antigo for restaurado.
 6. **Responder** a quem pediu, no prazo [a definir].
 

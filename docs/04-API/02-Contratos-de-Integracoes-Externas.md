@@ -280,6 +280,8 @@ Comparação das alternativas pedidas na Fase 3B (mesmas premissas da estimativa
 
 **Não há regra escrita que defina o tamanho do histórico.** `05-IA/00-Provedor-e-Interface.md` calcula o orçamento supondo "histórico curto", sem dizer o que é curto. Por isso nada foi escolhido nem alterado: **decisão pendente**.
 
+**Decidido em 20/10/2026** pelo responsável pelo produto (A-14, D-A): as últimas 20 mensagens, desde que das últimas 72 horas, iguais para todas as clínicas no início e ajustáveis por configuração. Ainda não implementado; plano em `docs/12-Privacidade-e-Dados/07-Plano-de-Implementacao-das-Decisoes.md`, etapa 1.
+
 Recomendação técnica: começar pelo limite de mensagens combinado com uma janela de tempo — é a mudança pequena, com teto de custo e que reduz o dado enviado ao provider. Resumo só se o produto precisar de memória longa. A retenção das mensagens em si (apagar ou anonimizar) é outra decisão, de LGPD.
 
 **D3 — Checkout do cartão.** Checkout hospedado pela Asaas ou tokenização no navegador. Pendente desde a Fase 2; sem alteração.

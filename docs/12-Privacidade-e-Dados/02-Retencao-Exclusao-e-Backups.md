@@ -1,6 +1,6 @@
 # 02 — Retenção, exclusão e backups
 
-> **PENDENTE DE APROVAÇÃO.** Este documento **não define prazos**. Mostra o que é guardado hoje e por quanto tempo, de fato, e organiza as opções para a decisão do responsável pelo produto, com as perguntas que dependem de avaliação jurídica. Nenhuma exclusão automática deve ser implementada antes da aprovação.
+> **APROVADO EM PARTE, NÃO IMPLEMENTADO.** Em 20/10/2026 o responsável pelo produto aprovou 90 dias para o texto das conversas e para os contatos que não viraram pacientes (seção 5). As seções 1 a 4 continuam descrevendo o que o sistema faz hoje e as opções que levaram à decisão. Cadastro, agenda, financeiro e auditoria dependem de avaliação jurídica (J-4); backups, da hospedagem (A-12). Nenhuma exclusão automática roda antes da implementação aprovada e testada.
 
 ## 1. O que é guardado hoje, e por quanto tempo
 
@@ -70,3 +70,20 @@ Nada que apague ou altere dado de produção. Pode ser preparado, desligado por 
 - o registro dos pedidos de exclusão (quem pediu, quando, o que foi feito), que serve a qualquer política.
 
 Cada um desses itens fica proposto na ADR-0068 e só entra em código com a autorização correspondente.
+
+## 5. Decisão do responsável pelo produto (20/10/2026, noite)
+
+Aprovada em parte. **Nada disto está implementado**; a rotina está no [documento 07](./07-Plano-de-Implementacao-das-Decisoes.md), etapa 4. Os 90 dias são decisão de produto, com a finalidade explícita abaixo; não são prazo legal.
+
+| Categoria | Decisão | Finalidade e fim |
+|---|---|---|
+| Texto das conversas (`message.content`) | **90 dias** | O texto serve ao agendamento e à cobrança do momento; o painel não mostra conversas e, com a D-A, a IA só usa as últimas 72 horas. No fim, o texto é apagado; a linha fica com data, direção e status |
+| Contatos que nunca viraram pacientes | **90 dias sem interação** | Arquivar e anonimizar (`Contact.arquivar()` e `anonimizar()` já existem para `Novo` e `Conversando`) |
+| Registro de envios (`message_log`) | A confirmar | Proposta da análise: o texto sai no mesmo prazo, ficam data, status e o final do número. Não citado no parecer |
+| Cache de resposta (`result_payload`) | A confirmar | Proposta técnica (D-C): limpar ao despachar, com a correção da retomada. Não citado no parecer |
+| Cadastro, agenda, cobranças e pagamentos | **Pendente de revisão jurídica (J-4)** | Nada é apagado nem anonimizado por prazo até a resposta |
+| Auditoria | **Pendente de revisão jurídica (J-4)** | Idem; o nome no `payload` depende da D-D |
+| Backups | **Depende da hospedagem (A-12)** | Rotação dos backups antes do deploy e backup externo ficam para a escolha do provedor |
+| Filas do Redis e cache de sessão | Já aplicados no código | 24 h, 7 e 14 dias; 60 s |
+
+A confirmar antes da implementação: se os 90 dias do texto contam **por mensagem** (o texto de cada mensagem sai 90 dias depois de enviado) ou **pela última mensagem da conversa** (o texto inteiro sai 90 dias depois da última troca). Na segunda leitura, uma conversa ativa guarda todo o texto antigo; a recomendação técnica é a primeira.

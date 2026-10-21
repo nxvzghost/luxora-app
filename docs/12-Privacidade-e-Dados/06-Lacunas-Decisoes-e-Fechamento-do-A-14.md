@@ -1,6 +1,6 @@
 # 06 — Lacunas, decisões e fechamento do A-14
 
-> **PENDENTE DE APROVAÇÃO.** Estado em 20/10/2026, no código publicado em `884c82f`, revisto no mesmo dia para o escopo administrativo do produto. O A-14 **continua aberto**. Nenhuma decisão abaixo foi tomada.
+> **PENDENTE DE APROVAÇÃO, COM DECISÕES DE PRODUTO REGISTRADAS.** Estado em 20/10/2026, no código publicado em `274151a`. O A-14 **continua aberto**. Em 20/10/2026, à noite, o responsável pelo produto aprovou a D-A, a D-G (opção C) e a D-H (como diretriz) e aprovou parte da D-F (seção 0). Nenhuma está implementada; as questões jurídicas e contratuais continuam em aberto, e as demais decisões abaixo não foram tomadas.
 
 ## Escopo considerado
 
@@ -8,15 +8,26 @@ O Vertex é administrativo: agenda (marcar, cancelar, remarcar, consultar horár
 
 O único ponto em que informação de saúde pode entrar é o **texto livre** que o paciente decide escrever no WhatsApp da clínica: o produto não a pede nem a usa, mas o texto é guardado e vai à IA como está. As medidas abaixo são proporcionais a isso: dado administrativo, com esse texto livre como o ponto de atenção.
 
+## 0. Decisões do responsável pelo produto (20/10/2026, noite)
+
+Parecer dado no chat em 20/10/2026, depois da análise das quatro decisões. **Nenhuma está implementada.** O plano de implementação está no [documento 07](./07-Plano-de-Implementacao-das-Decisoes.md); cada etapa, commit e push depende de autorização própria. O que não está na coluna "Aprovado" continua em aberto.
+
+| Decisão | Aprovado | Continua em aberto |
+|---|---|---|
+| **D-A** — histórico enviado à IA | As últimas **20 mensagens, desde que das últimas 72 horas**, iguais para todas as clínicas no início, ajustáveis por configuração | Nada de produto |
+| **D-F** — retenção | **Parcialmente.** **90 dias** para o texto das conversas e para os contatos que não viraram pacientes (arquivar e anonimizar) | Prazos de cadastro, agenda, cobranças e pagamentos e auditoria: revisão jurídica (J-4). Backups: dependem da hospedagem (A-12). Texto do registro de envios (`message_log`) e limpeza do cache de resposta (D-C): não citados no parecer, ficam a confirmar. Se os 90 dias contam por mensagem ou pela última mensagem da conversa: a confirmar (documento 07, seção 7) |
+| **D-G** — exclusão a pedido | **Opção C:** anonimização por solicitação, executada por comando pela Luxora a pedido da clínica, sem tela e sem agendador, testada antes do piloto | Tratamento do número compartilhado por mais de um paciente ("precisa de tratamento cuidadoso"): regra a definir antes da implementação. Pessoa que volta a escrever depois de anonimizada: proposta registrada, a confirmar. Nome nos registros antigos da auditoria: depende da D-D |
+| **D-H** — aviso de atendimento automatizado | **Como diretriz:** aviso fixo, enviado pelo código na primeira resposta a cada número, em nome da clínica, explicando o atendimento administrativo automatizado | Texto final e link do texto completo: pendentes de revisão (J-5, J-1, L8). Aviso quando o primeiro contato é uma cobrança enviada pela clínica: ligado ao A-07 |
+
 ## 1. Matriz de lacunas
 
 | # | Lacuna | Evidência | Risco | Estado |
 |---|---|---|---|---|
-| L1 | Histórico inteiro da conversa vai à Anthropic a cada mensagem, sem limite | `prisma-conversation.repository.ts` (sem `take`), `processar-mensagem-whatsapp.use-case.ts` | Exposição maior que a necessária; custo cresce com a conversa | Pendente de decisão (D-A) |
-| L2 | O texto das conversas não tem prazo e pode conter informação de saúde que o paciente decida escrever | `message.content`; nada filtra | Guarda indefinida de texto que o produto não precisa depois do atendimento | Pendente de decisão (D-F) |
-| L3 | Nenhum prazo de guarda aplicado fora do Redis | Documento 02 | Acúmulo sem finalidade | Pendente de decisão (D-F) |
-| L4 | Sem exclusão, anonimização ou exportação por titular | Nenhuma rota `DELETE`; `anonimizar()` sem chamador | Pedido de titular só atendível no banco, à mão | Pendente de decisão (D-G) |
-| L5 | Paciente não é informado de atendimento automatizado nem do fornecedor de IA | `system-prompt.builder.ts` | Falta de transparência | Pendente de decisão + jurídico (D-H, J-5) |
+| L1 | Histórico inteiro da conversa vai à Anthropic a cada mensagem, sem limite | `prisma-conversation.repository.ts` (sem `take`), `processar-mensagem-whatsapp.use-case.ts` | Exposição maior que a necessária; custo cresce com a conversa | Decidido (D-A), não implementado |
+| L2 | O texto das conversas não tem prazo e pode conter informação de saúde que o paciente decida escrever | `message.content`; nada filtra | Guarda indefinida de texto que o produto não precisa depois do atendimento | Decidido (D-F, 90 dias), não implementado |
+| L3 | Nenhum prazo de guarda aplicado fora do Redis | Documento 02 | Acúmulo sem finalidade | Parcialmente decidido (D-F): conversas e contatos sim; cadastro, agenda, financeiro e auditoria dependem do J-4; backups, do A-12 |
+| L4 | Sem exclusão, anonimização ou exportação por titular | Nenhuma rota `DELETE`; `anonimizar()` sem chamador | Pedido de titular só atendível no banco, à mão | Decidido (D-G, opção C), não implementado; número compartilhado a definir |
+| L5 | Paciente não é informado de atendimento automatizado nem do fornecedor de IA | `system-prompt.builder.ts` | Falta de transparência | Diretriz decidida (D-H), não implementada; texto e link dependem de revisão (J-5) |
 | L6 | Painel sem política de privacidade nem termo | Busca no painel | Clínica sem informação formal | Dependente de terceiros (J-5) |
 | L7 | Papéis e responsabilidades não formalizados | Documento 04 | Responsabilidade indefinida | Dependente de terceiros (J-1) |
 | L8 | Condições de dados da Anthropic e da Meta não verificadas | Nada no repositório | Afirmações sem base no aviso e no termo | Dependente de terceiros |
@@ -33,13 +44,13 @@ O único ponto em que informação de saúde pode entrar é o **texto livre** qu
 
 ### Decisões de produto necessárias para operar
 
-**D-A — Quanto da conversa vai para a IA (L1, D2 de `02-Contratos-de-Integracoes-Externas.md`).** Hoje vai a conversa inteira. Alternativas: (1) últimas N mensagens; (2) últimas X horas; (3) as duas; (4) resumo. **Recomendação:** (3), com N e X fixados por teste de conversa real na homologação. O corte fica no caso de uso da IA: o repositório também serve à regra da resposta a áudio e imagem (`receber-mensagem-whatsapp.use-case.ts`).
+**D-A — Quanto da conversa vai para a IA (L1, D2 de `02-Contratos-de-Integracoes-Externas.md`).** Hoje vai a conversa inteira. Alternativas: (1) últimas N mensagens; (2) últimas X horas; (3) as duas; (4) resumo. **Recomendação:** (3), com N e X fixados por teste de conversa real na homologação. O corte fica no caso de uso da IA: o repositório também serve à regra da resposta a áudio e imagem (`receber-mensagem-whatsapp.use-case.ts`). **Aprovado em 20/10/2026:** 20 mensagens dentro de 72 horas, iguais para todas as clínicas no início. Não implementado (documento 07, etapa 1).
 
-**D-F — Retenção, reduzida ao que tem volume (L2, L3).** Decidir finalidade e fim (apagar ou anonimizar) de três categorias: texto das conversas, contatos que nunca viraram pacientes e backups. Agenda, financeiro e auditoria esperam o J-4. Não há agendador: no piloto a rotina seria manual, com simulação antes. **Recomendação:** o texto das conversas serve ao agendamento e à cobrança; um prazo curto depois da última mensagem é proporcional, com o prazo decidido por você.
+**D-F — Retenção, reduzida ao que tem volume (L2, L3).** Decidir finalidade e fim (apagar ou anonimizar) de três categorias: texto das conversas, contatos que nunca viraram pacientes e backups. Agenda, financeiro e auditoria esperam o J-4. Não há agendador: no piloto a rotina seria manual, com simulação antes. **Recomendação:** o texto das conversas serve ao agendamento e à cobrança; um prazo curto depois da última mensagem é proporcional, com o prazo decidido por você. **Aprovado em parte em 20/10/2026:** 90 dias para o texto das conversas e para os contatos que não viraram pacientes; agenda, financeiro e auditoria esperam o J-4, e os backups, a hospedagem (A-12). Não implementado (documento 07, etapa 4).
 
-**D-G — Exclusão a pedido no piloto (L4).** (a) piloto sem exclusão, informado no termo e no aviso; (b) anonimização a pedido, testada antes do piloto. **Recomendação:** (b). Correção desta revisão: `Contact.anonimizar()` só alcança contatos em `Novo` ou `Conversando` (passando por `Arquivado`); contatos `Identificado`, `Vinculado` e `Promovido` precisam de transições novas, e paciente não tem anonimização. Agenda e financeiro ficam, ligados ao registro anonimizado.
+**D-G — Exclusão a pedido no piloto (L4).** (a) piloto sem exclusão, informado no termo e no aviso; (b) anonimização a pedido, testada antes do piloto. **Recomendação:** (b). Correção desta revisão: `Contact.anonimizar()` só alcança contatos em `Novo` ou `Conversando` (passando por `Arquivado`); contatos `Identificado`, `Vinculado` e `Promovido` precisam de transições novas, e paciente não tem anonimização. Agenda e financeiro ficam, ligados ao registro anonimizado. **Aprovado em 20/10/2026:** anonimização por solicitação, executada por comando e testada antes do piloto (opção C da análise). O número compartilhado precisa de regra própria antes da implementação. Não implementado (documento 07, etapa 3).
 
-**D-H — Aviso ao paciente (L5).** Quem avisa (a clínica, conforme o J-1), quando (primeira mensagem de cada contato) e onde fica o texto completo. **Recomendação:** aviso da clínica na primeira mensagem, dizendo que o canal é administrativo e automatizado e pedindo que não se envie informação de saúde, com link. É resposta a mensagem recebida, então não precisa de template da Meta.
+**D-H — Aviso ao paciente (L5).** Quem avisa (a clínica, conforme o J-1), quando (primeira mensagem de cada contato) e onde fica o texto completo. **Recomendação:** aviso da clínica na primeira mensagem, dizendo que o canal é administrativo e automatizado e pedindo que não se envie informação de saúde, com link. É resposta a mensagem recebida, então não precisa de template da Meta. **Aprovado como diretriz em 20/10/2026:** aviso fixo na primeira resposta, em nome da clínica; texto final e link pendentes de revisão. Não implementado (documento 07, etapa 2).
 
 **Termo com a clínica (documento 04).** Decisões comerciais que entram no termo: métricas que a Luxora faz por conta própria (item 2); devolução, exportação e exclusão no fim do contrato (item 6); duração e fim da cortesia do piloto (item 11; A-16); em que situações a Luxora acessa dados (item 9, D-I); titular da conta na Meta (A-07).
 
@@ -81,11 +92,11 @@ Proposta revista em 20/10/2026 para o escopo administrativo; substitui a lista d
 |---|---|
 | Inventário dos dados revisado e aceito pelo responsável pelo produto | Implementado, não aprovado (documento 01) |
 | Termo com a clínica revisado (J-1, J-5) e assinado, com as decisões comerciais tomadas | Dependente de terceiros e de decisão |
-| Aviso ao paciente aprovado e enviado na primeira mensagem (D-H, J-5) | Pendente de decisão + jurídico |
-| Limite do que vai à IA implementado e testado (D-A, D-B) | Pendente de decisão |
+| Aviso ao paciente aprovado e enviado na primeira mensagem (D-H, J-5) | Diretriz decidida; texto e link pendentes de revisão; não implementado |
+| Limite do que vai à IA implementado e testado (D-A, D-B) | D-A decidida, não implementada; D-B pendente |
 | Corpo da chamada à IA sem telefone e sem identificadores internos | Implementado e testado; falta aprovação do inventário |
-| Retenção de conversas, contatos e backups decidida e aplicada (D-F; J-4 para o resto) | Pendente de decisão |
-| Pedido de exclusão atendível sem operação manual no banco (D-G) | Pendente de decisão |
+| Retenção de conversas, contatos e backups decidida e aplicada (D-F; J-4 para o resto) | Conversas e contatos decididos (90 dias), não aplicados; backups dependem do A-12 |
+| Pedido de exclusão atendível sem operação manual no banco (D-G) | Decidido (comando), não implementado |
 | Procedimento de titulares e incidentes aprovado, com responsáveis nomeados (documento 05) | Implementado, não aprovado |
 | Condições da Anthropic e da Meta registradas e refletidas no aviso e no termo (L8, J-3) | Dependente de terceiros |
 | Auditoria protegida no banco e sem nome no `payload` (D-D) | Tarefa técnica pendente |
