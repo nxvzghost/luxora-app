@@ -12,7 +12,6 @@ import {
 import { PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { PrismaPatientRepository } from '@infrastructure/database/repositories/prisma-patient.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { AUDIT_LOG_REPOSITORY } from '@domain-services/platform/audit-log.repository';
 import { PrismaAuditLogRepository } from '@infrastructure/database/repositories/prisma-audit-log.repository';
@@ -38,7 +37,6 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     DarAltaPacienteUseCase,
     { provide: PATIENT_REPOSITORY, useClass: PrismaPatientRepository },
     PrismaService,
-    PrismaClientProvider,
     AuditService,
     { provide: AUDIT_LOG_REPOSITORY, useClass: PrismaAuditLogRepository },
     JwtAuthGuard,

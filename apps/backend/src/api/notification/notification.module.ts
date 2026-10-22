@@ -9,7 +9,6 @@ import {
 import { NOTIFICATION_REPOSITORY } from '@domain-services/platform/notification.repository';
 import { PrismaNotificationRepository } from '@infrastructure/database/repositories/prisma-notification.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
@@ -31,7 +30,6 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     MarcarNotificacaoComoLidaUseCase,
     { provide: NOTIFICATION_REPOSITORY, useClass: PrismaNotificationRepository },
     PrismaService,
-    PrismaClientProvider,
     SubscriptionAccessGuard,
     { provide: CLINIC_SUBSCRIPTION_REPOSITORY, useClass: PrismaClinicSubscriptionRepository },
     JwtAuthGuard,

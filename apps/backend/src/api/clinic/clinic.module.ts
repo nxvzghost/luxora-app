@@ -13,7 +13,6 @@ import { PrismaUnitOfWork } from '@infrastructure/database/prisma-unit-of-work';
 import { CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { PrismaClinicRepository } from '@infrastructure/database/repositories/prisma-clinic.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { AUDIT_LOG_REPOSITORY } from '@domain-services/platform/audit-log.repository';
 import { PrismaAuditLogRepository } from '@infrastructure/database/repositories/prisma-audit-log.repository';
@@ -37,7 +36,6 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     { provide: UNIT_OF_WORK, useClass: PrismaUnitOfWork },
     { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
     PrismaService,
-    PrismaClientProvider,
     AuditService,
     { provide: AUDIT_LOG_REPOSITORY, useClass: PrismaAuditLogRepository },
     JwtAuthGuard,

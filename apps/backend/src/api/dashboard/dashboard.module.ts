@@ -9,7 +9,6 @@ import { PrismaBillingRepository } from '@infrastructure/database/repositories/p
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { CLINIC_TIME_ZONE_READER } from '@domain-services/platform/clinic-time-zone.reader';
 import { PrismaClinicTimeZoneReader } from '@infrastructure/database/prisma-clinic-time-zone.reader';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubscriptionAccessGuard } from '../subscription/subscription-access.guard';
 import { CLINIC_SUBSCRIPTION_REPOSITORY } from '@domain-services/subscription/clinic-subscription.repository';
@@ -32,7 +31,6 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     PrismaService,
     // AD-039 — fuso da clínica, lido de clinic_settings.
     { provide: CLINIC_TIME_ZONE_READER, useClass: PrismaClinicTimeZoneReader },
-    PrismaClientProvider,
     SubscriptionAccessGuard,
     { provide: CLINIC_SUBSCRIPTION_REPOSITORY, useClass: PrismaClinicSubscriptionRepository },
     JwtAuthGuard,

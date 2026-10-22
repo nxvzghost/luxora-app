@@ -12,7 +12,6 @@ import { MessageQueueProducer } from '@infrastructure/messaging/message-queue.pr
 import { MessageQueueWorker } from '@infrastructure/messaging/message-queue.worker';
 import { WhatsAppInboundQueueProducer } from '@infrastructure/messaging/whatsapp-inbound-queue.producer';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { TokenCipherService } from '@shared/token-cipher.service';
 import { WhatsAppController } from './whatsapp.controller';
 import { WhatsAppWebhookController } from './whatsapp-webhook.controller';
@@ -68,7 +67,6 @@ import { PrismaNotificationRepository } from '@infrastructure/database/repositor
     MessageQueueWorker,
     WhatsAppInboundQueueProducer,
     PrismaService,
-    PrismaClientProvider,
     TokenCipherService,
     JwtAuthGuard,
     RolesGuard,

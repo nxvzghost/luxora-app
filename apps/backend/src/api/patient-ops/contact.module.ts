@@ -11,7 +11,6 @@ import { PrismaNotificationRepository } from '@infrastructure/database/repositor
 import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/repositories/prisma-clinic-subscription.repository';
 import { AnthropicContactIntentClassifier } from '@infrastructure/ai/anthropic-contact-intent-classifier';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { PrismaUnitOfWork } from '@infrastructure/database/prisma-unit-of-work';
 import { UNIT_OF_WORK } from '@domain-services/platform/unit-of-work';
 import { ReconhecerOuCriarContatoUseCase } from '@use-cases/contact/reconhecer-ou-criar-contato.use-case';
@@ -81,7 +80,6 @@ import { PatientsModule } from '../patients/patients.module';
     { provide: CONTACT_INTENT_CLASSIFIER, useClass: AnthropicContactIntentClassifier },
     { provide: UNIT_OF_WORK, useClass: PrismaUnitOfWork },
     PrismaService,
-    PrismaClientProvider,
     ReconhecerOuCriarContatoUseCase,
     ConsultarContatoUseCase,
     PromoverContatoUseCase,

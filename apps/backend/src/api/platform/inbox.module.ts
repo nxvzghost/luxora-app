@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { INBOX_REPOSITORY } from '@domain-services/platform/inbox.repository';
 import { PrismaInboxRepository } from '@infrastructure/database/repositories/prisma-inbox.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 
 /**
  * InboxModule — ADR-0054 (AD-036). Módulo pequeno e dedicado, sem
@@ -17,7 +16,6 @@ import { PrismaClientProvider } from '@infrastructure/database/prisma-client.pro
   providers: [
     { provide: INBOX_REPOSITORY, useClass: PrismaInboxRepository },
     PrismaService,
-    PrismaClientProvider,
   ],
   exports: [INBOX_REPOSITORY],
 })

@@ -4,6 +4,7 @@ import { HealthController } from './api/health.controller';
 import { MetricsController } from './api/metrics/metrics.controller';
 import { MetricsAccessGuard } from './api/metrics/metrics-access.guard';
 import { ReadinessService } from '@infrastructure/health/readiness.service';
+import { DatabaseModule } from '@infrastructure/database/database.module';
 import { TenantContextModule } from '@shared/tenant-context.module';
 import { CorrelationContextModule } from '@shared/correlation-context.module';
 import { MetricsModule } from '@shared/metrics.module';
@@ -39,6 +40,7 @@ import { NotificationModule } from './api/notification/notification.module';
       // montagem dos módulos falha e a aplicação não chega a subir.
       validate: validateEnv,
     }),
+    DatabaseModule,
     TenantContextModule,
     CorrelationContextModule,
     MetricsModule,

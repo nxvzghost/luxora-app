@@ -129,7 +129,7 @@ if docker inspect -f '{{json .Config.Env}}' "$BACKEND_CONTAINER" | grep -qF "$AD
 else
   ok "a senha de admin do banco não entra no container da aplicação"
 fi
-echo "  info    conexões abertas pela aplicação logo após o boot: $(psql_admin "select count(*) from pg_stat_activity where usename = 'luxora_app'")"
+equal "um único pool: a aplicação abre uma conexão logo após o boot (eram 17, uma por PrismaClient)" "1" "$(psql_admin "select count(*) from pg_stat_activity where usename = 'luxora_app'")"
 
 section "borda HTTP em modo produção"
 equal "smoke: login inexistente consulta o banco e devolve 401" "401" "$(status -X POST -H 'Content-Type: application/json' -d '{"email":"ensaio@luxora.invalid","password":"senha-inexistente-0000"}' "$API/api/v1/auth/login")"

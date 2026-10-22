@@ -29,7 +29,6 @@ import { PrismaAvailabilityRepository } from '@infrastructure/database/repositor
 import { PrismaClinicHolidayRepository } from '@infrastructure/database/repositories/prisma-clinic-holiday.repository';
 import { PrismaRecurringBlockRepository } from '@infrastructure/database/repositories/prisma-recurring-block.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { AUDIT_LOG_REPOSITORY } from '@domain-services/platform/audit-log.repository';
 import { PrismaAuditLogRepository } from '@infrastructure/database/repositories/prisma-audit-log.repository';
@@ -64,7 +63,6 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     { provide: CLINIC_HOLIDAY_REPOSITORY, useClass: PrismaClinicHolidayRepository },
     { provide: RECURRING_BLOCK_REPOSITORY, useClass: PrismaRecurringBlockRepository },
     PrismaService,
-    PrismaClientProvider,
     AuditService,
     { provide: AUDIT_LOG_REPOSITORY, useClass: PrismaAuditLogRepository },
     JwtAuthGuard,

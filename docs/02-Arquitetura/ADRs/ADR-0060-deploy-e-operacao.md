@@ -55,7 +55,7 @@ Ter um caminho de deploy reproduzível e um rollback testado, sem contratar infr
 ## Limitações conhecidas
 
 - **Nada rodou em um host de homologação real nem no GitHub Actions.** A validação é local (`infra/tests/rehearsal.sh`, 68 verificações) e estática (`actionlint`, `shellcheck`, `docker compose config`).
-- **16 conexões com o banco logo após o boot**: `PrismaClientProvider` é declarado em 15 módulos, cada um com seu pool. Não corrigido aqui.
+- **16 conexões com o banco logo após o boot**: `PrismaClientProvider` é declarado em 15 módulos, cada um com seu pool. Não corrigido aqui. *Corrigido em 22/10/2026:* eram 17 declarações (17 conexões no ensaio); o provider passou a ser declarado só no `DatabaseModule` global, e a aplicação abre uma conexão ao subir.
 - **As automações agendadas não funcionam**: as quatro rotas respondem 500 com a chave certa. Ver `docs/07-Infra/AUTOMACOES_AGENDADOR.md`.
 - **Backups só no disco do host.** Cópia externa e retenção dependem do provedor.
 - **TenantID e UserID não saem automaticamente nos logs**; `fetch` e Prisma continuam sem span (ADR-0051).

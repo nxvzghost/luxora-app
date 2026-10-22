@@ -14,7 +14,6 @@ import { PrismaUserRepository } from '@infrastructure/database/repositories/pris
 import { THERAPIST_REPOSITORY } from '@domain-services/platform/therapist.repository';
 import { PrismaTherapistRepository } from '@infrastructure/database/repositories/prisma-therapist.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { AuditService } from '@domain-services/platform/audit.service';
 import { AUDIT_LOG_REPOSITORY } from '@domain-services/platform/audit-log.repository';
 import { PrismaAuditLogRepository } from '@infrastructure/database/repositories/prisma-audit-log.repository';
@@ -56,7 +55,6 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     RolesGuard,
     SubscriptionAccessGuard,
     PrismaService,
-    PrismaClientProvider,
   ],
 })
 export class UsersModule {}

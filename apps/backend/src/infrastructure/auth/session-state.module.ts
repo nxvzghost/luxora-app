@@ -1,5 +1,4 @@
 import { Global, Module } from '@nestjs/common';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { SessionStateCache } from './session-state.cache';
 
 /**
@@ -9,7 +8,7 @@ import { SessionStateCache } from './session-state.cache';
  */
 @Global()
 @Module({
-  providers: [SessionStateCache, PrismaClientProvider],
+  providers: [SessionStateCache],
   exports: [SessionStateCache],
 })
 export class SessionStateModule {}

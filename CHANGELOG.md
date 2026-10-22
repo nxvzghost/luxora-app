@@ -4,6 +4,15 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### Um único cliente Prisma na aplicação (2026-10-22)
+
+Correção do risco de esgotar as conexões do Postgres, separada da K2-a. A investigação partiu do CI `39737046589`, em que três testes AD-039 receberam 500 por "Too many database connections" (falha intermitente; passou no rerun).
+
+- **Causa:** `PrismaClientProvider` era declarado nos `providers` de 17 módulos, sem exportação. O Nest criava uma instância por módulo, cada uma com pool próprio: o ensaio de deploy media 17 conexões logo após o boot.
+- **Correção:** `DatabaseModule` global (`infrastructure/database/database.module.ts`) declara e exporta o provider, importado uma vez no `AppModule`; as 17 declarações saíram. Mesmo padrão do `TenantContextModule`. O `PrismaService` continua por módulo e por requisição, sem conexão própria; a unidade de trabalho continua no `AsyncLocalStorage`.
+- **Testes:** `test/unit/infrastructure/database/prisma-client-single-declaration.test.ts` falha se outro módulo declarar o provider; `test/critical/prisma-client-shared-instance.test.ts` prova, no `AppModule` real, uma instância, um `$connect` e um `$disconnect`; o ensaio de deploy passou a exigir uma conexão após o boot.
+- **Sem mudança:** cobrança, migrations e demais regras do produto. O `connection_limit` de produção segue sem valor definido (ver `DEPLOY_RUNBOOK.md`, "Conexões com o banco").
+
 ### Histórico das conversas preservado — D-F do A-14 revista (2026-10-21)
 
 Decisão do responsável pelo produto, registrada só em documentos; nenhum código mudou e nada foi implementado. O A-14 continua aberto.

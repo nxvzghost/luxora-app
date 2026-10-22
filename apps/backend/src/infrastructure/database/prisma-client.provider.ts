@@ -15,6 +15,10 @@ import { PrismaClient } from '@prisma/client';
  * depende de `SET LOCAL app.tenant_id` dentro de uma transação (ver
  * PrismaService.forTenant()), que funciona perfeitamente sobre um cliente
  * compartilhado com pool de conexões gerenciado normalmente pelo Prisma.
+ *
+ * Singleton só porque é declarado num único lugar: DatabaseModule (global).
+ * Declarado nos providers de outro módulo, o Nest cria mais uma instância,
+ * com mais um pool — foi o que aconteceu em 17 módulos até 22/10/2026.
  */
 @Injectable()
 export class PrismaClientProvider extends PrismaClient implements OnModuleInit, OnModuleDestroy {

@@ -8,6 +8,9 @@ import path from 'node:path';
  * PrismaClientProvider, role luxora_app; outro via `new PrismaClient()`
  * direto para setup/cleanup, role superuser — nenhum com connection_limit
  * configurado, cada um assumindo o default do Prisma, num_cpus*2+1).
+ * Correção de 22/10/2026: o pool "via bootstrapTestApp()" eram 17, um por
+ * módulo que declarava PrismaClientProvider; desde o DatabaseModule é um só
+ * (ver o comentário de test/critical/vitest.config.ts).
  *
  * globalSetup roda no processo principal do Vitest, ANTES de qualquer
  * worker ser criado para esta suíte. A mutação de process.env.DATABASE_URL

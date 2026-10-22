@@ -22,7 +22,6 @@ import { PrismaWebhookEventRepository } from '@infrastructure/database/repositor
 import { PrismaTherapistRepository } from '@infrastructure/database/repositories/prisma-therapist.repository';
 import { AsaasPaymentProvider } from '@infrastructure/payment/asaas-payment.provider';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { AuditModule } from '../audit/audit.module';
@@ -47,7 +46,6 @@ import { AuditModule } from '../audit/audit.module';
     // disponível neste módulo; DI teria falhado ao registrar o Use Case.
     { provide: THERAPIST_REPOSITORY, useClass: PrismaTherapistRepository },
     PrismaService,
-    PrismaClientProvider,
     JwtAuthGuard,
     RolesGuard,
     AsaasWebhookGuard,
