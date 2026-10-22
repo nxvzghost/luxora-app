@@ -87,7 +87,7 @@ async function book(fixture: DedicatedFixture, scheduledAt: Date) {
 
 async function createBilling(fixture: DedicatedFixture, dueDate: string, amount: number): Promise<void> {
   const billing = await fixturePrisma.billing.create({
-    data: { tenantId: fixture.tenantId, patientId: fixture.patientId, amount, dueDate: new Date(dueDate), status: 'enviada' },
+    data: { eligibilityProtocol: 'billing-eligibility-v1', tenantId: fixture.tenantId, patientId: fixture.patientId, amount, dueDate: new Date(dueDate), status: 'enviada' },
   });
   fixture.billingIds.push(billing.id);
 }

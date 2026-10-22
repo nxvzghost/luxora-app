@@ -170,6 +170,14 @@ Tarefa 06 da auditoria (08/10/2026, ADR-0062):
 - **`POST /billings` responde 404** quando o paciente ou alguma sessão informada não existe ou é de outra clínica, e **nada é gravado**. Antes, o paciente não era conferido e, com a sessão de outra clínica, a resposta era 404 mas o vínculo com essa sessão ficava gravado — a outra clínica não conseguia mais cobrá-la.
 - **`limit` inválido responde 400** em `GET /billings` e em `GET /notifications` (inteiro maior que zero; antes, 500).
 
+K2-a ([ADR-0069](../02-Arquitetura/ADRs/ADR-0069-ciclo-de-vida-da-consulta.md), seções 3.6 e 3.7):
+
+- **`POST /billings` confere cada sessão antes de gravar**, e a cobrança e os vínculos são gravados numa única transação: ou entram juntos, ou nada entra. Dois erros novos, ambos 409 e sem nada gravado:
+  - `SESSION_OF_ANOTHER_PATIENT` — a sessão é da mesma clínica, mas de outro paciente. Antes, era vinculada à cobrança do paciente informado;
+  - `SESSION_NOT_BILLABLE` — a sessão ainda não foi faturada, mas não pode ser cobrada. Com os estados de hoje (`Realizada`, `Faturada`, `Recebida`) não ocorre; fica reservado para os estados que a K2-b trará.
+- Os demais erros não mudam: 404 para paciente ou sessão inexistente ou de outra clínica; 409 `SESSION_ALREADY_BILLED` quando a sessão já está `Faturada` ou `Recebida`, ou quando, entre a conferência e a gravação, outra cobrança vinculou a mesma sessão. Em nenhum desses casos a cobrança fica gravada (antes, a sessão já vinculada deixava a cobrança gravada sem vínculo). A conferência segue esta ordem: paciente, sessão inexistente ou de outra clínica (404), sessão de outro paciente, sessão já cobrada, sessão não faturável.
+- O corpo da requisição e da resposta não mudam.
+
 Reenvio depois de falha de envio (19/10/2026, [ADR-0066](../02-Arquitetura/ADRs/ADR-0066-correcoes-do-whatsapp-antes-da-homologacao.md), seção "Reenviar cobrança"):
 
 - **`POST /billings/{id}/resend`:** só `admin` (terapeuta recebe 403). Sem corpo. Põe de novo na fila de envio a mesma mensagem do primeiro envio, para o telefone do cadastro do paciente. Condições, conferidas nesta ordem:

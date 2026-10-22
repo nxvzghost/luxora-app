@@ -11,6 +11,12 @@
 # Confere: o backup restaura sem erro; as tabelas e o histórico de migrations
 # são os do banco de origem; e a Row-Level Security continua forçada — é ela
 # que isola as clínicas, e uma restauração que a perdesse não daria erro nenhum.
+#
+# K2-a (ver "Capacidades" em lib.sh): se o backup exige billing-eligibility-v1,
+# as restrições e os privilégios por coluna têm de ter vindo junto. Um backup
+# anterior à exigência que este ambiente já tem não reprova o ensaio, mas o
+# resultado avisa: restaurado de verdade, pede deploy.sh (que reaplica as
+# migrations) antes de subir qualquer versão — rollback.sh recusa.
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -63,10 +69,36 @@ if [ "$RESTORED_TABLES" -gt 0 ]; then
   [ "$RESTORED_MIGRATIONS" -gt 0 ] || PROBLEMS="$PROBLEMS sem-histórico-de-migrations"
 fi
 
+# K2-a — exigência de versão e proteções da cobrança no banco restaurado.
+K2A="exigência=nenhuma"
+if ! RESTORED_REQUIRED="$(db_required_capabilities "$SCRATCH")"; then
+  PROBLEMS="$PROBLEMS exigências-ilegíveis"
+else
+  [ -z "$RESTORED_REQUIRED" ] || K2A="exigência=${RESTORED_REQUIRED// /,}"
+  case " $RESTORED_REQUIRED " in
+    *" billing-eligibility-v1 "*)
+      if ! RESTORED_MISSING="$(db_missing_protections "$SCRATCH")"; then
+        PROBLEMS="$PROBLEMS proteções-do-K2-a-ilegíveis"
+      elif [ -n "$RESTORED_MISSING" ]; then
+        PROBLEMS="$PROBLEMS proteções-do-K2-a-ausentes:${RESTORED_MISSING// /,}"
+      else
+        K2A="$K2A proteções=ok"
+      fi
+      ;;
+  esac
+  # shellcheck disable=SC2046  # lista separada por espaço
+  OLDER="$(missing_from "$RESTORED_REQUIRED" $(state_get requirement-active))"
+  if [ -n "$OLDER" ]; then
+    K2A="$K2A backup-anterior-à-exigência:${OLDER// /,}"
+    log "  AVISO: backup anterior à exigência '$OLDER' deste ambiente — restaurado de verdade, pede deploy.sh antes de subir a aplicação (rollback.sh recusa)"
+  fi
+fi
+log "  K2-a: $K2A"
+
 ELAPSED=$(( $(date +%s) - START ))
 if [ -n "$PROBLEMS" ]; then
   record_history restore-drill "$(basename "$BACKUP")" failed "$PROBLEMS"
   die "ensaio de restauração com problema:$PROBLEMS" 2
 fi
-record_history restore-drill "$(basename "$BACKUP")" success "tabelas=$RESTORED_TABLES rls=$RESTORED_RLS em ${ELAPSED}s"
-log "ensaio concluído em ${ELAPSED}s: $RESTORED_TABLES tabelas, $RESTORED_RLS com RLS forçada"
+record_history restore-drill "$(basename "$BACKUP")" success "tabelas=$RESTORED_TABLES rls=$RESTORED_RLS $K2A em ${ELAPSED}s"
+log "ensaio concluído em ${ELAPSED}s: $RESTORED_TABLES tabelas, $RESTORED_RLS com RLS forçada; $K2A"

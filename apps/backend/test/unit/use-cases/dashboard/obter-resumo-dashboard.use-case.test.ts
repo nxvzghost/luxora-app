@@ -23,7 +23,7 @@ function buildBillingRepositoryMock(overrides: Partial<BillingRepository> = {}):
     findById: vi.fn(),
     findAllByTenant: vi.fn(),
     save: vi.fn(),
-    linkSessions: vi.fn(),
+    createWithSessions: vi.fn(),
     findOverdueByTenant: vi.fn(),
     countLinkedSessions: vi.fn(),
     findSessionIdsByBillingId: vi.fn(),

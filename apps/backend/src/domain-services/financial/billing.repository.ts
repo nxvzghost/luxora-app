@@ -3,8 +3,15 @@ import { Billing } from '@domain/billing/billing.entity';
 export interface BillingRepository {
   findById(id: string): Promise<Billing | null>;
   findAllByTenant(params?: { cursor?: string; limit?: number }): Promise<Billing[]>;
+  /**
+   * K2-a (ADR-0069, seção 3.7) — grava uma cobrança NOVA e os vínculos com as
+   * sessões juntos, com o protocolo de elegibilidade e o paciente em cada
+   * vínculo. Só GerarCobrancaUseCase chama, depois de conferir paciente,
+   * clínica e estado de cada sessão, dentro da unidade de trabalho.
+   */
+  createWithSessions(billing: Billing, sessionIds: string[]): Promise<void>;
+  /** Grava a mudança de estado de uma cobrança que já existe. Nunca cria cobrança. */
   save(billing: Billing): Promise<void>;
-  linkSessions(billingId: string, sessionIds: string[]): Promise<void>;
   /**
    * Módulo 13 — base da régua de inadimplência e da segmentação financeira.
    * Continua lendo só o estado `Atrasada`: a régua envia mensagem ao
@@ -17,7 +24,7 @@ export interface BillingRepository {
   /**
    * AD-009 — recupera os `sessionId`s vinculados a esta cobrança
    * (`billing_session`), para transicionar as Sessions correspondentes.
-   * Método mínimo necessário — não expande `linkSessions()`/
+   * Método mínimo necessário — não expande `createWithSessions()`/
    * `countLinkedSessions()`, só complementa com a leitura que faltava.
    */
   findSessionIdsByBillingId(billingId: string): Promise<string[]>;
@@ -34,3 +41,11 @@ export interface BillingRepository {
 }
 
 export const BILLING_REPOSITORY = Symbol('BILLING_REPOSITORY');
+
+/**
+ * K2-a — protocolo de elegibilidade desta versão: o único valor que o banco
+ * aceita numa cobrança nova (tabela billing_eligibility_protocol). Também é a
+ * capacidade que a imagem declara (rótulo luxora.capabilities, em
+ * infra/docker/Dockerfile.backend) e que o banco exige (deployment_requirement).
+ */
+export const BILLING_ELIGIBILITY_PROTOCOL = 'billing-eligibility-v1';

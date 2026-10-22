@@ -568,8 +568,12 @@ model Session {
   completedAt   DateTime?     @map("completed_at")
   createdAt     DateTime      @default(now()) @map("created_at")
 
-  billingSessions BillingSession[]
+  billingSessions          BillingSession[] @relation("BillingSessionSession")
+  // K2-a (ADR-0069, seção 3.7) — alvo da chave composta do vínculo: a sessão
+  // vinculada é do mesmo paciente e da mesma clínica do vínculo.
+  billingSessionsOfPatient BillingSession[] @relation("BillingSessionSessionOfPatient")
 
+  @@unique([id, tenantId, patientId], map: "session_id_tenant_id_patient_id_key")
   @@index([tenantId, patientId])
   @@map("session")
 }
@@ -600,12 +604,49 @@ model Billing {
   dueDate   DateTime      @map("due_date")
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")
+  // K2-a (ADR-0069, seção 3.7) — protocolo de elegibilidade. A versão que
+  // confere a elegibilidade grava 'billing-eligibility-v1'; uma versão que
+  // não conhece a coluna recebe o padrão 'nenhum', que não existe em
+  // billing_eligibility_protocol, e a chave estrangeira recusa a cobrança.
+  // Chave estrangeira, e não CHECK: o Prisma grava a cobrança com
+  // INSERT … ON CONFLICT DO UPDATE, e o PostgreSQL confere CHECK na linha
+  // proposta até quando o conflito vira atualização (ADR-0069, seção 3.7).
+  eligibilityProtocol String?                     @default("nenhum") @map("eligibility_protocol")
+  protocol            BillingEligibilityProtocol? @relation(fields: [eligibilityProtocol], references: [name], onDelete: NoAction, onUpdate: NoAction, map: "billing_eligibility_protocol_fkey")
+  // Verdadeiro só nas cobranças que já existiam antes do K2-a (protocolo
+  // nulo). A aplicação não tem privilégio para gravar esta coluna; @ignore a
+  // tira do Prisma Client, que senão mandaria o padrão no INSERT e levaria
+  // "permission denied". Quem aplica o padrão é o banco.
+  legacyBilling       Boolean                     @default(false) @map("legacy_billing") @ignore
 
-  billingSessions BillingSession[]
-  payment         Payment?
+  billingSessions          BillingSession[] @relation("BillingSessionBilling")
+  billingSessionsOfPatient BillingSession[] @relation("BillingSessionBillingOfPatient")
+  payment                  Payment?
 
+  @@unique([id, tenantId, patientId], map: "billing_id_tenant_id_patient_id_key")
   @@index([tenantId, patientId, status])
   @@map("billing")
+}
+
+// K2-a (ADR-0069, seção 3.7) — protocolos de elegibilidade aceitos pelo
+// banco. Uma linha só: 'billing-eligibility-v1'. A aplicação não grava aqui.
+model BillingEligibilityProtocol {
+  name        String    @id
+  description String?
+  billings    Billing[]
+
+  @@map("billing_eligibility_protocol")
+}
+
+// K2-a (ADR-0069, seção 3.6) — capacidade que toda versão da aplicação
+// precisa ter para rodar contra este banco. Lida pelos scripts de deploy e
+// de rollback com a credencial de administrador; a aplicação não tem acesso.
+model DeploymentRequirement {
+  capability     String   @id
+  requiredSince  DateTime @default(now()) @map("required_since")
+  setByMigration String   @map("set_by_migration")
+
+  @@map("deployment_requirement")
 }
 
 // Tabela de junção — permite que uma billing agregue N sessions (semanal/mensal)
@@ -615,10 +656,17 @@ model BillingSession {
   tenantId  String   @map("tenant_id")
   tenant    Tenant   @relation(fields: [tenantId], references: [id])
   billingId String   @map("billing_id")
-  billing   Billing  @relation(fields: [billingId], references: [id])
+  billing   Billing  @relation("BillingSessionBilling", fields: [billingId], references: [id])
   sessionId String   @unique @map("session_id") // UNIQUE: uma session nunca em 2 billings abertas ao mesmo tempo
-  session   Session  @relation(fields: [sessionId], references: [id])
+  session   Session  @relation("BillingSessionSession", fields: [sessionId], references: [id])
   createdAt DateTime @default(now()) @map("created_at")
+  // K2-a (ADR-0069, seção 3.7) — paciente do vínculo. As duas chaves
+  // compostas abaixo exigem que a cobrança e a sessão sejam deste paciente e
+  // desta clínica. Nulo só nos vínculos anteriores ao K2-a (legacy_link).
+  patientId        String?  @map("patient_id")
+  legacyLink       Boolean  @default(false) @map("legacy_link") @ignore // @ignore: ver Billing.legacyBilling
+  billingOfPatient Billing? @relation("BillingSessionBillingOfPatient", fields: [billingId, tenantId, patientId], references: [id, tenantId, patientId], onDelete: NoAction, onUpdate: NoAction, map: "billing_session_billing_patient_fkey")
+  sessionOfPatient Session? @relation("BillingSessionSessionOfPatient", fields: [sessionId, tenantId, patientId], references: [id, tenantId, patientId], onDelete: NoAction, onUpdate: NoAction, map: "billing_session_session_patient_fkey")
 
   @@map("billing_session")
 }

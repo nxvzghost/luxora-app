@@ -262,7 +262,7 @@ async function existingAppointment(patientId: string, slot: Date) {
 
 async function existingBilling(patientId: string) {
   const billing = await fixturePrisma.billing.create({
-    data: { tenantId: clinicA.fixture.tenantId, patientId, amount: 321.45, dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+    data: { eligibilityProtocol: 'billing-eligibility-v1', tenantId: clinicA.fixture.tenantId, patientId, amount: 321.45, dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
   });
   clinicA.fixture.billingIds.push(billing.id);
   return billing;

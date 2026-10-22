@@ -426,7 +426,7 @@ describe('[AD-039] trocar o fuso — o dia do vencimento passa a ser o do fuso n
     expect((await changeTimeZone(adminToken, { timeZone: PAGO_PAGO })).status).toBe(200);
     const dueToday = formatCivilDate(civilDateIn(new Date(), PAGO_PAGO));
     const billing = await fixturePrisma.billing.create({
-      data: { tenantId: clinic.tenantId, patientId: clinic.patientId, amount: 310, dueDate: new Date(dueToday), status: 'enviada' },
+      data: { eligibilityProtocol: 'billing-eligibility-v1', tenantId: clinic.tenantId, patientId: clinic.patientId, amount: 310, dueDate: new Date(dueToday), status: 'enviada' },
     });
     clinic.billingIds.push(billing.id);
     billingId = billing.id;
@@ -450,10 +450,10 @@ describe('[AD-039] trocar o fuso — o dia do vencimento passa a ser o do fuso n
   it('a fronteira é a meia-noite do fuso em vigor: vence hoje, em dia; venceu ontem, em atraso', async () => {
     const today = civilDateIn(new Date(), KIRITIMATI);
     const dueToday = await fixturePrisma.billing.create({
-      data: { tenantId: clinic.tenantId, patientId: clinic.patientId, amount: 320, dueDate: new Date(formatCivilDate(today)), status: 'enviada' },
+      data: { eligibilityProtocol: 'billing-eligibility-v1', tenantId: clinic.tenantId, patientId: clinic.patientId, amount: 320, dueDate: new Date(formatCivilDate(today)), status: 'enviada' },
     });
     const dueYesterday = await fixturePrisma.billing.create({
-      data: { tenantId: clinic.tenantId, patientId: clinic.patientId, amount: 330, dueDate: new Date(formatCivilDate(addCivilDays(today, -1))), status: 'enviada' },
+      data: { eligibilityProtocol: 'billing-eligibility-v1', tenantId: clinic.tenantId, patientId: clinic.patientId, amount: 330, dueDate: new Date(formatCivilDate(addCivilDays(today, -1))), status: 'enviada' },
     });
     clinic.billingIds.push(dueToday.id, dueYesterday.id);
 

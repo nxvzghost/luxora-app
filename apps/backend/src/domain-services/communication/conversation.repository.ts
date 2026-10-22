@@ -12,8 +12,7 @@ export interface RecentMessagesQuery {
 }
 
 /**
- * ConversationRepository — ADR-0053. `save()`/`appendMessages()` split,
- * mesmo padrão já usado por BillingRepository.save()/linkSessions() —
+ * ConversationRepository — ADR-0053. `save()`/`appendMessages()` split —
  * nunca um único save() cascateando entidade filha.
  */
 export interface ConversationRepository {

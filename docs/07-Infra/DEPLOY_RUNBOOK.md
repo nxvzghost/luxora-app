@@ -53,23 +53,24 @@ Duas credenciais de banco, com papéis diferentes:
 ## Deploy
 
 ```bash
-bash infra/scripts/deploy.sh --env-file /etc/luxora/staging.env --version <tag> [--frontend-version <tag>] [--notes "motivo"]
+bash infra/scripts/deploy.sh --env-file /etc/luxora/staging.env --version <tag> [--frontend-version <tag>] [--notes "motivo"] [--allow-degraded --notes "justificativa"]
 ```
 
 Cada etapa é um portão — se falha, as seguintes não rodam:
 
 | # | Etapa | Se falhar |
 |---|---|---|
+| 0 | Capacidades: a imagem tem tudo o que o banco exige e o que o ambiente já exigiu (K2-a) | Nada foi alterado. Código 3 |
 | 1 | Backup do banco (`pg_dump`, conferido com `pg_restore --list`) | Nada foi alterado. Sai com código 3 |
-| 2 | Migrations, com a credencial admin (`prisma migrate deploy`) | A aplicação continua na versão anterior. Código 3 |
+| 2 | Migrations, com a credencial admin (`prisma migrate deploy`), e conferência das proteções que o banco exige | A aplicação continua na versão anterior. Código 3 |
 | 3 | Troca da aplicação para a versão nova | — |
 | 4 | Readiness da versão nova (`/health/ready` 200 **e** `/health` com a versão certa) | **Rollback automático.** Código 1 |
 | 5 | Smoke test (um login inexistente: passa pela validação, consulta o banco com a role de runtime, volta 401) | **Rollback automático.** Código 1 |
 | 6 | Registro do deploy | — |
 
-Código 2 significa que a versão nova falhou **e** a anterior não pôde ser restaurada (ou não existia, no primeiro deploy): exige intervenção manual.
+Código 2 significa que a versão nova falhou **e** a anterior não pôde ser restaurada (ou não existia, no primeiro deploy): exige intervenção manual. Também é o código quando a anterior não tem uma capacidade que o ambiente já exigia: o rollback automático é recusado e a aplicação fica parada, a menos que o deploy tenha sido chamado com `--allow-degraded` e uma justificativa. No deploy que introduz a exigência, o rollback automático volta em modo degradado, registrado ([MIGRATION_RUNBOOK.md](MIGRATION_RUNBOOK.md), "Exigência de versão e retorno degradado").
 
-O estado fica ao lado do arquivo de ambiente, em `luxora-deploy-state/`: versão atual, versão anterior, backups e `history.jsonl` — uma linha por evento, com versão, data, responsável, ambiente, resultado e observações (a auditoria exigida em 13-Deploy.md).
+O estado fica ao lado do arquivo de ambiente, em `luxora-deploy-state/`: versão atual, versão anterior, exigência ativa (`requirement-active`), backups e `history.jsonl` — uma linha por evento, com versão, data, responsável, ambiente, resultado, modo (`normal` ou `degraded`) e observações (a auditoria exigida em 13-Deploy.md).
 
 ### Limite conhecido: há uma pausa na troca
 
@@ -78,10 +79,12 @@ Com uma instância só, a troca derruba a versão antiga antes de a nova ficar p
 ## Rollback
 
 ```bash
-bash infra/scripts/rollback.sh --env-file /etc/luxora/staging.env [--to <tag>] [--notes "motivo"]
+bash infra/scripts/rollback.sh --env-file /etc/luxora/staging.env [--to <tag>] [--notes "motivo"] [--allow-degraded --notes "justificativa"]
 ```
 
 Troca **só a imagem da aplicação**. Não roda migration e não toca no banco.
+
+Recusa, com código 3 e sem tocar na aplicação, o destino sem uma capacidade que o banco exige (com `--allow-degraded` e justificativa, volta e registra o retorno como degradado), e qualquer destino quando o banco não tem as proteções que exige ou deixou de exigir o que o ambiente já exigia — o caminho aí é `deploy.sh` ([MIGRATION_RUNBOOK.md](MIGRATION_RUNBOOK.md), "Exigência de versão e retorno degradado").
 
 Isso só é seguro porque toda migration precisa ser compatível com a versão anterior da aplicação (expand/contract, em [MIGRATION_RUNBOOK.md](MIGRATION_RUNBOOK.md), "Estratégia de rollback"). Uma migration que remove ou renomeia algo que a versão anterior usa quebra o rollback — ela vai em um deploy próprio, depois de nenhuma versão em uso depender da estrutura antiga.
 
@@ -93,7 +96,7 @@ Se a versão nova já gravou dados que a anterior não entende, o caminho é uma
 bash infra/scripts/restore-drill.sh --env-file /etc/luxora/staging.env [--backup <arquivo.dump>]
 ```
 
-Restaura num banco descartável do mesmo servidor, confere e apaga. Nunca restaura por cima do banco em uso. Reprova se as tabelas voltarem sem a RLS forçada ou sem o histórico de migrations.
+Restaura num banco descartável do mesmo servidor, confere e apaga. Nunca restaura por cima do banco em uso. Reprova se as tabelas voltarem sem a RLS forçada ou sem o histórico de migrations, ou se o backup exigir a capacidade do K2-a sem as restrições e os privilégios que a acompanham. Um backup anterior à exigência do ambiente passa, com aviso: restaurado de verdade, ele pede `deploy.sh` antes de subir a aplicação (procedimento em [MIGRATION_RUNBOOK.md](MIGRATION_RUNBOOK.md), "Procedimento de restauração de backup").
 
 Os backups do deploy ficam no disco do próprio host: servem para desfazer um deploy, **não** são a política de backup do ambiente. Cópia fora do host e retenção continuam pendentes (dependem do provedor).
 

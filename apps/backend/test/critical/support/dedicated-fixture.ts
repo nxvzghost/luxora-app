@@ -224,17 +224,15 @@ export async function createDedicatedUserAndLogin(
  *    a mesma coisa que um `WHERE tenantId = X` genérico contra um Tenant
  *    compartilhado, onde haveria risco real de atingir dado de outro teste.
  *
- * 2. `GerarCobrancaUseCase.execute()` (billing.use-cases.ts, produção, fora
- *    do escopo desta etapa) salva a `Billing` e só DEPOIS tenta
- *    `linkSessions()` — se a sessão já estiver cobrada, `linkSessions()`
- *    lança e a Billing já salva NUNCA é revertida (não há transação
- *    envolvendo as duas chamadas). Uma requisição rejeitada com
- *    SESSION_ALREADY_BILLED (409) ainda deixa uma `Billing` real no banco,
- *    que a API nunca devolve id nenhum para o teste rastrear (o corpo da
- *    resposta 409 só tem `{ error: {...} }`). Por isso o cleanup de Billing
- *    não pode depender só de `fixture.billingIds` — busca também por
- *    `patientId`, um id igualmente conhecido e exclusivo desta fixture
- *    (nenhum outro Patient nunca reusa este id), nunca por `tenantId` solto.
+ * 2. Até o K2-a, `GerarCobrancaUseCase.execute()` salvava a `Billing` e só
+ *    DEPOIS gravava os vínculos, sem transação: uma requisição rejeitada com
+ *    SESSION_ALREADY_BILLED (409) deixava uma `Billing` órfã no banco, sem id
+ *    nenhum para o teste rastrear. Desde o K2-a a cobrança e os vínculos são
+ *    gravados juntos (ADR-0069, seção 2.9), mas testes também criam cobranças
+ *    direto no banco. Por isso o cleanup de Billing continua não dependendo
+ *    só de `fixture.billingIds` — busca também por `patientId`, um id
+ *    igualmente conhecido e exclusivo desta fixture (nenhum outro Patient
+ *    nunca reusa este id), nunca por `tenantId` solto.
  *
  * AD-034 — RESILIÊNCIA: se beforeAll falhar antes de createDedicatedFixture()
  * retornar (ex.: bootstrapTestApp() ou uma chamada HTTP anterior lançar),

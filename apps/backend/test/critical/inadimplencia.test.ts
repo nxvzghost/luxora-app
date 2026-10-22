@@ -102,6 +102,7 @@ describe('[CRÍTICO #15] Paciente com cobrança Atrasada continua agendável nor
     // arquivos deste diretório.
     const overdueBilling = await fixturePrisma.billing.create({
       data: {
+        eligibilityProtocol: 'billing-eligibility-v1',
         tenantId: fixture.tenantId,
         patientId: fixture.patientId,
         amount: 400,

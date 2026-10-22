@@ -106,6 +106,35 @@ Prisma Migrate **não gera migrations de reversão automaticamente** — não ex
 
   Isso mantém as fases 1 e 2 sempre reversíveis (é só não prosseguir para a fase 3).
 
+### Exigência de versão e retorno degradado (K2-a)
+
+Desde a migration `20261022120000_k2a_billing_eligibility` ([ADR-0069](../02-Arquitetura/ADRs/ADR-0069-ciclo-de-vida-da-consulta.md), seção 3.7), o banco recusa por conta própria a cobrança e o vínculo que não passaram pela conferência de elegibilidade. Uma versão anterior da aplicação continua rodando contra esse banco, mas **não cria cobrança nem vínculo**: o banco recusa. Ela ainda atualiza o estado das cobranças que já existem (envio, régua, quitação). Esse é o **modo degradado**.
+
+Para que ninguém entre nele sem saber:
+
+- **A imagem declara o que sabe fazer** no rótulo `luxora.capabilities` (definido em `infra/docker/Dockerfile.backend`). A versão com o K2-a declara `billing-eligibility-v1`; as anteriores não declaram nada.
+- **O banco declara o que exige** na tabela `deployment_requirement`, que só as migrations preenchem. A aplicação não lê nem escreve nela.
+- **O ambiente guarda o que já exigiu** no estado `requirement-active` (diretório de estado do deploy), gravado assim que as migrations de um deploy passam pela conferência, mesmo que a troca da aplicação falhe depois.
+
+| Script | Situação | O que faz |
+|---|---|---|
+| `deploy.sh` | A versão não tem uma capacidade que o banco exige ou que o ambiente já exigiu | Recusa antes do backup (código 3), registra `refused-capability` |
+| `deploy.sh` | Depois das migrations, faltam restrições do K2-a, ou a aplicação voltou a ter um privilégio que as contornaria | Recusa sem trocar a aplicação (código 3), registra `failed-protections` |
+| `deploy.sh` | A versão nova falha no **deploy que introduz a exigência**, e a anterior não tem a capacidade | Rollback automático em modo degradado, registrado como `degraded` (código 1): a versão nova não chegou a atender, e parar a aplicação seria pior (ADR-0069, seção 9.4) |
+| `deploy.sh` | A versão nova falha num deploy posterior, e a anterior não tem uma capacidade que o ambiente **já exigia** | **Não volta**: para a aplicação (código 2), registra `rollback-refused`. Com `--allow-degraded --notes "justificativa"` no deploy, volta e registra `degraded` (código 1) |
+| `rollback.sh` | O destino não tem a capacidade | Recusa (código 3), registra `refused-capability`. Com `--allow-degraded --notes "justificativa"`, volta e registra `mode: degraded` |
+| `rollback.sh` | O banco não tem as proteções que exige, ou deixou de exigir o que o ambiente já exigia | Recusa, mesmo para uma versão com a capacidade (código 3), registra `refused-protections`. O caminho é `deploy.sh` |
+| `restore-drill.sh` | O backup exige a capacidade | Confere restrições e privilégios no banco restaurado; reprova se faltarem |
+| `restore-drill.sh` | O backup é anterior à exigência do ambiente | Passa, com o aviso `backup-anterior-à-exigência` no resultado e no histórico |
+
+Cada linha do histórico (`history.jsonl`) tem agora o campo `mode` (`normal` ou `degraded`). Fora do deploy que introduz a exigência, um retorno degradado nunca é automático: exige a justificativa de quem decidiu, e fica registrado com ela.
+
+**Antes de decidir por um retorno degradado:** durante ele, nenhuma cobrança nova é gerada (a tela de cobrança devolve erro), e as sessões continuam a faturar. Nada se perde, e o próximo deploy da versão com a capacidade sai do modo degradado. A prova com a versão anterior de verdade (`fd0874f`) está em `infra/tests/k2-compat-rehearsal.sh`.
+
+**Para aposentar uma exigência** (uma migration futura que a remova), o estado `requirement-active` também tem de ser atualizado à mão, com registro. Sem isso, os scripts tratam a remoção como perda de proteção e recusam.
+
+**Onde o papel da aplicação é dono das tabelas** (CI e ambiente local, em que as migrations rodam com `luxora_app`), ele pode devolver a si qualquer privilégio. Ali os privilégios por coluna não são barreira, e a migration dá a ele `UPDATE` em `billing_eligibility_protocol.description` e `billing_session.created_at`, colunas sem papel na integridade, porque a checagem de chave estrangeira trava linhas com o dono da tabela e isso exige algum `UPDATE`. Em homologação e produção as migrations rodam com o administrador, o dono é ele, e essas duas concessões não existem.
+
 ---
 
 ## Erros conhecidos e diagnóstico rápido
@@ -116,6 +145,9 @@ Catálogo baseado em falhas reais já encontradas e diagnosticadas nesta base de
 |---|---|---|
 | `P3018` / `must be owner of table X` (código Postgres `42501`) | Migration executada com a credencial de runtime (`luxora_app`), que tem `GRANT` mas não `OWNER` sobre a tabela | Reconectar com a credencial admin (`postgres` ou equivalente) e reaplicar |
 | `P1001: Can't reach database server` | O serviço de banco não está no ar (em Dev: container Docker no WSL2 parado — ver [`ADR-0047`](../02-Arquitetura/ADRs/ADR-0047-docker-engine-nativo-wsl2.md); em Homologação/Produção: instância gerenciada indisponível) | Confirmar que o serviço está de fato rodando antes de qualquer outro diagnóstico — sem conexão, nenhum outro sintoma pode ser distinguido |
+| `permission denied for table X` (`42501`) ao criar ou apagar uma linha que tem chave estrangeira, com o papel da aplicação dono das tabelas (CI, ambiente local) | A checagem de chave estrangeira trava a linha da outra tabela com `SELECT … FOR KEY SHARE`, executado com o dono dela, e isso exige `UPDATE` em pelo menos uma coluna. Um privilégio por coluna revogado por completo derruba a checagem | Conceder `UPDATE` só numa coluna sem papel na integridade, e só onde o papel da aplicação é o dono (ver a migration do K2-a). Nunca devolver o privilégio da coluna protegida |
+| `permission denied for table billing` ao criar cobrança, mesmo com o privilégio de `INSERT` nas colunas que o código grava | O Prisma Client manda no `INSERT` o padrão estático (`@default(false)`) de toda coluna do modelo, inclusive as que o papel da aplicação não pode gravar | A coluna fica no schema com `@ignore` (`Billing.legacyBilling`, `BillingSession.legacyLink`): sai do client, e quem aplica o padrão é o banco |
+| `deploy.sh`/`rollback.sh` saem com código 3 e `refused-capability` ou `refused-protections` no histórico | A versão não tem uma capacidade que o banco exige, ou o banco não tem as proteções que declara | Ver "Exigência de versão e retorno degradado" |
 | `PrismaClientKnownRequestError: The column X does not exist in the current database` em runtime (não durante a migration em si) | `prisma generate` foi executado a partir de um `schema.prisma` mais novo do que o banco real — a migration correspondente nunca chegou a ser aplicada com sucesso, mas os tipos do Prisma Client já assumem que a coluna existe | Nunca rodar `prisma generate` como forma de "seguir em frente" quando uma migration falha. Aplicar a migration pendente com o usuário admin primeiro; só então gerar o client novamente |
 
 **Antipadrão a evitar, confirmado nesta sessão:** rodar `prisma generate` repetidamente sem que a migration correspondente tenha sido de fato aplicada ao banco real. Isso não gera nenhum erro imediato — o comando termina com sucesso, porque só lê `schema.prisma`, nunca toca o banco. O problema só aparece depois, silenciosamente, em qualquer query tocando o modelo afetado, e pode se acumular por múltiplas migrations até ser descoberto por um teste de integração real (foi assim que a Suíte Crítica inteira de `ClinicSubscription` foi encontrada quebrada nesta Sprint).
@@ -137,6 +169,15 @@ Complementa a seção "Backup" e "Recuperação de Desastres" de [10-Armazenamen
    (`pg_dump`/`pg_restore` é a mesma ferramenta já referenciada em [00-Provedor-e-Custos.md](00-Provedor-e-Custos.md) como caminho de portabilidade do banco — não introduz uma ferramenta nova.)
 4. Em Homologação/Produção (Railway), usar o mecanismo de backup/restore nativo do provedor gerenciado quando disponível, em vez de `pg_dump`/`pg_restore` manual — `pg_restore` manual é o caminho de referência para Desenvolvimento e para validar a integridade de um dump exportado, não necessariamente o caminho de produção real no provedor gerenciado (que ainda precisa ser confirmado/documentado por quem administra a instância Railway — não assumido aqui como já configurado).
 5. Reaplicar, se necessário, quaisquer migrations que tenham sido geradas **depois** do momento em que o backup foi tirado (o backup reflete o schema de quando foi gerado, não necessariamente o schema atual).
+
+**Restauração no ambiente real, depois do K2-a** (ver "Exigência de versão e retorno degradado"):
+
+1. **Pare a aplicação antes** (`docker compose … stop backend`). Ela não volta sozinha: a política de reinício não religa um container parado.
+2. **Backup de um schema anterior ao atual vai para um banco vazio** (apague e recrie o banco, ou use uma instância nova). `pg_restore --clean` só apaga os objetos que existem no backup: por cima do banco atual, as tabelas criadas depois (`billing_eligibility_protocol`, `deployment_requirement`) ficariam, e a migration do K2-a não conseguiria ser reaplicada. `--clean` sobre o banco em uso só serve para um backup do mesmo schema.
+3. **Suba a aplicação só com `deploy.sh`**, que reaplica as migrations pendentes e confere as proteções antes de trocar a aplicação. `rollback.sh` recusa: o banco restaurado não declara a exigência que o ambiente já tinha. A sequência inteira está ensaiada em `infra/tests/k2-compat-rehearsal.sh` (etapa 6).
+4. O que foi gravado depois do backup se perde, como em qualquer restauração.
+
+Limite: a recusa do `rollback.sh` depende do estado `requirement-active` do host. Restaurado num host novo, sem esse estado, nada impede subir uma versão anterior ao K2-a num banco também anterior a ele. É o mesmo comportamento de antes do K2-a, mas a proteção do K2-a só volta depois do `deploy.sh`.
 
 ### Validação pós-restauração
 

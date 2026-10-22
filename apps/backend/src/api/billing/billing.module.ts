@@ -22,6 +22,8 @@ import { PAYMENT_REPOSITORY } from '@domain-services/financial/payment.repositor
 import { PrismaBillingRepository } from '@infrastructure/database/repositories/prisma-billing.repository';
 import { PrismaPaymentRepository } from '@infrastructure/database/repositories/prisma-payment.repository';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { UNIT_OF_WORK } from '@domain-services/platform/unit-of-work';
+import { PrismaUnitOfWork } from '@infrastructure/database/prisma-unit-of-work';
 import { CLINIC_TIME_ZONE_READER } from '@domain-services/platform/clinic-time-zone.reader';
 import { PrismaClinicTimeZoneReader } from '@infrastructure/database/prisma-clinic-time-zone.reader';
 import { PrismaClientProvider } from '@infrastructure/database/prisma-client.provider';
@@ -70,6 +72,9 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     { provide: BILLING_REPOSITORY, useClass: PrismaBillingRepository },
     { provide: PAYMENT_REPOSITORY, useClass: PrismaPaymentRepository },
     PrismaService,
+    // K2-a — GerarCobrancaUseCase grava cobrança, vínculos, sessões e
+    // auditoria numa transação só.
+    { provide: UNIT_OF_WORK, useClass: PrismaUnitOfWork },
     // AD-039 — fuso da clínica, lido de clinic_settings.
     { provide: CLINIC_TIME_ZONE_READER, useClass: PrismaClinicTimeZoneReader },
     PrismaClientProvider,

@@ -30,10 +30,9 @@ export interface ContactRepository {
   touch(id: string): Promise<void>;
   /**
    * Persiste uma associação nova. Mesmo padrão de split já usado por
-   * BillingRepository.save()/linkSessions() e ConversationRepository.save()/
-   * appendMessages() — a associação está fora do limite de consistência de
-   * Contact (11-Aggregates-e-Limites.md: "nunca uma composição"), nunca
-   * persistida como parte do save() do Contact.
+   * ConversationRepository.save()/appendMessages() — a associação está fora
+   * do limite de consistência de Contact (11-Aggregates-e-Limites.md: "nunca
+   * uma composição"), nunca persistida como parte do save() do Contact.
    */
   saveAssociation(association: ContactPatientAssociation): Promise<void>;
   findAssociationsByContactId(contactId: string): Promise<ContactPatientAssociation[]>;

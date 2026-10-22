@@ -63,7 +63,7 @@ async function setTimeZone(fixture: DedicatedFixture, timeZone: string): Promise
 
 async function createBilling(fixture: DedicatedFixture, dueDate: string, status: BillingStatus): Promise<void> {
   const billing = await fixturePrisma.billing.create({
-    data: { tenantId: fixture.tenantId, patientId: fixture.patientId, amount: 100, dueDate: new Date(dueDate), status },
+    data: { eligibilityProtocol: 'billing-eligibility-v1', tenantId: fixture.tenantId, patientId: fixture.patientId, amount: 100, dueDate: new Date(dueDate), status },
   });
   fixture.billingIds.push(billing.id);
 }

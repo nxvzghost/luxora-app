@@ -69,6 +69,10 @@ ENV APP_VERSION=${APP_VERSION}
 LABEL org.opencontainers.image.title="luxora-backend" \
       org.opencontainers.image.revision="${APP_VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}"
+# K2-a (ADR-0069, seção 3.7) — o que esta versão sabe fazer, separado por
+# vírgulas. deploy.sh e rollback.sh comparam com o que o banco exige
+# (tabela deployment_requirement) e recusam a imagem a que falte algo.
+LABEL luxora.capabilities="billing-eligibility-v1"
 
 USER node
 EXPOSE 3000

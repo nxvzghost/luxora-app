@@ -8,7 +8,9 @@ import { TenantContext } from '@shared/tenant-context';
 import { PatientRepository, PATIENT_REPOSITORY } from '@domain-services/patient-ops/patient.repository';
 import { ClinicRepository, CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { SessionRepository, SESSION_REPOSITORY } from '@domain-services/patient-ops/session.repository';
+import { UnitOfWork, UNIT_OF_WORK } from '@domain-services/platform/unit-of-work';
 import { DomainEvent } from '@domain/shared/domain-event';
+import { SessionState } from '@domain/session/session.entity';
 import { MessageQueueProducer } from '@infrastructure/messaging/message-queue.producer';
 import {
   MessageChannelNotConnectedError,
@@ -16,6 +18,9 @@ import {
   MESSAGE_CHANNEL_STATUS,
 } from '@domain-services/communication/message-channel-status';
 import { buildBillingMessage } from '@use-cases/communication/templates/billing-message.template';
+
+// Estados de uma sessão que já entrou numa cobrança (AD-009).
+const ALREADY_BILLED_STATES: readonly SessionState[] = ['Faturada', 'Recebida'];
 
 export interface GerarCobrancaInput {
   patientId: string;
@@ -29,12 +34,20 @@ export interface GerarCobrancaInput {
  * refletindo a correção de modelagem já feita antes deste módulo (cobrança
  * por sessão avulsa = N:1; semanal/mensal = N:N via billing_session).
  *
- * AD-009 (ADR-0052): logo após linkSessions(), cada Session vinculada
- * transiciona Realizada → Faturada, na mesma execução — nunca em
+ * AD-009 (ADR-0052): logo depois de gravar os vínculos, cada Session
+ * vinculada transiciona Realizada → Faturada, na mesma execução — nunca em
  * EnviarCobrancaUseCase. Decisão registrada na ADR: Billing já suporta
  * Criada → Quitada direto (pagamento antes de qualquer envio), e disparar
  * Faturada só no envio deixaria esse caminho pular Faturada, o que a própria
  * máquina de estados de Session rejeita (Realizada só vai para Faturada).
+ *
+ * K2-a (ADR-0069, seções 2.9 e 3.7) — tudo numa unidade de trabalho: a
+ * cobrança, os vínculos, a transição das sessões e a auditoria são gravados
+ * juntos ou não são gravados. Antes, a cobrança era gravada primeiro e, se o
+ * vínculo falhasse (sessão já cobrada), ficava uma cobrança sem sessão. Cada
+ * sessão precisa ser do paciente da cobrança e estar a faturar (Realizada);
+ * a clínica é a da RLS. O banco confere de novo paciente e clínica por chave
+ * composta e exige o protocolo de elegibilidade na cobrança.
  */
 @Injectable()
 export class GerarCobrancaUseCase {
@@ -44,55 +57,83 @@ export class GerarCobrancaUseCase {
     private readonly auditService: AuditService,
     private readonly tenantContext: TenantContext,
     @Inject(PATIENT_REPOSITORY) private readonly patientRepo: PatientRepository,
+    @Inject(UNIT_OF_WORK) private readonly unitOfWork: UnitOfWork,
   ) {}
 
   async execute(input: GerarCobrancaInput): Promise<Billing> {
     if (input.sessionIds.length === 0) {
       throw new Error('Uma cobrança deve estar vinculada a ao menos uma sessão.');
     }
-    // Tarefa 06 (AD-032) — ACHADO REAL: o paciente não era conferido, e a
-    // chave estrangeira não olha a clínica. A leitura passa pela RLS.
-    if (!(await this.patientRepo.findById(input.patientId))) {
-      throw new NotFoundException('Paciente não encontrado.');
-    }
-    // Tarefa 06 — ACHADO REAL: as sessões só eram lidas DEPOIS de a cobrança
-    // e o vínculo já estarem gravados. Com o id de uma sessão de outra
-    // clínica, a resposta era 404, mas o vínculo ficava — e, como cada sessão
-    // só pode ter uma cobrança, a outra clínica não conseguia mais cobrá-la.
-    // Agora todas são lidas antes (pela RLS); sessão alheia ou inexistente
-    // recusa o pedido sem gravar nada.
-    const sessions = [];
-    for (const sessionId of input.sessionIds) {
-      const session = await this.sessionRepo.findById(sessionId);
-      if (!session) {
-        throw new NotFoundException(`Sessão ${sessionId} não encontrada.`);
+
+    return this.unitOfWork.run(async () => {
+      // Tarefa 06 (AD-032) — ACHADO REAL: o paciente não era conferido, e a
+      // chave estrangeira não olha a clínica. A leitura passa pela RLS.
+      if (!(await this.patientRepo.findById(input.patientId))) {
+        throw new NotFoundException('Paciente não encontrado.');
       }
-      sessions.push(session);
-    }
+      // Tarefa 06 — as sessões são lidas antes de qualquer gravação (pela
+      // RLS): sessão de outra clínica ou inexistente recusa o pedido.
+      const sessions = [];
+      for (const sessionId of input.sessionIds) {
+        const session = await this.sessionRepo.findById(sessionId);
+        if (!session) {
+          throw new NotFoundException(`Sessão ${sessionId} não encontrada.`);
+        }
+        // K2-a — achado 5 da ADR-0069: a sessão de outro paciente da mesma
+        // clínica entrava na cobrança.
+        if (session.patientId !== input.patientId) {
+          throw new ConflictException({
+            code: 'SESSION_OF_ANOTHER_PATIENT',
+            message: `A sessão ${sessionId} é de outro paciente.`,
+            category: 'business_rule',
+          });
+        }
+        // Sessão já faturada ou recebida: o mesmo SESSION_ALREADY_BILLED do
+        // contrato publicado (Teste Crítico #7), conferido antes da
+        // elegibilidade genérica. SESSION_NOT_BILLABLE fica para a sessão
+        // ainda não faturada que não pode ser cobrada.
+        if (ALREADY_BILLED_STATES.includes(session.state)) {
+          throw new ConflictException({
+            code: 'SESSION_ALREADY_BILLED',
+            message: `A sessão ${sessionId} já está vinculada a outra cobrança.`,
+            category: 'business_rule',
+          });
+        }
+        if (session.state !== 'Realizada') {
+          throw new ConflictException({
+            code: 'SESSION_NOT_BILLABLE',
+            message: `A sessão ${sessionId} não está a faturar (estado ${session.state}).`,
+            category: 'business_rule',
+          });
+        }
+        sessions.push(session);
+      }
 
-    const billing = Billing.create({
-      id: randomUUID(),
-      tenantId: this.tenantContext.tenantId,
-      patientId: input.patientId,
-      amount: input.amount,
-      dueDate: input.dueDate,
+      const billing = Billing.create({
+        id: randomUUID(),
+        tenantId: this.tenantContext.tenantId,
+        patientId: input.patientId,
+        amount: input.amount,
+        dueDate: input.dueDate,
+      });
+      // UNIQUE(session_id) protege contra dupla cobrança da mesma sessão; a
+      // falha desfaz a transação inteira, sem cobrança órfã.
+      await this.repo.createWithSessions(billing, input.sessionIds);
+
+      const sessionEvents: DomainEvent[] = [];
+      for (const session of sessions) {
+        session.transitionTo('Faturada');
+        await this.sessionRepo.save(session);
+        sessionEvents.push(...session.pullDomainEvents());
+      }
+
+      // Módulo 10: eventos agora persistidos de verdade, não mais descartados.
+      // AD-009: eventos da Billing e das Sessions vinculadas mesclados num
+      // único recordAll(), mesmo precedente já usado em ConfirmarConsultaUseCase.
+      await this.auditService.recordAll([...billing.pullDomainEvents(), ...sessionEvents]);
+
+      return billing;
     });
-    await this.repo.save(billing);
-    await this.repo.linkSessions(billing.id, input.sessionIds); // UNIQUE(session_id) protege contra dupla-cobrança da mesma sessão
-
-    const sessionEvents: DomainEvent[] = [];
-    for (const session of sessions) {
-      session.transitionTo('Faturada');
-      await this.sessionRepo.save(session);
-      sessionEvents.push(...session.pullDomainEvents());
-    }
-
-    // Módulo 10: eventos agora persistidos de verdade, não mais descartados.
-    // AD-009: eventos da Billing e das Sessions vinculadas mesclados num
-    // único recordAll(), mesmo precedente já usado em ConfirmarConsultaUseCase.
-    await this.auditService.recordAll([...billing.pullDomainEvents(), ...sessionEvents]);
-
-    return billing;
   }
 }
 

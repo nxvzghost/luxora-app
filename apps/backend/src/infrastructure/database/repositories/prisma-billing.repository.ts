@@ -2,7 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { Billing as PrismaBilling, BillingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { AWAITING_PAYMENT_STATES, Billing, BillingState, overdueDueDateLimit } from '@domain/billing/billing.entity';
-import { BillingRepository } from '@domain-services/financial/billing.repository';
+import { BILLING_ELIGIBILITY_PROTOCOL, BillingRepository } from '@domain-services/financial/billing.repository';
 
 const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
 
@@ -47,32 +47,47 @@ export class PrismaBillingRepository implements BillingRepository {
     return records.map((r) => this.toDomain(r));
   }
 
+  /**
+   * K2-a (ADR-0069, seção 3.7) — só a mudança de estado. Um UPDATE simples, e
+   * não o upsert de antes: a cobrança nova nasce só em createWithSessions(),
+   * e o papel da aplicação tem UPDATE apenas em status e updated_at.
+   */
   async save(billing: Billing): Promise<void> {
     await this.prisma.forTenant((tx) =>
-      tx.billing.upsert({
+      tx.billing.update({
         where: { id: billing.id },
-        create: {
-          id: billing.id,
-          tenantId: billing.tenantId,
-          patientId: billing.patientId,
-          amount: billing.amount as unknown as Prisma.Decimal,
-          dueDate: billing.dueDate,
-          status: TO_DB[billing.state],
-        },
-        update: { status: TO_DB[billing.state] },
+        data: { status: TO_DB[billing.state] },
       }),
     );
   }
 
-  async linkSessions(billingId: string, sessionIds: string[]): Promise<void> {
+  /**
+   * K2-a — cobrança nova e vínculos no mesmo bloco: dentro da unidade de
+   * trabalho de GerarCobrancaUseCase, na transação dela; fora, numa transação
+   * própria. A cobrança leva o protocolo de elegibilidade e cada vínculo
+   * leva o paciente, que as chaves compostas do banco conferem contra a
+   * cobrança e a sessão.
+   */
+  async createWithSessions(billing: Billing, sessionIds: string[]): Promise<void> {
     try {
       await this.prisma.forTenant(async (tx) => {
-        const billing = await tx.billing.findUniqueOrThrow({ where: { id: billingId } });
+        await tx.billing.create({
+          data: {
+            id: billing.id,
+            tenantId: billing.tenantId,
+            patientId: billing.patientId,
+            amount: billing.amount as unknown as Prisma.Decimal,
+            dueDate: billing.dueDate,
+            status: TO_DB[billing.state],
+            eligibilityProtocol: BILLING_ELIGIBILITY_PROTOCOL,
+          },
+        });
         await tx.billingSession.createMany({
           data: sessionIds.map((sessionId) => ({
             tenantId: billing.tenantId,
-            billingId,
+            billingId: billing.id,
             sessionId,
+            patientId: billing.patientId,
           })),
         });
         // UNIQUE(session_id) na tabela billing_session (Módulo 01) já garante

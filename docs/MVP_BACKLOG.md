@@ -160,7 +160,7 @@ Desenho técnico proposto: [ADR-0069](./02-Arquitetura/ADRs/ADR-0069-ciclo-de-vi
 - [ ] No painel, o horário de recebimento não pode ser informado nem sobrescrito. O horário alegado fica separado, com origem e responsável, e não muda a classificação oficial. Correção é novo registro.
 - [ ] Comunicação que chega depois de um desfecho registrado não o altera e gera aviso à equipe.
 - [ ] `POST /billings` recusa sessão anulada, sem tipo (legado), não a faturar ou de outro paciente; cobrança e vínculos gravados juntos (falha no vínculo não deixa cobrança).
-- [ ] No banco: vínculo com sessão inelegível, de outro paciente ou de outra clínica é recusado, e cobrança sem a marca de conferência é recusada. Provado em teste de integração no PostgreSQL 16.
+- [ ] No banco: vínculo com sessão inelegível, de outro paciente ou de outra clínica é recusado, e cobrança nova sem o protocolo de elegibilidade é recusada, enquanto a versão antiga continua atualizando o status de cobranças existentes. Provado em teste de integração no PostgreSQL 16.
 - [ ] No ensaio de deploy, a imagem da versão anterior contra o banco migrado não consegue criar cobrança nem deixa cobrança órfã; `deploy.sh` e `rollback.sh` recusam destino sem a capacidade de elegibilidade.
 - [ ] O `dry-run` da migração do legado não deixa nada gravado além do registro da execução; as impressões digitais financeiras de antes e de depois coincidem; o `apply` exige `dry-run` aprovado e autorização específica, nunca muda o estado das consultas e nunca escreve em cobrança ou pagamento.
 - [ ] Toda marcação, abono e correção aparece na Auditoria com o autor.
@@ -178,7 +178,7 @@ Desenho técnico proposto: [ADR-0069](./02-Arquitetura/ADRs/ADR-0069-ciclo-de-vi
   - registro das execuções da migração do legado;
   - tabela de comunicações, com privilégio de atualização só nas colunas de revisão;
   - carimbo de tempo da Meta na mensagem;
-  - elegibilidade na sessão, marca de conferência na cobrança, paciente no vínculo e chaves compostas;
+  - elegibilidade na sessão, protocolo de elegibilidade na cobrança (chave estrangeira), paciente no vínculo e chaves compostas;
   - exigência mínima de versão (`deployment_requirement`).
 - **Infra:** rótulo de capacidade na imagem (`build-images.sh`); `deploy.sh` e `rollback.sh` leem a exigência e recusam destino incompatível; teste de compatibilidade da versão anterior no ensaio de deploy.
 - **Backend:**

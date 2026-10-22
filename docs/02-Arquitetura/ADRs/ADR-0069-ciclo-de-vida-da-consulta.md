@@ -424,7 +424,7 @@ Tem RLS como as demais tabelas. Os privilégios estão na seção 2.4: sem `DELE
 |---|---|
 | `appointment` | `rescheduled_from_id` (único); `legacy_flags`; `UNIQUE (id, tenant_id, state, scheduled_at, modality)`, referenciada pela FK de congelamento (seção 2.4). **Sem colunas de desfecho**: elas ficam em `appointment_outcome` |
 | `session` | `kind` (opcional; vazio no legado); `voided_at`, `void_reason`, `voided_by_user_id`; **`billing_eligibility`** (`NOT NULL DEFAULT 'nao_elegivel'`); `legacy_category`, `legacy_run_id`; `completed_at` passa a ser gravado |
-| `billing` | **`eligibility_checked`** (boolean, sem padrão); **`legacy_billing`** (boolean) |
+| `billing` | **`eligibility_protocol`** (texto, chave estrangeira para `billing_eligibility_protocol`; nulo nas cobranças existentes, `'nenhum'` como padrão das novas); **`legacy_billing`** (boolean) |
 | `billing_session` | **`patient_id`**; **`required_eligibility`** (`DEFAULT 'elegivel'`); **`legacy_link`** (boolean) |
 | `message` | `provider_sent_at` (carimbo da Meta, lido do webhook) |
 | `clinic_settings` | `no_show_policy`, `late_notice_policy`, `after_start_notice_policy`, `abono_approvers` |
@@ -461,20 +461,37 @@ A migration que cria as restrições da seção 3.7 grava a exigência. Os scrip
 
 **Linhas existentes, marcadas pelos padrões de `ADD COLUMN`** (nenhum valor existente é alterado):
 - `session.billing_eligibility = 'nao_elegivel'`: **nenhuma sessão legada é elegível** (DP-27, item 5), sem depender da classificação;
-- `billing.legacy_billing = true`;
+- `billing.legacy_billing = true`, com `billing.eligibility_protocol` nulo;
 - `billing_session.legacy_link = true`.
 
 **Logo em seguida, o padrão para linhas novas muda:**
-- `ALTER … SET DEFAULT false` em `legacy_billing` e `legacy_link`. Uma versão antiga que insira sem conhecer essas colunas recebe `false`.
+- `ALTER … SET DEFAULT false` em `legacy_billing` e `legacy_link`;
+- `ALTER … SET DEFAULT 'nenhum'` em `billing.eligibility_protocol`, um valor que **não existe** na tabela de protocolos.
+
+Uma versão antiga que insira sem conhecer essas colunas recebe esses padrões.
 
 **Migration 2 (restrições), no mesmo deploy da migration 1:**
 - **Sessão:** `UNIQUE (id, tenant_id, patient_id, billing_eligibility)` e `CHECK (billing_eligibility <> 'elegivel' OR (kind IS NOT NULL AND voided_at IS NULL))`.
-- **Cobrança:** `UNIQUE (id, tenant_id, patient_id)` e `CHECK (legacy_billing OR eligibility_checked IS TRUE)`.
-  - Uma versão que não conhece o protocolo **não consegue criar cobrança** (falha fechada): sem cobrança órfã.
-  - Atualizar cobranças antigas (pagar, reenviar) continua possível, porque elas têm `legacy_billing = true`.
+- **Cobrança: chave estrangeira de protocolo** (rodada 6, 21/10/2026; substitui o campo `eligibility_checked` com `CHECK`):
+  - tabela `billing_eligibility_protocol (name PRIMARY KEY)`, com uma única linha, `billing-eligibility-v1`;
+  - `billing.eligibility_protocol` com chave estrangeira para ela;
+  - `CHECK (legacy_billing OR eligibility_protocol IS NOT NULL)`;
+  - `UNIQUE (id, tenant_id, patient_id)`.
+
+  **Por que chave estrangeira e não `CHECK`** [EV, teste de 21/10/2026 num PostgreSQL 16 descartável]:
+  - o Prisma 5.18 do projeto grava a cobrança com `INSERT … ON CONFLICT (id) DO UPDATE`, inclusive para só mudar o status;
+  - o PostgreSQL avalia `CHECK` sobre a linha **proposta** mesmo quando o conflito vira atualização. O desenho anterior (`legacy_billing OR eligibility_checked IS TRUE`) impediria a versão antiga até de quitar, reenviar ou passar pela régua de uma cobrança existente, e o pagamento antigo, que grava o pagamento antes de atualizar a cobrança, deixaria pagamento confirmado com cobrança em aberto;
+  - a chave estrangeira só é conferida quando a linha é de fato inserida ou quando o valor da chave muda.
+
+  **Efeito** (os quatro casos foram verificados no mesmo teste):
+  - versão antiga criando cobrança → recebe o padrão `'nenhum'` → **recusada** pela chave estrangeira, sem nada gravado;
+  - versão antiga atualizando o status de cobrança existente, antiga ou nova → **aceita**;
+  - linha nova com protocolo nulo → **recusada** pelo `CHECK`, porque o papel da aplicação não pode gravar `legacy_billing`;
+  - versão nova → cria com `'billing-eligibility-v1'`, dentro da transação única, e muda status com `UPDATE` simples, sem `upsert`.
 - **Vínculo:**
   - `CHECK (required_eligibility = 'elegivel')` e `CHECK (legacy_link OR patient_id IS NOT NULL)`;
-  - FKs compostas `(session_id, tenant_id, patient_id, required_eligibility) → session (id, tenant_id, patient_id, billing_eligibility)` e `(billing_id, tenant_id, patient_id) → billing (id, tenant_id, patient_id)`, ambas `NOT VALID`. Os vínculos antigos, com `patient_id` nulo, ficam como estão; os novos são conferidos.
+  - FKs compostas `(session_id, tenant_id, patient_id, required_eligibility) → session (id, tenant_id, patient_id, billing_eligibility)` e `(billing_id, tenant_id, patient_id) → billing (id, tenant_id, patient_id)`. Os vínculos antigos têm `patient_id` nulo e, no modo padrão (`MATCH SIMPLE`), não são conferidos; os novos são. Por isso as chaves podem ser criadas já validadas, sem `NOT VALID`.
+  - **K2-a** cria só a parte de paciente e clínica: `(session_id, tenant_id, patient_id) → session (id, tenant_id, patient_id)`. A elegibilidade da sessão (`required_eligibility`, `billing_eligibility`) entra na **K2-b**, junto do ciclo da consulta.
   - Um vínculo novo só existe se a sessão estiver elegível e for do mesmo paciente e da mesma clínica da cobrança.
   - Uma sessão já vinculada não pode deixar de ser elegível (a FK impede a mudança), o que também impede anular sessão cobrada.
 - **Agenda e comunicação:**
@@ -484,14 +501,17 @@ A migration que cria as restrições da seção 3.7 grava a exigência. Os scrip
   - índice `(tenant_id, state, scheduled_at)`.
 - **Privilégios:**
   - em `appointment_notice`, o papel da aplicação recebe `INSERT`, `SELECT` e `UPDATE` só nas colunas de revisão;
-  - em `billing` e `billing_session`, a migration revoga o privilégio de tabela inteira (hoje `GRANT ALL`, `infra/docker/postgres-init/01-app-role.sql`) e concede por coluna, **sem** `legacy_billing` e `legacy_link`, que só a migration preenche.
+  - em `billing` e `billing_session`, a migration revoga o privilégio de tabela inteira (hoje `GRANT ALL`, `infra/docker/postgres-init/01-app-role.sql`) e concede por coluna, **sem** `legacy_billing` e `legacy_link`, que só a migration preenche. Em `billing`, o `UPDATE` fica limitado ao status e à data de atualização: a aplicação não muda o protocolo de uma cobrança existente. Em `billing_session`, não há `UPDATE`: a aplicação não muda vínculo existente;
+  - em `billing_eligibility_protocol` e `deployment_requirement`, o papel da aplicação não tem privilégio de escrita, e em `deployment_requirement` nem de leitura;
+  - [EV, K2-a] **onde o papel da aplicação é dono das tabelas** (CI e ambiente local, em que as migrations rodam com ele), a checagem de chave estrangeira trava a linha da outra tabela com `SELECT … FOR KEY SHARE`, executado com o dono dela, e isso exige `UPDATE` em pelo menos uma coluna. Só nesse caso a migration concede `UPDATE` em `billing_eligibility_protocol.description` e em `billing_session.created_at`, colunas sem papel na integridade. Em homologação e produção o dono é o administrador e as duas concessões não existem. Um dono pode devolver a si qualquer privilégio: ali os privilégios por coluna não são barreira, e a prova deles vale para produção.
+  - [EV, K2-a] no Prisma, `legacy_billing` e `legacy_link` ficam com `@ignore`: o client manda no `INSERT` o padrão estático de toda coluna do modelo, e o papel da aplicação não pode gravá-las.
 - **Exigência:** grava `deployment_requirement = billing-eligibility-v1`.
 
 **Limites conhecidos das restrições:**
 - não impedem uma cobrança com zero vínculos (exigiria trigger ou restrição adiada); isso fica com a transação única da aplicação e com testes;
 - não impedem SQL direto com credencial de administrador;
-- uma versão futura com defeito poderia marcar `eligibility_checked = true` sem conferir, mas os vínculos continuariam barrados pelas FKs;
-- `NOT VALID` não pode ser seguido de `VALIDATE CONSTRAINT` sem tratar os vínculos legados.
+- uma versão futura com defeito poderia gravar o protocolo sem conferir a elegibilidade, mas os vínculos continuariam barrados pelas FKs compostas (paciente e clínica e, depois da K2-b, elegibilidade da sessão);
+- a chave estrangeira do protocolo não impede uma versão antiga de inserir cobrança se alguém acrescentar `'nenhum'` à tabela de protocolos; por isso a aplicação não tem privilégio de escrita nela.
 
 ---
 
@@ -533,7 +553,7 @@ A migration que cria as restrições da seção 3.7 grava a exigência. Os scrip
 
 **F8 — Sem desfecho.** Lista de consultas cujo horário terminou sem desfecho, com comunicações pendentes e marca de legado. Não muda estado.
 
-**F9 — Cobrança.** Só sessões elegíveis (seção 2.9), em uma transação, com `eligibility_checked = true`. Cobranças legadas seguem o ciclo normal. A mensagem identifica cada falta sem aviso prévio com linguagem neutra, data e valor (DP-24b). Isso depende do MVP-03 e, fora da janela de 24 h, de modelo aprovado pela Meta (A-07).
+**F9 — Cobrança.** Só sessões elegíveis (seção 2.9), em uma transação, com `eligibility_protocol = 'billing-eligibility-v1'`. Cobranças legadas seguem o ciclo normal. A mensagem identifica cada falta sem aviso prévio com linguagem neutra, data e valor (DP-24b). Isso depende do MVP-03 e, fora da janela de 24 h, de modelo aprovado pela Meta (A-07).
 
 **F10 — Dívida.** Não lida pelo MVP-01.
 
@@ -725,7 +745,7 @@ Estilo das rotas existentes (inglês, `/api/v1`); erros `{ code, message, catego
 | `GET /appointments/pending-outcome`, `/pending-decisions` | novas | — | `admin` (e `therapist` na primeira) | Incluem comunicações pendentes de revisão |
 | `GET /appointments/:id/history` | nova | — | `admin`, `therapist` | Seção 5.4 |
 | `GET /sessions` | resposta | — | igual hoje | `kind`, `billingEligibility`, `voidedAt`, `legacyCategory`; `state=Realizada` devolve só elegíveis |
-| `POST /billings` | validação e atomicidade | — | `admin` | `SESSION_NOT_BILLABLE`, `SESSION_OF_ANOTHER_PATIENT`; restrições do banco como última barreira |
+| `POST /billings` | validação e atomicidade | — | `admin` | `SESSION_OF_ANOTHER_PATIENT`, `SESSION_ALREADY_BILLED` (sessão já cobrada, contrato mantido), `SESSION_NOT_BILLABLE`; restrições do banco como última barreira |
 | `PUT /clinic/policies` | corpo | `noShowPolicy`, `lateNoticePolicy`, `afterStartNoticePolicy`, `abonoApprovers` | `admin` | — |
 
 **Documentos a atualizar na implementação:**
@@ -745,7 +765,7 @@ Pré-requisito: porta `Clock` para as fronteiras exatas.
 |---|---|
 | Unitário (domínio) | Toda transição permitida e proibida (seções 2.5 e 2.6); classificação (limites de 2 h e 4 h, sem limite, no instante do início, 1 min antes e depois, **horas depois do fim do horário** = `depois_do_inicio`); escolha do horário de referência (Meta válido, Meta inválido → recebimento; nunca processamento; nunca alegado); elegibilidade |
 | Casos de uso | IA só grava comunicação depois do início; `atraso` e ambiguidade não mudam estado; comunicação depois de desfecho não o altera e sinaliza; T4 só por pessoa e só com comunicação `depois_do_inicio`; política só sugere |
-| Integração (Postgres 16 real) | **Cada restrição da seção 3.7**:<br>• vínculo de sessão inelegível, de outro paciente e de outra clínica recusado;<br>• cobrança sem `eligibility_checked` recusada;<br>• cobrança e vínculo antigos atualizáveis;<br>• sessão vinculada não pode ficar inelegível;<br>• `UPDATE` de horário em comunicação recusado por privilégio;<br>• `ADD COLUMN … DEFAULT` sem reescrita;<br>• `CHECK`s da seção 2.7;<br>• congelamento (seção 2.4): alterar estado, horário ou modalidade de consulta com desfecho é recusado pela FK; `UPDATE` do papel da aplicação nessa consulta não tem efeito (RLS); apagar o desfecho é recusado por privilégio; a remarcação na ordem certa passa, e na ordem invertida é recusada |
+| Integração (Postgres 16 real) | **Cada restrição da seção 3.7**:<br>• vínculo de sessão inelegível, de outro paciente e de outra clínica recusado;<br>• cobrança nova sem o protocolo recusada (chave estrangeira); versão antiga continua atualizando o status de cobranças existentes (quitação, reenvio, régua);<br>• cobrança e vínculo antigos atualizáveis;<br>• sessão vinculada não pode ficar inelegível;<br>• `UPDATE` de horário em comunicação recusado por privilégio;<br>• `ADD COLUMN … DEFAULT` sem reescrita;<br>• `CHECK`s da seção 2.7;<br>• congelamento (seção 2.4): alterar estado, horário ou modalidade de consulta com desfecho é recusado pela FK; `UPDATE` do papel da aplicação nessa consulta não tem efeito (RLS); apagar o desfecho é recusado por privilégio; a remarcação na ordem certa passa, e na ordem invertida é recusada |
 | Crítico (HTTP, RLS) | Critérios do MVP-01; comunicações pelo painel com horário alegado separado; correção por novo registro; concorrência (realização × falta, comunicação × desfecho, duas remarcações); isolamento entre clínicas; auditoria com autor, momentos, estado anterior e novo |
 | Crítico (WhatsApp, fila e worker reais) | Comunicação com o carimbo da Meta (quando presente) e o recebimento, mesmo com a fila atrasada; antes do início sem ambiguidade cancela ou remarca; depois do início, `atraso`, ambiguidade ou desfecho existente → só comunicação e aviso; nenhuma intenção alcança desfecho, abono, decisão ou cobrança; identidade ambígua sem ação |
 | Cobrança e pagamento | `POST /billings` com cada motivo de inelegibilidade; cobrança e vínculos atômicos (falha no vínculo não deixa cobrança); cobranças legadas pagáveis, reenviáveis e estornáveis; ADR-0052 verde |
@@ -829,7 +849,7 @@ Cada fase exige autorização própria, gate pré-push e CI verde.
 | A | Correção para a frente depois da publicação | — | Não | **Recusada pelo responsável** |
 | B | **Exigência mínima de versão** no deploy: a imagem carrega um rótulo de capacidade (`luxora.capabilities=billing-eligibility-v1`, junto do `APP_VERSION` que o `build-images.sh` já grava); a migration grava a exigência em `deployment_requirement`; `deploy.sh` e `rollback.sh` leem a exigência com a credencial de administrador e recusam destino sem a capacidade | Mudar os três scripts; versões identificadas por capacidade, não por ordem (as tags são hashes); ensaio | Só no caminho normal: bloqueia o rollback, não a versão antiga | Contornável por quem rode a imagem por fora dos scripts. Aplicada de forma estrita ao rollback automático, deixaria a aplicação parada no primeiro deploy com a exigência. A decisão de 21/10 permite esse retorno em modo degradado e registrado |
 | C | **Lançamento em duas versões** (guarda antes da mudança de significado) | Uma versão intermediária com a guarda | Só para voltar até a intermediária | A versão intermediária precisa decidir elegibilidade sem o registro de desfecho: ou volta a tornar faturável o que a confirmação cria (o defeito original), ou congela a cobrança. Não protege abaixo dela sem B |
-| D | **Restrições declarativas no banco** (seção 3.7): FKs compostas, `CHECK` por linha e marca de conferência exigida na cobrança, sem trigger nem função | SQL bruto nas migrations; prova no PostgreSQL 16; exceção à ADR-0060 aprovada; `patient_id` e `tenant_id` repetidos no vínculo | **Sim, em qualquer versão**: a antiga não consegue criar cobrança nem vincular sessão inelegível ou de outro paciente | Não impede cobrança com zero vínculos (fica com a aplicação nova); não impede SQL de administrador; a versão antiga mostra erro ao tentar cobrar; complexidade |
+| D | **Restrições declarativas no banco** (seção 3.7): FKs compostas, `CHECK` por linha e protocolo de elegibilidade exigido na cobrança por chave estrangeira, sem trigger nem função | SQL bruto nas migrations; prova no PostgreSQL 16; exceção à ADR-0060 aprovada; `patient_id` e `tenant_id` repetidos no vínculo | **Sim, em qualquer versão**: a antiga não consegue criar cobrança nem vincular sessão inelegível ou de outro paciente | Não impede cobrança com zero vínculos (fica com a aplicação nova); não impede SQL de administrador; a versão antiga mostra erro ao tentar cobrar; complexidade |
 | E | Trigger de validação | — | Sim | A política a admite como "validação complementar", mas exige regra de negócio no backend, e o responsável pediu considerar a restrição. **Não recomendada** |
 | F | Papel do banco por geração de versão (tirar `INSERT` em cobrança do papel usado pelas versões antigas) | Papéis e RLS duplicados; credencial ligada à imagem no deploy | Sim | Operação complexa; um erro de configuração bloqueia a versão nova. Não recomendada agora |
 | G | Apagar imagens antigas do host | — | Fraco | As imagens podem ser reconstruídas do Git |
@@ -851,7 +871,7 @@ Cada fase exige autorização própria, gate pré-push e CI verde.
 
 | Operação de uma versão sem a capacidade, depois da migration do K2 | Resultado |
 |---|---|
-| Criar cobrança (`billing`) | Recusada pelo banco (`CHECK` da marca de conferência); nada gravado |
+| Criar cobrança (`billing`) | Recusada pelo banco (chave estrangeira do protocolo: o padrão `'nenhum'` não existe na tabela de protocolos); nada gravado |
 | Criar vínculo (`billing_session`) | Recusado pelo banco (`CHECK` e FKs compostas) |
 | Confirmar, cancelar ou remarcar consulta **com desfecho** | Recusado pelo banco (congelamento, seção 2.4); nada gravado |
 | Confirmar consulta sem desfecho | Compatível; a sessão criada nasce `nao_elegivel`, sem efeito financeiro |
@@ -1083,6 +1103,16 @@ Os critérios do MVP-01 no backlog, mais os da seção 8, em especial:
   - DP-22 a DP-25 e K11 decididos pelo responsável (seção 10.1).
   - Dependências registradas: MVP-02, MVP-03, A-07, restrição do terapeuta às próprias consultas e validação com o modelo real.
   - A ADR continua em revisão, e o K2 continua bloqueador.
+- **21/10/2026 — rodada 6 (mecanismo da cobrança).**
+  - [EV] O `CHECK` sobre `eligibility_checked` recusaria até a quitação feita pela versão antiga: o Prisma grava a cobrança com `INSERT … ON CONFLICT DO UPDATE`, e o PostgreSQL confere `CHECK` na linha proposta.
+  - O responsável aprovou a troca pela chave estrangeira de protocolo (`eligibility_protocol` → `billing_eligibility_protocol`, padrão inválido `'nenhum'` para versões antigas, cobranças legadas com protocolo nulo), mantendo os privilégios por coluna (seção 3.7).
+- **21/10/2026 — K2-a implementada (fase autorizada; commit local, sem push nem deploy).**
+  - Migration `20261022120000_k2a_billing_eligibility`: tabela de protocolos e `deployment_requirement`; `legacy_billing`, `eligibility_protocol`, `legacy_link` e `patient_id` do vínculo; chave do protocolo; FKs compostas de paciente e clínica no vínculo (cobrança e sessão), já validadas; os dois `CHECK`s; privilégios por coluna. Sem trigger e sem função.
+  - Aplicação: `POST /billings` confere paciente, clínica e estado de cada sessão (`SESSION_OF_ANOTHER_PATIENT`, `SESSION_ALREADY_BILLED` para sessão já `Faturada` ou `Recebida`, como no contrato publicado, e `SESSION_NOT_BILLABLE`, reservado para os estados da K2-b) e grava cobrança e vínculos numa única transação; `BillingRepository.save()` só atualiza o status.
+  - Achados da implementação [EV], registrados na seção 3.7: `@ignore` no Prisma para as colunas que a aplicação não grava; `UPDATE` numa coluna sem papel na integridade, só onde o papel da aplicação é dono das tabelas, para a checagem de chave estrangeira.
+  - Scripts: rótulo `luxora.capabilities` na imagem; `deploy.sh` e `rollback.sh` conferem exigência, restrições e privilégios; retorno degradado registrado (`mode`); estado `requirement-active` gravado assim que as migrations passam; `restore-drill.sh` confere o banco restaurado.
+  - Restauração: em vez de aplicar migrations por conta própria, `rollback.sh` recusa e indica `deploy.sh`, que as aplica e confere de novo antes de trocar a aplicação. Backup de schema anterior vai para banco vazio: `pg_restore --clean` sobre o banco atual deixaria as tabelas novas e impediria reaplicar a migration (MIGRATION_RUNBOOK).
+  - Fora da K2-a, e por isso o K2 **continua bloqueador**: K2-b (elegibilidade da sessão, `required_eligibility` e `billing_eligibility`, congelamento da consulta com desfecho, seção 2.4) e as provas que dependem dela.
 
 ## Considerações finais
 

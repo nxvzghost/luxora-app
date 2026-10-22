@@ -38,7 +38,7 @@ check() { local description="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$desc
 equal() { if [ "$2" = "$3" ]; then ok "$1"; else ko "$1 (esperado: $2 · obtido: $3)"; fi; }
 section() { echo; echo "== $1"; }
 
-V1="$BASE"; V2="$BASE-r2"; BAD="$BASE-quebrada"
+V1="$BASE"; V2="$BASE-r2"; BAD="$BASE-quebrada"; NOCAP="$BASE-sem-capacidade"
 IMAGE="luxora-backend"
 WORK="$(mktemp -d)"
 ENV_FILE="$WORK/staging.env"
@@ -63,7 +63,7 @@ wait_for() { # descrição, segundos, comando...
 
 cleanup() {
   compose --profile frontend --profile observability --profile tools down -v --remove-orphans >/dev/null 2>&1
-  docker image rm -f "$IMAGE:$V2" "$IMAGE:$BAD" "$IMAGE-migrate:$V2" "$IMAGE-migrate:$BAD" >/dev/null 2>&1
+  docker image rm -f "$IMAGE:$V2" "$IMAGE:$BAD" "$IMAGE:$NOCAP" "$IMAGE-migrate:$V2" "$IMAGE-migrate:$BAD" "$IMAGE-migrate:$NOCAP" >/dev/null 2>&1
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -87,8 +87,13 @@ ADMIN_PASSWORD="$(sed -n 's/^POSTGRES_ADMIN_PASSWORD=//p' "$ENV_FILE")"
 printf 'FROM %s\nENV APP_VERSION=%s\n' "$IMAGE:$V1" "$V2" | docker build -q -t "$IMAGE:$V2" - >/dev/null
 printf 'FROM %s\nENV APP_VERSION=%s\nCMD ["node","-e","console.error(\\"versao quebrada de proposito\\");process.exit(1)"]\n' "$IMAGE:$V1" "$BAD" \
   | docker build -q -t "$IMAGE:$BAD" - >/dev/null
+# K2-a: uma versão que não declara a capacidade billing-eligibility-v1, no
+# lugar de uma anterior ao K2-a (o ensaio com a versão antiga de verdade é o
+# infra/tests/k2-compat-rehearsal.sh).
+printf 'FROM %s\nENV APP_VERSION=%s\nLABEL luxora.capabilities=""\n' "$IMAGE:$V1" "$NOCAP" | docker build -q -t "$IMAGE:$NOCAP" - >/dev/null
 docker tag "$IMAGE-migrate:$V1" "$IMAGE-migrate:$V2"
 docker tag "$IMAGE-migrate:$V1" "$IMAGE-migrate:$BAD"
+docker tag "$IMAGE-migrate:$V1" "$IMAGE-migrate:$NOCAP"
 
 # -------------------------------------------------------------------- imagem
 section "imagem do backend"
@@ -173,6 +178,69 @@ equal "e está pronta" "200" "$(status "$API/api/v1/health/ready")"
 equal "histórico registra o rollback manual" "rollback" "$(last_history action)"
 equal "os dados do banco continuam lá" "1" "$(marker)"
 
+# ------------------------------------- K2-a: capacidades e retorno degradado
+section "K2-a: exigência de versão e retorno degradado"
+K2A_CONSTRAINTS="'billing_eligibility_protocol_fkey','billing_legacy_or_protocol_check','billing_session_billing_patient_fkey','billing_session_session_patient_fkey','billing_session_legacy_or_patient_check'"
+equal "a imagem declara a capacidade billing-eligibility-v1" "billing-eligibility-v1" "$(docker image inspect -f '{{ index .Config.Labels "luxora.capabilities" }}' "$IMAGE:$V1")"
+equal "o banco exige billing-eligibility-v1" "billing-eligibility-v1" "$(psql_admin "select string_agg(capability, ',') from deployment_requirement")"
+equal "o ambiente registra a exigência ativa" "billing-eligibility-v1" "$(cat "$LUXORA_STATE_DIR/requirement-active" 2>/dev/null)"
+equal "as cinco restrições do K2-a existem e estão validadas" "5" "$(psql_admin "select count(*) from pg_constraint where conname in ($K2A_CONSTRAINTS) and convalidated")"
+equal "a role de runtime não grava legacy_billing nem legacy_link e não muda o protocolo" "f|f|f" \
+  "$(psql_admin "select has_column_privilege('luxora_app', 'billing', 'legacy_billing', 'INSERT,UPDATE'), has_column_privilege('luxora_app', 'billing_session', 'legacy_link', 'INSERT,UPDATE'), has_column_privilege('luxora_app', 'billing', 'eligibility_protocol', 'UPDATE')")"
+equal "a role de runtime não escreve nas tabelas de protocolo e de exigência" "f|f|f" \
+  "$(psql_admin "select has_table_privilege('luxora_app', 'billing_eligibility_protocol', 'INSERT,DELETE,TRUNCATE'), has_any_column_privilege('luxora_app', 'billing_eligibility_protocol', 'UPDATE'), has_table_privilege('luxora_app', 'deployment_requirement', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')")"
+
+bash "$SCRIPTS/deploy.sh" --env-file "$ENV_FILE" --version "$NOCAP" > "$WORK/k2-deploy-nocap.log" 2>&1
+equal "deploy.sh recusa a versão sem a capacidade antes de tocar em algo (3)" "3" "$?"
+equal "a versão no ar continua a mesma" "$V1" "$(version)"
+equal "histórico registra a recusa" "refused-capability" "$(last_history result)"
+bash "$SCRIPTS/rollback.sh" --env-file "$ENV_FILE" --to "$NOCAP" > "$WORK/k2-rollback-refused.log" 2>&1
+equal "rollback.sh recusa voltar para a versão sem a capacidade (3)" "3" "$?"
+equal "a versão no ar continua a mesma" "$V1" "$(version)"
+equal "histórico registra a recusa do rollback" "rollback|refused-capability" "$(last_history action)|$(last_history result)"
+bash "$SCRIPTS/rollback.sh" --env-file "$ENV_FILE" --to "$NOCAP" --allow-degraded > "$WORK/k2-rollback-no-notes.log" 2>&1
+equal "--allow-degraded sem justificativa também é recusado (3)" "3" "$?"
+bash "$SCRIPTS/rollback.sh" --env-file "$ENV_FILE" --to "$NOCAP" --allow-degraded --notes "ensaio: retorno degradado justificado" > "$WORK/k2-rollback-degraded.log" 2>&1
+equal "com --allow-degraded e justificativa, o rollback volta (0)" "0" "$?"
+equal "a versão sem a capacidade está no ar" "$NOCAP" "$(version)"
+equal "histórico registra o retorno como degradado, com a justificativa" "degraded|ensaio: retorno degradado justificado" "$(last_history mode)|$(last_history notes)"
+
+READY_TIMEOUT_SECONDS=90 bash "$SCRIPTS/deploy.sh" --env-file "$ENV_FILE" --version "$BAD" > "$WORK/k2-deploy-bad.log" 2>&1
+equal "versão quebrada com a anterior sem a capacidade: rollback automático recusado (2)" "2" "$?"
+equal "a aplicação fica parada (nenhuma versão responde)" "" "$(version)"
+equal "histórico registra o rollback automático recusado" "rollback-refused" "$(last_history result)"
+READY_TIMEOUT_SECONDS=90 bash "$SCRIPTS/deploy.sh" --env-file "$ENV_FILE" --version "$BAD" --allow-degraded --notes "ensaio: aceito voltar degradado" > "$WORK/k2-deploy-bad-allowed.log" 2>&1
+equal "com --allow-degraded e justificativa, o rollback automático volta para a anterior (1)" "1" "$?"
+equal "a anterior, sem a capacidade, está no ar" "$NOCAP" "$(version)"
+equal "histórico registra o rollback automático como degradado" "rolled-back|degraded" "$(last_history result)|$(last_history mode)"
+bash "$SCRIPTS/deploy.sh" --env-file "$ENV_FILE" --version "$V1" > "$WORK/k2-deploy-v1.log" 2>&1
+equal "deploy da versão com a capacidade sai do modo degradado (0)" "0" "$?"
+equal "a versão com a capacidade está no ar" "$V1" "$(version)"
+equal "histórico registra modo normal" "success|normal" "$(last_history result)|$(last_history mode)"
+
+section "K2-a: banco sem as proteções que exige → rollback e deploy recusados"
+k2_rollback_refused() { # descrição
+  bash "$SCRIPTS/rollback.sh" --env-file "$ENV_FILE" --to "$V2" > "$WORK/k2-tamper.log" 2>&1
+  equal "$1: rollback.sh recusa (3)" "3" "$?"
+  equal "$1: a versão no ar continua a mesma" "$V1" "$(version)"
+  equal "$1: histórico registra a recusa" "refused-protections" "$(last_history result)"
+}
+psql_admin "alter table billing drop constraint billing_legacy_or_protocol_check" >/dev/null
+k2_rollback_refused "restrição removida"
+bash "$SCRIPTS/deploy.sh" --env-file "$ENV_FILE" --version "$V2" > "$WORK/k2-tamper-deploy.log" 2>&1
+equal "restrição removida: deploy.sh recusa depois das migrations, sem trocar a aplicação (3)" "3|$V1|failed-protections" "$?|$(version)|$(last_history result)"
+psql_admin "alter table billing add constraint billing_legacy_or_protocol_check check (legacy_billing or eligibility_protocol is not null)" >/dev/null
+psql_admin "grant update (legacy_billing) on billing to luxora_app" >/dev/null
+k2_rollback_refused "privilégio devolvido à aplicação"
+psql_admin "revoke update (legacy_billing) on billing from luxora_app" >/dev/null
+psql_admin "delete from deployment_requirement" >/dev/null
+k2_rollback_refused "exigência sumida do banco (como num backup antigo restaurado sem migrations)"
+psql_admin "insert into deployment_requirement (capability, set_by_migration) values ('billing-eligibility-v1', '20261022120000_k2a_billing_eligibility')" >/dev/null
+bash "$SCRIPTS/rollback.sh" --env-file "$ENV_FILE" --to "$V2" > "$WORK/k2-rollback-v2.log" 2>&1
+equal "proteções de volta: rollback para uma versão com a capacidade passa (0)" "0|$V2" "$?|$(version)"
+bash "$SCRIPTS/deploy.sh" --env-file "$ENV_FILE" --version "$V1" > "$WORK/k2-deploy-v1-again.log" 2>&1
+equal "e o deploy da versão em teste também (0)" "0|$V1" "$?|$(version)"
+
 # ------------------------------------------------- readiness e dependências
 section "readiness com dependência fora do ar"
 ready_is() { [ "$(status "$API/api/v1/health/ready")" = "$1" ]; }
@@ -249,6 +317,7 @@ bash "$SCRIPTS/restore-drill.sh" --env-file "$ENV_FILE" > "$WORK/restore.log" 2>
 equal "restore-drill.sh termina com sucesso" "0" "$?"
 [ "$(last_history result)" = "success" ] || sed 's/^/    | /' "$WORK/restore.log" | tail -n 15
 equal "histórico registra o ensaio de restauração" "restore-drill" "$(last_history action)"
+check "o banco restaurado tem a exigência e as proteções do K2-a" grep -q 'exigência=billing-eligibility-v1 proteções=ok' "$WORK/restore.log"
 equal "o banco descartável foi apagado" "0" "$(psql_admin "select count(*) from pg_database where datname = 'luxora_restore_drill'")"
 equal "o banco em uso não foi tocado" "1" "$(marker)"
 

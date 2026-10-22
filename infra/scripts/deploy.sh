@@ -3,11 +3,14 @@
 # (Tarefa 04 da auditoria. Passo a passo e decisões: docs/07-Infra/DEPLOY_RUNBOOK.md.)
 #
 #   infra/scripts/deploy.sh --env-file /caminho/staging.env --version <tag> [--frontend-version <tag>]
+#                           [--allow-degraded --notes "justificativa"]
 #
 # Ordem, a mesma do MIGRATION_RUNBOOK ("CI/CD Integration"). Cada etapa é um
 # portão: se falha, as seguintes não rodam.
+#   0. capacidades                falhou → nada foi alterado
 #   1. backup do banco            falhou → nada foi alterado
 #   2. migrations (credencial admin)  falhou → a aplicação continua na versão anterior
+#      e proteções do banco          falhou → idem
 #   3. troca da aplicação
 #   4. readiness da versão nova   falhou → ROLLBACK AUTOMÁTICO para a anterior
 #   5. smoke test                 falhou → ROLLBACK AUTOMÁTICO para a anterior
@@ -16,26 +19,40 @@
 # O rollback troca só a aplicação. O banco não volta: por isso toda migration
 # precisa ser compatível com a versão anterior (expand/contract).
 #
+# Capacidades (K2-a — ver lib.sh e o MIGRATION_RUNBOOK; ADR-0069, seção 9.4):
+# a versão implantada precisa ter tudo o que o banco exige e tudo o que este
+# ambiente já exigiu. Rollback automático para uma anterior a que falte alguma:
+#   - no deploy que introduz a exigência (o ambiente ainda não a tinha):
+#     volta, em modo degradado e registrado — a versão nova não chegou a
+#     atender, e parar a aplicação seria pior;
+#   - depois que uma versão com a capacidade já ficou no ar: recusado, com a
+#     aplicação parada, a menos que o deploy tenha sido chamado com
+#     --allow-degraded e uma justificativa em --notes.
+#
 # Saída: 0 = versão nova no ar · 1 = falhou e a anterior foi restaurada ·
-#        2 = falhou e NÃO foi possível restaurar · 3 = falhou antes de tocar a aplicação.
+#        2 = falhou e NÃO foi possível restaurar (ou o retorno foi recusado) ·
+#        3 = falhou ou foi recusado antes de tocar a aplicação.
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-VERSION=""; FRONTEND_VERSION=""; ENV_FILE=""; NOTES=""
+VERSION=""; FRONTEND_VERSION=""; ENV_FILE=""; NOTES=""; ALLOW_DEGRADED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --version) VERSION="$2"; shift 2 ;;
     --frontend-version) FRONTEND_VERSION="$2"; shift 2 ;;
     --notes) NOTES="$2"; shift 2 ;;
+    --allow-degraded) ALLOW_DEGRADED=1; shift ;;
     *) die "argumento desconhecido: $1" ;;
   esac
 done
 [ -n "$VERSION" ] || die "informe a versão com --version <tag>"
+[ "$ALLOW_DEGRADED" -eq 0 ] || [ -n "$NOTES" ] || die "--allow-degraded exige a justificativa em --notes" 3
 init_environment
 
 PREVIOUS="$(state_get current-version)"
+ACTIVE_BEFORE="$(state_get requirement-active)"
 log "deploy em $APP_ENVIRONMENT: versão $VERSION (atual: ${PREVIOUS:-nenhuma}) — projeto $PROJECT"
 
 require_image "$BACKEND_IMAGE_REPO:$VERSION"
@@ -48,6 +65,19 @@ compose up -d --wait postgres redis >/dev/null
 case "$(env_get OTEL_EXPORTER_OTLP_ENDPOINT)" in
   *otel-collector*) compose --profile observability up -d otel-collector >/dev/null ;;
 esac
+
+# 0. capacidades
+IMAGE_CAPABILITIES="$(image_capabilities "$BACKEND_IMAGE_REPO:$VERSION")" || die "não foi possível ler as capacidades da imagem $VERSION" 3
+if ! DB_REQUIRED="$(db_required_capabilities)"; then
+  record_history deploy "$VERSION" refused-capability "não foi possível ler as exigências do banco"
+  die "não foi possível ler as exigências do banco — nada foi alterado" 3
+fi
+# shellcheck disable=SC2086  # listas separadas por espaço
+LACKING="$(missing_from "$IMAGE_CAPABILITIES" $DB_REQUIRED $ACTIVE_BEFORE)"
+if [ -n "$LACKING" ]; then
+  record_history deploy "$VERSION" refused-capability "a versão não tem: $LACKING"
+  die "a versão $VERSION não tem a capacidade '$LACKING', que o banco exige ou este ambiente já exigiu — nada foi alterado. Voltar a uma versão assim é rollback degradado: rollback.sh --allow-degraded (MIGRATION_RUNBOOK)" 3
+fi
 
 # 1. backup
 BACKUP_FILE="$STATE_DIR/backups/$(date -u +%Y%m%dT%H%M%SZ)-antes-de-$VERSION.dump"
@@ -67,6 +97,19 @@ if ! BACKEND_MIGRATE_IMAGE="$BACKEND_MIGRATE_IMAGE_REPO:$VERSION" compose --prof
   record_history deploy "$VERSION" failed-migration "$NOTES"
   die "migration falhou — a aplicação continua na versão ${PREVIOUS:-anterior}; ver 'Estratégia de rollback' no MIGRATION_RUNBOOK" 3
 fi
+if ! check_database_protections; then
+  record_history deploy "$VERSION" failed-protections "$CAPABILITY_PROBLEM"
+  die "depois das migrations: $CAPABILITY_PROBLEM — a aplicação não foi trocada" 3
+fi
+# shellcheck disable=SC2086  # lista separada por espaço
+LACKING="$(missing_from "$IMAGE_CAPABILITIES" $REQUIRED_CAPABILITIES)"
+if [ -n "$LACKING" ]; then
+  record_history deploy "$VERSION" failed-capability "as migrations passaram a exigir: $LACKING"
+  die "as migrations da versão $VERSION passaram a exigir '$LACKING', que a própria imagem não declara — a aplicação não foi trocada" 3
+fi
+# A partir daqui o banco exige o que exige, mesmo que a troca falhe: é o que
+# permite reconhecer depois um backup anterior restaurado sem migrations.
+state_set requirement-active "$REQUIRED_CAPABILITIES"
 
 # 3–5. troca, readiness e smoke
 log "3/6 troca da aplicação para $VERSION"
@@ -88,13 +131,28 @@ if [ -n "$FAILURE" ]; then
     record_history deploy "$VERSION" failed-no-previous "$FAILURE"
     die "$FAILURE; não há versão anterior para restaurar (primeiro deploy) — aplicação parada" 2
   fi
+  # Sem rótulo legível, a anterior conta como sem capacidade nenhuma.
+  # shellcheck disable=SC2086  # lista separada por espaço
+  PREVIOUS_LACKING="$(missing_from "$(image_capabilities "$BACKEND_IMAGE_REPO:$PREVIOUS" || true)" $REQUIRED_CAPABILITIES)"
+  MODE=normal
+  if [ -n "$PREVIOUS_LACKING" ]; then
+    # shellcheck disable=SC2086  # lista separada por espaço
+    ALREADY_ACTIVE="$(present_in "$ACTIVE_BEFORE" $PREVIOUS_LACKING)"
+    if [ -n "$ALREADY_ACTIVE" ] && [ "$ALLOW_DEGRADED" -eq 0 ]; then
+      compose stop backend >/dev/null 2>&1 || true
+      record_history deploy "$VERSION" rollback-refused "$FAILURE; a anterior $PREVIOUS não tem: $ALREADY_ACTIVE"
+      die "$FAILURE; a versão anterior $PREVIOUS não tem a capacidade '$ALREADY_ACTIVE', que este ambiente já exigia, e o rollback automático foi recusado — aplicação PARADA. Para voltar a ela em modo degradado: rollback.sh --to $PREVIOUS --allow-degraded --notes \"justificativa\"" 2
+    fi
+    MODE=degraded
+    log "MODO DEGRADADO: a anterior $PREVIOUS não tem '$PREVIOUS_LACKING'${NOTES:+ (justificativa: $NOTES)}"
+  fi
   log "ROLLBACK AUTOMÁTICO para $PREVIOUS"
   switch_backend "$PREVIOUS"
   if wait_ready "$PREVIOUS"; then
-    record_history deploy "$VERSION" rolled-back "$FAILURE"
-    die "$FAILURE; a versão $PREVIOUS foi restaurada e está pronta" 1
+    record_history deploy "$VERSION" rolled-back "$FAILURE${NOTES:+; $NOTES}" "$MODE"
+    die "$FAILURE; a versão $PREVIOUS foi restaurada e está pronta${PREVIOUS_LACKING:+ (MODO DEGRADADO: sem $PREVIOUS_LACKING)}" 1
   fi
-  record_history deploy "$VERSION" rollback-failed "$FAILURE"
+  record_history deploy "$VERSION" rollback-failed "$FAILURE" "$MODE"
   die "$FAILURE; e a versão $PREVIOUS também não ficou pronta — INTERVENÇÃO MANUAL" 2
 fi
 
