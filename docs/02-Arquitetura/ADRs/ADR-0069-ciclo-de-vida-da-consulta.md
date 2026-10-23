@@ -1,10 +1,11 @@
 # ADR-0069 — Ciclo de vida da consulta: confirmação, desfecho, aviso tardio, remarcação com histórico, elegibilidade para cobrança e migração das sessões legadas (MVP-01)
 
-**Status:** PROPOSTA — **EM REVISÃO**. É só desenho técnico, sem nenhuma alteração de código, schema, migration, banco, configuração ou workflow.
+**Status:** PROPOSTA — **EM REVISÃO**. É desenho técnico: este documento, por si, não altera código, schema, migration, banco, configuração ou workflow.
 - **Não autoriza** implementar, migrar dados, fazer commit, push ou deploy.
 - **Não está aprovada**, com uma única exceção: a exceção arquitetural da seção 9.4, aprovada em 21/10/2026 no escopo restrito.
 - A especificação de domínio e o backlog que a originam também continuam não aprovados.
-- **Partes já implementadas, cada uma por fase autorizada:** K2-a (`c801b91`) e K2-b (23/10/2026). Ver o Histórico; o que não está lá não foi implementado.
+- **Partes já implementadas e publicadas, cada uma por fase autorizada:** K2-a (`c801b91`) e K2-b (`ea9163c`). Ver o Histórico; o que não está lá não foi implementado.
+- **K2 encerrado tecnicamente em 23/10/2026** (seção 9.4): as três provas exigidas passaram. Isso não aprova o restante desta ADR nem autoriza produção ou qualquer ambiente com dados de clínica.
 
 **Origem:** item MVP-01 de [`docs/MVP_BACKLOG.md`](../../MVP_BACKLOG.md) e orientação do responsável pelo produto para DP-01 a DP-04, registrada na [especificação funcional do domínio, seção 4.1](../../01-Domain/14-Especificacao-Funcional-do-Dominio.md).
 
@@ -812,6 +813,11 @@ Cada fase exige autorização própria, gate pré-push e CI verde.
 
 **Dependência dura:** nenhuma versão com as fases 1 a 6 pode ir para um ambiente com dados de clínica sem a fase K2 concluída e provada.
 
+**Situação em 23/10/2026 [EV]:**
+- Fase K2 concluída e provada (seção 9.4).
+- Fases 1 a 4 e 6: implementadas só no escopo da K2-b. O que ficou de fora está no Histórico (23/10/2026, "Fora desta fase").
+- Fases 0, 5, 7 e 8: não iniciadas. A fase 0 inclui a aprovação desta ADR; a fase 5 inclui o K11; a fase 7 é a classificação do legado.
+
 ### 9.2 Critérios para liberar a migração do legado
 
 - ADR aprovada.
@@ -829,7 +835,7 @@ Cada fase exige autorização própria, gate pré-push e CI verde.
 | IA interpreta mal a mensagem | IA não decide depois do início; ambiguidade → revisão; correção por novo registro |
 | Carimbo da Meta ausente ou fora do esperado | Validação e retorno ao recebimento; ambos guardados |
 | Horário alegado usado para mudar decisão | Separado, rotulado, com autor e motivo |
-| Rollback reabrindo cobrança do legado | **Seção 9.4 (K2), ainda bloqueador** |
+| Rollback reabrindo cobrança do legado | Seção 9.4 (K2): restrições no banco, exigência de versão e retorno degradado registrado, implementados e provados em 23/10/2026 |
 | Versão antiga no ar sem conseguir criar cobrança | Efeito intencional da falha fechada; exceção à ADR-0060 aprovada no escopo restrito (seção 9.4) |
 | `therapist` restrito às próprias consultas | Proposta a validar |
 | Motivo livre com informação clínica | Limite, aviso, fora da IA e da auditoria |
@@ -902,7 +908,36 @@ Cada fase exige autorização própria, gate pré-push e CI verde.
    - fica com o retorno degradado registrado.
 3. Ensaio de restauração demonstrando que um banco restaurado sem as restrições não sobe aplicação antes de reaplicar as migrations.
 
-Até lá, **o K2 continua BLOQUEADOR** para qualquer ambiente com dados de clínica. A aprovação da exceção **não autoriza** código, schema, migrations, testes executáveis, commit, push ou deploy.
+Até lá, o K2 era **bloqueador** para qualquer ambiente com dados de clínica. A aprovação da exceção não autorizou, por si, código, schema, migrations, testes executáveis, commit, push ou deploy: cada fase (K2-a e K2-b) teve autorização própria.
+
+#### Situação em 23/10/2026 [EV]: K2 encerrado tecnicamente
+
+As três condições foram provadas. Todos os commits abaixo estão publicados em `origin/master`.
+
+| Condição | Prova | Onde |
+|---|---|---|
+| 1. Cada restrição da seção 3.7 e o congelamento da seção 2.4, no PostgreSQL 16 | **K2-b (23 restrições):** `appointment-outcome-k2b-constraints.test.ts` (`421b251`). Para cada restrição, a linha válida é aceita e cada violação é recusada pela própria restrição, conferida pelo nome. São 35 controles e 50 violações; sem as restrições no banco, os 23 testes falham.<br>**Congelamento, elegibilidade, privilégios e guarda de CI:** `appointment-outcome-k2b.test.ts`, 28 testes (`ea9163c`, horários fixos em `23cf0d9`).<br>**Restrições do K2-a:** `billing-eligibility-k2a.test.ts`, 16 testes (`c801b91`). | CI `40030315146` (`23cf0d9`): 7 jobs verdes; suíte crítica com 709 aprovados no PostgreSQL 16.15 |
+| 2. Deploy e rollback com a versão anterior contra o banco migrado | `infra/tests/k2b-compat-rehearsal.sh`, com a imagem real da `fb93885`: 104 de 104 verificações. A versão anterior:<br>• sobe;<br>• não cobra sessão não elegível (HTTP 500, nada gravado);<br>• não deixa, em nenhuma fase, cobrança nova sem vínculo, vínculo com sessão inelegível ou de outro paciente, nem pagamento confirmado com cobrança em aberto;<br>• não altera consulta com desfecho (recusas da política `appointment_frozen_after_outcome`).<br>O retorno degradado fica registrado: automático no deploy que introduz a exigência; manual só com `--allow-degraded` e justificativa.<br>O K2-a foi ensaiado antes contra a `fd0874f` (`k2-compat-rehearsal.sh`, 75 de 75). | Ensaio local de 23/10/2026; não roda no CI |
+| 3. Restauração de banco sem as restrições | Backup anterior à K2-b restaurado num banco vazio: o rollback e a volta da versão nova são recusados até o `deploy.sh` reaplicar as migrations e conferir as 23 restrições e a política (fase 7 do mesmo ensaio).<br>O ensaio de deploy (`infra/tests/rehearsal.sh`) também restaura backup e confere as proteções: 116 de 116 no local e 126 de 126 no CI `40001325916` (`ea9163c`, com as checagens do painel). | Ensaio local e CI |
+
+**Outras evidências:**
+- Prova por mutação: 12 de 12 mutações detectadas (local, 23/10/2026). Entre elas estão a política trocada por permissiva, a FK de elegibilidade retirada e a aplicação apagando desfecho.
+- Varredura de segredos sem achado real. O único achado é a senha descartável do ensaio, aceita pelo mesmo critério do K2-a.
+- O CI `40009473239` (`421b251`) falhou só por um teste da K2-b que dependia do horário de execução: uma consulta marcada para agora + 7 h passava das 22:59 da clínica e recebia 409. O `23cf0d9` corrigiu o teste, sem mudar asserção.
+
+**Limites da prova:**
+- A versão anterior ao K2-a (`fd0874f`) não foi ensaiada como imagem contra o banco da K2-b. O comportamento dela no banco está coberto pelos testes do K2-a, que rodam com todas as migrations.
+- Os ensaios de compatibilidade não rodam no CI.
+
+**O que o encerramento não significa:**
+- Não aprova o restante desta ADR, que continua em revisão.
+- Não autoriza produção nem nenhum ambiente com dados de clínica. Continuam pendentes:
+  - homologação e CD (nunca rodou);
+  - o `connection_limit` de produção, sem dimensionamento;
+  - a validação real da entrada da Meta;
+  - as decisões A-14 (ADR-0068).
+- Não conclui o MVP-01: o K11 e o que ficou "Fora desta fase" no Histórico seguem abertos.
+- As limitações da tabela abaixo continuam valendo.
 
 **Limitações que o banco não impede sem triggers** (registradas à parte, item 4 da decisão):
 
@@ -1007,8 +1042,8 @@ Resolve o K11 (seção 11.2): a IA não decide sozinha, porque o cancelamento s�
 | DP-23 | Quem aprova o abono | **Decidido** (rodada 5) |
 | DP-24 | Abono reversível? Falta identificada na mensagem? | **Decidido** (rodada 5) |
 | DP-25 | Cancelamento da clínica | **Decidido** (rodada 5) |
-| IA antes do início (K11) | Confirmação explícita do paciente antes de cancelar ou remarcar | **Decidido** (rodada 5); comportamento com o modelo real não validado |
-| K2 | Exceção à ADR-0060 aprovada em 21/10 no escopo restrito (seção 9.4); faltam as provas | **Bloqueador até as provas** |
+| IA antes do início (K11) | Confirmação explícita do paciente antes de cancelar ou remarcar | **Decidido** (rodada 5). Pendentes: a integração da confirmação em duas etapas com o registro do desfecho (fase 5; Histórico, 23/10/2026, achado 6) e o comportamento com o modelo real |
+| K2 | Exceção à ADR-0060 aprovada em 21/10 no escopo restrito; provas concluídas em 23/10/2026 (seção 9.4) | **Encerrado tecnicamente**; não autoriza produção |
 | Carimbo da Meta | Semântica exata e tolerâncias de validade | A confirmar na implementação (documentação da Meta) |
 | Terapeuta | Restrição às próprias consultas | Proposta, a validar |
 | Agendamento no passado (achado 9) | Registro retroativo permitido ou recusado? | Não decidido |
@@ -1023,19 +1058,19 @@ Resolve o K11 (seção 11.2): a IA não decide sozinha, porque o cancelamento s�
 - [ ] Comunicação depois de desfecho não o altera e sinaliza a equipe.
 - [ ] Histórico de remarcação preservado por ocorrência.
 - [ ] Elegibilidade para cobrança definida positivamente e garantida na aplicação e no banco, sem trigger.
-- [ ] Nenhuma versão para a qual se possa voltar consegue cobrar sessão inelegível ou de outro paciente; o K2 continua bloqueador até prova.
+- [ ] Nenhuma versão para a qual se possa voltar consegue cobrar sessão inelegível ou de outro paciente (provado no K2 em 23/10/2026, seção 9.4; o item segue para a revisão do desenho).
 - [ ] A migração não presume desfecho, não toca dados financeiros, começa por `dry-run`, interrompe em inconsistência e só aplica com autorização específica.
 - [ ] DP-22 a DP-25 e K11 registradas como decisões de produto, com as dependências de implementação explícitas.
 - [ ] Limitações e conflitos declarados (seções 1.3 e 11).
 
 ### 10.5 Critérios de aceite da implementação futura
 
-Os critérios do MVP-01 no backlog, mais os da seção 8, em especial:
-- [ ] As restrições da seção 3.7 provadas no PostgreSQL 16.
-- [ ] O teste de compatibilidade da versão anterior aprovado no ensaio de deploy.
-- [ ] Os scripts de deploy e de rollback aplicando as regras de retorno degradado e registrando cada retorno.
-- [ ] O ensaio de restauração recusando subir aplicação sobre banco sem as restrições.
-- [ ] A versão anterior sem conseguir alterar consulta com desfecho.
+Os critérios do MVP-01 no backlog, mais os da seção 8, em especial os cinco abaixo. Os cinco foram provados no K2, em 23/10/2026 (seção 9.4). Os demais critérios do MVP-01 continuam abertos.
+- [x] As restrições da seção 3.7 provadas no PostgreSQL 16.
+- [x] O teste de compatibilidade da versão anterior aprovado no ensaio de deploy.
+- [x] Os scripts de deploy e de rollback aplicando as regras de retorno degradado e registrando cada retorno.
+- [x] O ensaio de restauração recusando subir aplicação sobre banco sem as restrições.
+- [x] A versão anterior sem conseguir alterar consulta com desfecho.
 
 ---
 
@@ -1052,13 +1087,13 @@ Os critérios do MVP-01 no backlog, mais os da seção 8, em especial:
 | Auditoria | Coerente. Comunicação somente de acréscimo; horários separados; ator `ai_agent` |
 | Isolamento entre clínicas | Coerente e reforçado: `tenant_id` nas chaves compostas do vínculo e da comunicação |
 | Migração do legado | Coerente. A inelegibilidade não depende mais do `apply` |
-| Rollback | Estratégia definida; **K2 continua bloqueador** até prova |
+| Rollback | Estratégia definida; **K2 continua bloqueador** até prova (encerrado tecnicamente em 23/10/2026, seção 9.4) |
 | Fases e critérios | Fase K2 obrigatória antes de qualquer ambiente com dados de clínica |
 
 ### 11.2 Conflitos, limitações e alternativas
 
 - **K1 — Guarda de `POST /billings`:** resolvida no desenho (seção 2.9) por aplicação e banco. Antes era só recomendada.
-- **K2 — Rollback:** seção 9.4. **Bloqueador.**
+- **K2 — Rollback:** seção 9.4. Bloqueador até 23/10/2026; **encerrado tecnicamente** com as provas da seção 9.4. Não autoriza produção.
 - **K3 — Comprovantes:** não existem no sistema; nada a preservar no banco hoje. Se o MVP-13 vier antes, entra na impressão digital.
 - **K4 — Exceção do legado:** L2, L4 e L6 têm sessão cobrada sem desfecho registrado. A verificação e o fechamento (MVP-06) tratam `legacy_category` à parte.
 - **K5 — `dry-run`:** transação desfeita (recomendada) ou projeção somente leitura. A transação desfeita trava as sessões da clínica durante a simulação.
@@ -1067,7 +1102,9 @@ Os critérios do MVP-01 no backlog, mais os da seção 8, em especial:
 - **K8 — Comunicação depois de desfecho:** resolvido pela DP-26 rodada 2 (evento adicional, sem sobrescrever).
 - **K9 — Horário à mão:** substituído pelo modelo recebido / registrado / alegado.
 - **K10 — Agendamento no passado:** aberto (seção 10.3).
-- **K11 — IA antes do início:** resolvido pela decisão da rodada 5: confirmação explícita do paciente antes de cancelar ou remarcar (seção 10.1). Fica pendente validar o comportamento com o modelo real.
+- **K11 — IA antes do início:** resolvido pela decisão da rodada 5: confirmação explícita do paciente antes de cancelar ou remarcar (seção 10.1). Ficam pendentes:
+  - integrar essa confirmação em duas etapas ao registro do desfecho, que hoje exige uma pessoa (`outcome_recorded_by_user_id`; fase 5; Histórico, 23/10/2026, achado 6);
+  - validar o comportamento com o modelo real.
 - **K12 — Exceção à ADR-0060:** **aprovada em 21/10/2026 no escopo restrito** (seção 9.4): versões antigas sem criar cobrança nem vínculo, e sem alterar consulta com desfecho, depois da migration do K2. A agenda segue a alternativa (b); nenhuma outra incompatibilidade foi aprovada.
 - **K13 — Carimbo da Meta:** hoje não é lido. Até a fase 5, o horário de referência pelo WhatsApp é o recebimento no webhook.
 - **K14 — Limites das restrições:** cobrança com zero vínculos e SQL de administrador não são barrados pelo banco (seção 3.7).
@@ -1108,14 +1145,14 @@ Os critérios do MVP-01 no backlog, mais os da seção 8, em especial:
 - **21/10/2026 — rodada 6 (mecanismo da cobrança).**
   - [EV] O `CHECK` sobre `eligibility_checked` recusaria até a quitação feita pela versão antiga: o Prisma grava a cobrança com `INSERT … ON CONFLICT DO UPDATE`, e o PostgreSQL confere `CHECK` na linha proposta.
   - O responsável aprovou a troca pela chave estrangeira de protocolo (`eligibility_protocol` → `billing_eligibility_protocol`, padrão inválido `'nenhum'` para versões antigas, cobranças legadas com protocolo nulo), mantendo os privilégios por coluna (seção 3.7).
-- **21/10/2026 — K2-a implementada (fase autorizada; commit local, sem push nem deploy).**
+- **21/10/2026 — K2-a implementada (fase autorizada; commit local `c801b91`, sem push nem deploy na data; publicado em 22/10/2026, ver a entrada de 23/10/2026).**
   - Migration `20261022120000_k2a_billing_eligibility`: tabela de protocolos e `deployment_requirement`; `legacy_billing`, `eligibility_protocol`, `legacy_link` e `patient_id` do vínculo; chave do protocolo; FKs compostas de paciente e clínica no vínculo (cobrança e sessão), já validadas; os dois `CHECK`s; privilégios por coluna. Sem trigger e sem função.
   - Aplicação: `POST /billings` confere paciente, clínica e estado de cada sessão (`SESSION_OF_ANOTHER_PATIENT`, `SESSION_ALREADY_BILLED` para sessão já `Faturada` ou `Recebida`, como no contrato publicado, e `SESSION_NOT_BILLABLE`, reservado para os estados da K2-b) e grava cobrança e vínculos numa única transação; `BillingRepository.save()` só atualiza o status.
   - Achados da implementação [EV], registrados na seção 3.7: `@ignore` no Prisma para as colunas que a aplicação não grava; `UPDATE` numa coluna sem papel na integridade, só onde o papel da aplicação é dono das tabelas, para a checagem de chave estrangeira.
   - Scripts: rótulo `luxora.capabilities` na imagem; `deploy.sh` e `rollback.sh` conferem exigência, restrições e privilégios; retorno degradado registrado (`mode`); estado `requirement-active` gravado assim que as migrations passam; `restore-drill.sh` confere o banco restaurado.
   - Restauração: em vez de aplicar migrations por conta própria, `rollback.sh` recusa e indica `deploy.sh`, que as aplica e confere de novo antes de trocar a aplicação. Backup de schema anterior vai para banco vazio: `pg_restore --clean` sobre o banco atual deixaria as tabelas novas e impediria reaplicar a migration (MIGRATION_RUNBOOK).
   - Fora da K2-a, e por isso o K2 **continua bloqueador**: K2-b (elegibilidade da sessão, `required_eligibility` e `billing_eligibility`, congelamento da consulta com desfecho, seção 2.4) e as provas que dependem dela.
-- **23/10/2026 — K2-b implementada (fase autorizada, integrada ao núcleo do MVP-01; commit local, sem push nem deploy).** A ADR continua **em revisão**; esta entrada registra o que foi construído, não aprova o restante.
+- **23/10/2026 — K2-b implementada (fase autorizada, integrada ao núcleo do MVP-01; commit local `ea9163c`, publicado no mesmo dia, sem deploy).** A ADR continua **em revisão**; esta entrada registra o que foi construído, não aprova o restante.
   - Migration `20261023130014_k2b_appointment_outcome`: enums novos (nenhum enum existente ganhou valor); `appointment_outcome` com o retrato e a FK de congelamento `(appointment_id, tenant_id, state_at_outcome, scheduled_at_at_outcome, modality_at_outcome) → appointment (id, tenant_id, state, scheduled_at, modality)`; `appointment_notice`; `appointment.rescheduled_from_id` com FK composta de clínica e paciente; `session.kind`, `voided_at`, `void_reason`, `voided_by_user_id` e `billing_eligibility NOT NULL DEFAULT 'nao_elegivel'`; `billing_session.required_eligibility` e a FK `(session_id, tenant_id, patient_id, required_eligibility) → session (id, tenant_id, patient_id, billing_eligibility)`; os CHECKs da seção 2.7; RLS forçada nas tabelas novas; a política `appointment_frozen_after_outcome` (RESTRICTIVE, FOR UPDATE, TO luxora_app); privilégios por coluna; a exigência `appointment-outcome-v1`. Sem trigger e sem função. As 23 restrições nascem validadas.
   - Aplicação: confirmar não cria sessão e só antes do início; realização (T6), falta (T7), cobrança da falta (T8), abono (T9) e reversão (T9b) por pessoa; cancelamento (T3) e remarcação (T5, alternativa C) só antes do início, com a comunicação do painel e quem pediu; `GerarCobrancaUseCase` recusa sessão não elegível (`SESSION_NOT_BILLABLE`); porta `Clock`; tudo em `UnitOfWork` com a linha travada.
   - **Achados da implementação [EV]**, que ajustam o mecanismo sem enfraquecer o que esta ADR exige:
@@ -1126,6 +1163,29 @@ Os critérios do MVP-01 no backlog, mais os da seção 8, em especial:
     5. **Capacidade `appointment-outcome-v1`:** a `fb93885` tem `billing-eligibility-v1` e passou a ser retorno degradado. O que ela faz contra o banco migrado é exatamente a tabela da seção 9.4 (consulta com desfecho recusada; confirmação sem desfecho compatível, com sessão não elegível; cobrança só de sessão elegível; pagamentos e reenvios compatíveis).
     6. **IA sem K11:** a IA confirma, cancela e remarca antes do início como antes, mas não grava comunicação nem desfecho; a consulta que ela cancela fica `Cancelada` sem desfecho (como a de uma versão anterior). O desfecho exige `outcome_recorded_by_user_id` (seção 2.7), o que é incompatível com o desfecho registrado pela IA depois da confirmação explícita (K11): fica para a fase 5 resolver.
   - **Fora desta fase:** T4 e T11 (aviso tardio e consequência), T10, N1 pelo WhatsApp com o carimbo da Meta, N2, `GET /history` e as listas de pendências, políticas por clínica (`no_show_policy`, `late_notice_policy`, `abono_approvers`), classificação do legado (fase 7), restrição do terapeuta às próprias consultas.
+- **23/10/2026 — K2 encerrado tecnicamente (provas da seção 9.4).** A ADR continua **em revisão**. O encerramento não aprova o restante e não autoriza produção.
+  - **Publicado em `origin/master`, sem deploy:**
+
+    | Commit | Conteúdo | CI |
+    |---|---|---|
+    | `c801b91` | K2-a | `39737046589`, verde depois de reexecutar só o test-critical, por uma falha intermitente de conexões |
+    | `fb93885` | Cliente Prisma único: uma instância por aplicação, causa da falta de conexões | `39805807298`, verde nos 7 jobs |
+    | `ea9163c` | K2-b | `40001325916`, verde nos 7 jobs |
+    | `421b251` | Prova automatizada das 23 restrições | `40009473239`, vermelho só no teste dependente do horário |
+    | `23cf0d9` | Horários fixos nesse teste, sem mudar asserção | `40030315146`, verde nos 7 jobs; suíte crítica com 709 aprovados no PostgreSQL 16.15 |
+  - **Provas** (detalhes na seção 9.4):
+    - as 23 restrições da K2-b com teste automatizado, uma a uma, no CI;
+    - ensaio de compatibilidade com a imagem da `fb93885`, 104 de 104;
+    - ensaio de deploy, rollback e restauração, 116 de 116 no local e 126 de 126 no CI `40001325916`;
+    - 12 de 12 mutações detectadas;
+    - varredura de segredos sem achado real.
+  - **Continuam abertos, nenhum resolvido pelo K2:**
+    - K11: integrar a confirmação em duas etapas da IA ao registro do desfecho (achado 6) e validar com o modelo real;
+    - `connection_limit` de produção sem dimensionamento;
+    - homologação, CD (nunca rodou) e validação real da entrada da Meta;
+    - decisões A-14 (ADR-0068);
+    - classificação das sessões legadas (fase 7). O histórico delas não pode ser inferido automaticamente; nenhuma sessão legada é elegível sem desfecho registrado por pessoa (DP-27);
+    - o restante do MVP-01 listado em "Fora desta fase", na entrada anterior.
 
 ## Considerações finais
 
@@ -1134,4 +1194,4 @@ O desenho separa reservar, confirmar, comunicar, realizar e cobrar:
 - nada que só uma pessoa pode afirmar fica a cargo da IA, do tempo ou de uma versão antiga da aplicação;
 - a elegibilidade para cobrança passa a ser garantida também pelo banco, de forma declarativa, para que um rollback não reabra cobrança indevida.
 
-Enquanto essa garantia não for implementada e provada, o K2 bloqueia qualquer liberação em ambiente com dados de clínica. Esta proposta não autoriza programar.
+Essa garantia foi implementada e provada: o K2 foi encerrado tecnicamente em 23/10/2026 (seção 9.4). Isso não aprova esta proposta, que continua em revisão, nem libera ambiente com dados de clínica, porque homologação, CD, `connection_limit` de produção, validação real da Meta e as decisões A-14 seguem pendentes. Esta proposta, por si, não autoriza programar; cada fase depende de autorização própria.

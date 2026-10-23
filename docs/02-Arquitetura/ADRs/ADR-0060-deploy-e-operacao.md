@@ -80,7 +80,46 @@ O responsável pelo produto aprovou **uma única exceção** à regra de compati
   - o automático, no deploy que introduz a exigência, pode voltar à versão anterior em modo degradado, com registro em `history.jsonl`;
   - o manual para versão sem a capacidade é recusado, salvo `--allow-degraded` com motivo, também registrado;
   - nenhuma restauração de backup sobe a aplicação sem reaplicar as migrations e conferir as restrições.
-- **Situação:** só a exceção foi aprovada. A ADR-0069 continua proposta em revisão, nada foi implementado, e a exceção só produz efeito quando a implementação for autorizada e o K2 for encerrado pelas provas exigidas (testes das restrições no PostgreSQL 16 e ensaios de deploy, rollback e restauração).
+- **Situação em 23/10/2026:** a exceção está **implementada e publicada**, e o K2 foi **encerrado tecnicamente** pelas provas exigidas (ADR-0069, seção 9.4). A ADR-0069 continua proposta em revisão. Sem deploy real: homologação e CD nunca rodaram.
+
+### Implementação da exceção [EV]
+
+**Capacidades publicadas.** A imagem declara as capacidades no rótulo `luxora.capabilities`, e as migrations gravam as exigências em `deployment_requirement`:
+
+| Capacidade | Commit | O que exige |
+|---|---|---|
+| `billing-eligibility-v1` | K2-a, `c801b91` | Protocolo na cobrança; vínculo com o paciente e a clínica da cobrança e da sessão (chaves compostas); privilégios por coluna |
+| `appointment-outcome-v1` | K2-b, `ea9163c` | Desfecho em `appointment_outcome`, com a consulta congelada (FK do retrato e política RLS restritiva `appointment_frozen_after_outcome`); elegibilidade da sessão exigida no vínculo; 23 restrições, sem trigger nem função |
+
+A imagem atual declara as duas capacidades. A `fb93885` declara só a primeira; versões anteriores ao K2-a não declaram nenhuma. Contra o banco migrado, todas elas são retorno degradado.
+
+**Comportamento degradado verificado.** Ensaio com a imagem real da `fb93885` contra o banco migrado (`infra/tests/k2b-compat-rehearsal.sh`, 104 de 104). A versão anterior:
+- sobe e confirma consulta sem desfecho; a sessão que ela cria nasce não elegível;
+- quita cobrança existente;
+- cobra só sessão elegível, criada pela versão nova;
+- não cobra sessão não elegível: o banco recusa, e nada é gravado;
+- não confirma, cancela nem remarca consulta com desfecho;
+- não deixa cobrança sem vínculo, vínculo inválido nem pagamento confirmado com cobrança em aberto, em nenhuma fase.
+
+No banco, o SQL que a versão anterior emite continua agendando, confirmando e cancelando consulta sem desfecho (teste crítico da K2-b). O K2-a foi ensaiado contra a `fd0874f` (75 de 75).
+
+**Condições verificadas:**
+- **Rollback automático:** no deploy que introduz a exigência, volta em modo degradado, registrado em `history.jsonl`.
+- **Rollback manual:** para versão sem a capacidade, é recusado sem `--allow-degraded`; com ele, exige justificativa e fica registrado.
+- **Proteções removidas:** se a política sumir ou a aplicação voltar a poder apagar desfecho, o rollback é recusado.
+- **Restauração:** um banco restaurado de backup anterior à K2-b não sobe aplicação até o `deploy.sh` reaplicar as migrations e conferir as proteções.
+- **Ensaio de deploy:** 116 de 116 no local; 126 de 126 no CI `40001325916`.
+- **Testes no PostgreSQL 16:** cada uma das 23 restrições com teste automatizado (`421b251`). CI `40030315146` (`23cf0d9`) verde nos 7 jobs.
+
+**Limitações que continuam:**
+- O banco não impede cobrança com zero vínculos, nem SQL direto com credencial de administrador.
+- Restauração ou subida feitas por fora dos scripts escapam do controle.
+- Os ensaios de compatibilidade rodam no local, não no CI.
+- A versão anterior ao K2-a não foi ensaiada como imagem contra o banco da K2-b; está coberta só pelos testes no banco.
+- Não há homologação, CD nem deploy real.
+- O `connection_limit` de produção não está dimensionado.
+
+Detalhes e limites completos na ADR-0069, seção 9.4.
 
 ## Referências
 
