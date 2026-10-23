@@ -7,6 +7,7 @@ import { bootstrapTestApp } from './support/bootstrap-app';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 import { uniquePastSlot, uniqueSlot } from './support/unique-slot';
 import { attendedSession } from './support/attended-session';
+import { K2B_CONSTRAINTS } from './support/k2b-constraints';
 
 /**
  * [CRÍTICO — K2-b] Desfecho da consulta e elegibilidade definitiva das
@@ -24,6 +25,8 @@ import { attendedSession } from './support/attended-session';
  *      vínculo, os CHECKs e os privilégios;
  *   3. a guarda de CI: as restrições, a política e a exigência de versão
  *      continuam no banco.
+ * Cada uma das 23 restrições, uma a uma, com controle e violação, está em
+ * appointment-outcome-k2b-constraints.test.ts.
  * O ensaio com a imagem antiga de verdade está em infra/tests/k2b-compat-rehearsal.sh.
  */
 
@@ -547,32 +550,6 @@ describe('[CRÍTICO — K2-b] comunicação e decisões são somente de acrésci
 });
 
 describe('[CRÍTICO — K2-b] guarda de CI: as proteções continuam no banco', () => {
-  const K2B_CONSTRAINTS = [
-    'appointment_decision_outcome_fkey',
-    'appointment_decision_reason_check',
-    'appointment_notice_actor_check',
-    'appointment_notice_appointment_fkey',
-    'appointment_notice_limit_check',
-    'appointment_notice_reference_check',
-    'appointment_notice_review_check',
-    'appointment_notice_timing_check',
-    'appointment_outcome_closing_notice_check',
-    'appointment_outcome_closing_notice_fkey',
-    'appointment_outcome_closing_timing_check',
-    'appointment_outcome_freeze_fkey',
-    'appointment_outcome_late_notice_decided_check',
-    'appointment_outcome_late_notice_decision_check',
-    'appointment_outcome_no_show_decided_check',
-    'appointment_outcome_no_show_decision_check',
-    'appointment_outcome_state_check',
-    'appointment_rescheduled_from_fkey',
-    'billing_session_legacy_or_eligibility_check',
-    'billing_session_required_eligibility_check',
-    'billing_session_session_eligibility_fkey',
-    'session_billing_eligibility_check',
-    'session_void_check',
-  ];
-
   it('todas as restrições da K2-b existem e estão validadas', async () => {
     const rows = await db.$queryRawUnsafe<Array<{ conname: string; convalidated: boolean }>>(
       `SELECT conname, convalidated FROM pg_constraint WHERE connamespace = 'public'::regnamespace AND conname = ANY($1::text[])`,
