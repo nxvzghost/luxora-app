@@ -8,6 +8,7 @@ import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFi
 import { uniquePastSlot, uniqueSlot } from './support/unique-slot';
 import { attendedSession } from './support/attended-session';
 import { K2B_CONSTRAINTS } from './support/k2b-constraints';
+import { clinicTimeAt } from '../support/clinic-time';
 
 /**
  * [CRÍTICO — K2-b] Desfecho da consulta e elegibilidade definitiva das
@@ -294,9 +295,12 @@ describe('[CRÍTICO — K2-b] remarcação com histórico e cancelamento com que
   });
 
   it('cancelamento fora do prazo pedido pelo paciente abre decisão de consequência; pedido da clínica não (DP-22, DP-25)', async () => {
-    const soon = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
-    const patientRequest = await book(soon(5));
-    const clinicRequest = await book(soon(7));
+    // Amanhã às 10:00 e às 12:00 da clínica: sempre no futuro e a menos de 48 h
+    // (o limite da clínica A), a qualquer hora em que o teste rode, e dentro da
+    // janela do terapeuta. Horário relativo ao relógio (agora + 7 h) passava da
+    // meia-noite da clínica à tarde e o agendamento era recusado (409).
+    const patientRequest = await book(clinicTimeAt(1, 10).toISOString());
+    const clinicRequest = await book(clinicTimeAt(1, 12).toISOString());
     await api().post(`/api/v1/appointments/${patientRequest}/cancel`).set(as(tokenA)).send({ requestedBy: 'paciente' });
     await api().post(`/api/v1/appointments/${clinicRequest}/cancel`).set(as(tokenA)).send({ requestedBy: 'clinica' });
     const byPatient = await db.appointmentOutcomeRecord.findUniqueOrThrow({ where: { appointmentId: patientRequest } });
@@ -308,7 +312,7 @@ describe('[CRÍTICO — K2-b] remarcação com histórico e cancelamento com que
   });
 
   it('consulta cancelada não recebe realização nem falta', async () => {
-    const id = await book(new Date(Date.now() + 60_000 * 90).toISOString());
+    const id = await book(uniqueSlot());
     await api().post(`/api/v1/appointments/${id}/cancel`).set(as(tokenA)).send({ requestedBy: 'paciente' });
     const attended = await api().post(`/api/v1/appointments/${id}/attended`).set(as(tokenA));
     expect(attended.status).toBe(409);
