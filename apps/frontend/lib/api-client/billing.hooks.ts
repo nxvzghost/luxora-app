@@ -21,6 +21,9 @@ export interface BillableSession {
   therapistId: string;
   state: string;
   scheduledAt: string;
+  /** K2-b — o que a sessão cobra: atendimento realizado ou falta com cobrança confirmada. */
+  kind?: 'atendimento' | 'falta' | 'aviso_fora_do_prazo' | 'aviso_tardio' | null;
+  billingEligibility?: 'elegivel' | 'nao_elegivel';
 }
 
 export interface Payment {

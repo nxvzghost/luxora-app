@@ -6,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 import { clinicTimeAt } from '../support/clinic-time';
+import { attendedSession } from './support/attended-session';
 
 /**
  * [CRÍTICO — K2-a] Proteção da cobrança no banco e na aplicação
@@ -41,19 +42,17 @@ const auth = () => ({ Authorization: `Bearer ${tokenA}` });
 const FIRST = clinicTimeAt(75, 8);
 let slot = 0;
 
-/** Uma sessão a faturar, criada pela API (consulta marcada e confirmada). */
+/**
+ * Uma sessão a faturar, criada pela API. K2-b: consulta que já aconteceu,
+ * com a realização registrada (confirmar não cria mais sessão).
+ */
 async function billableSession(patientId: string): Promise<string> {
   slot += 1;
-  const scheduledAt = new Date(FIRST.getTime() + slot * 2 * 60 * 60 * 1000).toISOString();
-  const appointment = await api()
-    .post('/api/v1/appointments')
-    .set(auth())
-    .send({ patientId, therapistId: clinicA.therapistId, scheduledAt, modality: 'presencial' });
-  expect(appointment.status).toBe(201);
-  expect((await api().post(`/api/v1/appointments/${appointment.body.id}/confirm`).set(auth())).status).toBe(201);
-  const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: appointment.body.id } });
-  clinicA.sessionIds.push(session.id);
-  return session.id;
+  const scheduledAt = new Date(clinicTimeAt(-75, 8).getTime() + slot * 2 * 60 * 60 * 1000).toISOString();
+  const { appointmentId, sessionId } = await attendedSession(app, tokenA, { patientId, therapistId: clinicA.therapistId, scheduledAt });
+  clinicA.appointmentIds.push(appointmentId);
+  clinicA.sessionIds.push(sessionId);
+  return sessionId;
 }
 
 async function createBilling(sessionIds: string[], patientId = clinicA.patientId) {
@@ -388,6 +387,8 @@ describe('[CRÍTICO — K2-a] o banco confere paciente, clínica e privilégios,
       'billing.updated_at:UPDATE',
       ...(appOwnsTables ? ['billing_eligibility_protocol.description:UPDATE'] : []),
       ...['billing_id', 'created_at', 'id', 'patient_id', 'session_id', 'tenant_id'].map((c) => `billing_session.${c}:INSERT`),
+      // K2-b — a elegibilidade exigida (o Prisma manda o padrão 'elegivel'); nunca legacy_eligibility_link.
+      'billing_session.required_eligibility:INSERT',
       ...(appOwnsTables ? ['billing_session.created_at:UPDATE'] : []),
     ].sort();
 
@@ -396,7 +397,8 @@ describe('[CRÍTICO — K2-a] o banco confere paciente, clínica e privilégios,
 
   it('o banco declara a exigência billing-eligibility-v1 e mantém todas as restrições do K2-a', async () => {
     const requirement = await fixturePrisma.deploymentRequirement.findMany();
-    expect(requirement.map((row) => row.capability)).toEqual(['billing-eligibility-v1']);
+    // K2-b acrescentou appointment-outcome-v1 (ver appointment-outcome-k2b.test.ts).
+    expect(requirement.map((row) => row.capability).sort()).toEqual(['appointment-outcome-v1', 'billing-eligibility-v1']);
     expect((await fixturePrisma.billingEligibilityProtocol.findMany()).map((row) => row.name)).toEqual(['billing-eligibility-v1']);
 
     const expected = [

@@ -72,10 +72,8 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-  // As sessões nascem da confirmação e não têm id devolvido pela API.
-  for (const fixture of [clinicA, clinicB]) {
-    if (fixture) await fixturePrisma.session.deleteMany({ where: { tenantId: fixture.tenantId } });
-  }
+  // K2-b — confirmar não cria mais sessão; as que existirem (desfechos), e os
+  // desfechos e comunicações, saem em cleanupDedicatedFixture(), por clínica.
   await cleanupDedicatedFixture(fixturePrisma, clinicA);
   await cleanupDedicatedFixture(fixturePrisma, clinicB);
   await fixturePrisma.$disconnect();
@@ -103,8 +101,17 @@ describe('[CRÍTICO — AD-032] Consultas — marcar e validar', () => {
     const res = await book(1);
 
     expect(res.status).toBe(201);
-    expect(Object.keys(res.body).sort()).toEqual(['id', 'patientId', 'recurring', 'scheduledAt', 'state', 'therapistId']);
-    expect(res.body).toMatchObject({ patientId: clinicA.patientId, therapistId: clinicA.therapistId, state: 'Reservada', recurring: false });
+    // K2-b (ADR-0069, seção 7) — o contrato ganhou modality, rescheduledFromId e outcome.
+    expect(Object.keys(res.body).sort()).toEqual(['id', 'modality', 'outcome', 'patientId', 'recurring', 'rescheduledFromId', 'scheduledAt', 'state', 'therapistId']);
+    expect(res.body).toMatchObject({
+      patientId: clinicA.patientId,
+      therapistId: clinicA.therapistId,
+      state: 'Reservada',
+      recurring: false,
+      modality: 'presencial',
+      rescheduledFromId: null,
+      outcome: null,
+    });
     expect(new Date(res.body.scheduledAt).toISOString()).toBe(slot(1));
     expect((await stored(res.body.id)).tenantId).toBe(clinicA.tenantId);
   });
@@ -202,8 +209,8 @@ describe('[CRÍTICO — AD-032] Consultas — isolamento entre clínicas', () =>
 
   it.each([
     ['POST', '/confirm', {}],
-    ['POST', '/cancel', {}],
-    ['PATCH', '/reschedule', { newScheduledAt: slot(14) }],
+    ['POST', '/cancel', { requestedBy: 'paciente' }],
+    ['PATCH', '/reschedule', { newScheduledAt: slot(14), requestedBy: 'paciente' }],
   ])('%s %s em consulta de outra clínica: 404 e ela não muda', async (method, suffix, payload) => {
     const foreign = await api()
       .post('/api/v1/appointments')
@@ -239,23 +246,27 @@ describe('[CRÍTICO — AD-032] Consultas — isolamento entre clínicas', () =>
 });
 
 describe('[CRÍTICO — AD-032] Consultas — confirmar, remarcar, cancelar e listar', () => {
-  it.each(['confirm', 'cancel'])('%s em consulta inexistente: 404', async (action) => {
-    const res = await api().post(`/api/v1/appointments/${randomUUID()}/${action}`).set(as(tokenA));
+  it.each([
+    ['confirm', {}],
+    ['cancel', { requestedBy: 'paciente' }],
+  ])('%s em consulta inexistente: 404', async (action, body) => {
+    const res = await api().post(`/api/v1/appointments/${randomUUID()}/${action}`).set(as(tokenA)).send(body);
 
     expect(res.status).toBe(404);
   });
 
   it('remarcar consulta inexistente: 404; com data inválida: 400', async () => {
-    const missing = await api().patch(`/api/v1/appointments/${randomUUID()}/reschedule`).set(as(tokenA)).send({ newScheduledAt: slot(30) });
+    const missing = await api().patch(`/api/v1/appointments/${randomUUID()}/reschedule`).set(as(tokenA)).send({ newScheduledAt: slot(30), requestedBy: 'paciente' });
     const booked = await book(31);
-    const invalid = await api().patch(`/api/v1/appointments/${booked.body.id}/reschedule`).set(as(tokenA)).send({ newScheduledAt: 'depois' });
+    const invalid = await api().patch(`/api/v1/appointments/${booked.body.id}/reschedule`).set(as(tokenA)).send({ newScheduledAt: 'depois', requestedBy: 'paciente' });
 
     expect(missing.status).toBe(404);
     expect(invalid.status).toBe(400);
     expect((await stored(booked.body.id)).scheduledAt.toISOString()).toBe(slot(31));
   });
 
-  it('confirmar gera exatamente uma sessão; confirmar de novo é recusado e não gera outra', async () => {
+  // K2-b (ADR-0069, seção 2.5, T2) — confirmar é o paciente dizer que vem: nada no financeiro.
+  it('confirmar NÃO gera sessão; confirmar de novo é recusado (409)', async () => {
     const booked = await book(32);
 
     const confirmed = await api().post(`/api/v1/appointments/${booked.body.id}/confirm`).set(as(tokenA));
@@ -263,9 +274,18 @@ describe('[CRÍTICO — AD-032] Consultas — confirmar, remarcar, cancelar e li
 
     expect(confirmed.status).toBe(201);
     expect(confirmed.body.state).toBe('Confirmada');
-    expect(again.status).toBeGreaterThanOrEqual(400);
-    expect(await fixturePrisma.session.count({ where: { appointmentId: booked.body.id } })).toBe(1);
+    expect(confirmed.body.outcome).toBeNull();
+    expect(again.status).toBe(409);
+    expect(again.body.error.code).toBe('INVALID_STATE_TRANSITION');
+    expect(await fixturePrisma.session.count({ where: { appointmentId: booked.body.id } })).toBe(0);
     expect((await stored(booked.body.id)).state).toBe('Confirmada');
+  });
+
+  it('remarcar sem dizer quem pediu: 400 (DP-25: não é presumido) e nada muda', async () => {
+    const booked = await book(38);
+    const res = await api().patch(`/api/v1/appointments/${booked.body.id}/reschedule`).set(as(tokenA)).send({ newScheduledAt: slot(39) });
+    expect(res.status).toBe(400);
+    expect((await stored(booked.body.id)).scheduledAt.toISOString()).toBe(slot(38));
   });
 
   it('remarcar para um horário ocupado: 409 e a consulta fica onde estava', async () => {
@@ -273,34 +293,48 @@ describe('[CRÍTICO — AD-032] Consultas — confirmar, remarcar, cancelar e li
     const moving = await book(34);
     expect(occupied.status).toBe(201);
 
-    const res = await api().patch(`/api/v1/appointments/${moving.body.id}/reschedule`).set(as(tokenA)).send({ newScheduledAt: slot(33) });
+    const res = await api().patch(`/api/v1/appointments/${moving.body.id}/reschedule`).set(as(tokenA)).send({ newScheduledAt: slot(33), requestedBy: 'paciente' });
 
     expect(res.status).toBe(409);
-    expect((await stored(moving.body.id)).scheduledAt.toISOString()).toBe(slot(34));
+    const after = await stored(moving.body.id);
+    expect([after.scheduledAt.toISOString(), after.state]).toEqual([slot(34), 'Reservada']);
+    expect(await fixturePrisma.appointmentNotice.count({ where: { appointmentId: moving.body.id } })).toBe(0);
   });
 
-  it('remarcar para um horário livre move a consulta e libera o anterior', async () => {
+  // K2-b (ADR-0069, seção 5) — a remarcação cria uma ocorrência nova, ligada; a anterior guarda o horário original.
+  it('remarcar para um horário livre cria a ocorrência nova e libera o horário anterior, que fica no histórico', async () => {
     const booked = await book(35);
 
-    const res = await api().patch(`/api/v1/appointments/${booked.body.id}/reschedule`).set(as(tokenA)).send({ newScheduledAt: slot(36) });
+    const res = await api().patch(`/api/v1/appointments/${booked.body.id}/reschedule`).set(as(tokenA)).send({ newScheduledAt: slot(36), requestedBy: 'paciente' });
 
     expect(res.status).toBe(200);
-    expect(new Date(res.body.scheduledAt).toISOString()).toBe(slot(36));
+    expect(res.body.previous.id).toBe(booked.body.id);
+    expect(res.body.previous.state).toBe('Cancelada');
+    expect(new Date(res.body.previous.scheduledAt).toISOString()).toBe(slot(35));
+    expect(res.body.previous.outcome.outcome).toBe('Remarcada');
+    expect(res.body.current.id).not.toBe(booked.body.id);
+    expect(res.body.current.state).toBe('Reservada');
+    expect(res.body.current.rescheduledFromId).toBe(booked.body.id);
+    expect(new Date(res.body.current.scheduledAt).toISOString()).toBe(slot(36));
+    clinicA.appointmentIds.push(res.body.current.id);
     expect((await book(35)).status).toBe(201); // o horário antigo voltou a estar livre
   });
 
-  it('cancelar libera o horário; consulta cancelada não é confirmada nem cancelada de novo', async () => {
+  it('cancelar libera o horário; cancelar de novo não muda nada (200); a cancelada não é confirmada', async () => {
     const booked = await book(37);
 
-    const cancelled = await api().post(`/api/v1/appointments/${booked.body.id}/cancel`).set(as(tokenA));
+    const cancelled = await api().post(`/api/v1/appointments/${booked.body.id}/cancel`).set(as(tokenA)).send({ requestedBy: 'clinica' });
     expect(cancelled.status).toBe(201);
     expect(cancelled.body.state).toBe('Cancelada');
+    expect(cancelled.body.outcome.outcome).toBe('Cancelada');
 
     expect((await book(37)).status).toBe(201);
     const confirm = await api().post(`/api/v1/appointments/${booked.body.id}/confirm`).set(as(tokenA));
-    const cancelAgain = await api().post(`/api/v1/appointments/${booked.body.id}/cancel`).set(as(tokenA));
-    expect(confirm.status).toBeGreaterThanOrEqual(400);
-    expect(cancelAgain.status).toBeGreaterThanOrEqual(400);
+    const cancelAgain = await api().post(`/api/v1/appointments/${booked.body.id}/cancel`).set(as(tokenA)).send({ requestedBy: 'clinica' });
+    expect(confirm.status).toBe(409);
+    expect(confirm.body.error.code).toBe('APPOINTMENT_OUTCOME_CONFLICT');
+    expect(cancelAgain.status).toBe(200);
+    expect(await fixturePrisma.appointmentNotice.count({ where: { appointmentId: booked.body.id } })).toBe(1);
     expect((await stored(booked.body.id)).state).toBe('Cancelada');
   });
 
@@ -308,7 +342,7 @@ describe('[CRÍTICO — AD-032] Consultas — confirmar, remarcar, cancelar e li
     const inside = await book(40);
     const outside = await book(24 * 20);
     const cancelled = await book(41);
-    await api().post(`/api/v1/appointments/${cancelled.body.id}/cancel`).set(as(tokenA));
+    await api().post(`/api/v1/appointments/${cancelled.body.id}/cancel`).set(as(tokenA)).send({ requestedBy: 'paciente' });
 
     const res = await api().get(`/api/v1/appointments?from=${slot(39)}&to=${slot(42)}`).set(as(tokenA));
 

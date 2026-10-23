@@ -32,3 +32,18 @@ export function uniqueSlot(): string {
   // AD-039 — hora de parede na clínica de teste, não no fuso do processo.
   return clinicTimeAt(daysAhead, hour, minute).toISOString();
 }
+
+/**
+ * K2-b — o mesmo, no passado: realização e falta só são registradas depois
+ * do início previsto (ADR-0069, seção 2.5), então a consulta que vira sessão
+ * a faturar precisa ter acontecido. Faixa própria de dias para trás, sem
+ * cruzar com a de uniqueSlot().
+ */
+const PROCESS_BASE_DAYS_BACK = randomInt(2, 3000);
+let pastCallCount = 0;
+
+export function uniquePastSlot(): string {
+  const daysBack = PROCESS_BASE_DAYS_BACK + pastCallCount * 3;
+  pastCallCount += 1;
+  return clinicTimeAt(-daysBack, randomInt(8, 18), randomInt(0, 60)).toISOString();
+}

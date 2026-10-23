@@ -3,7 +3,8 @@ import { INestApplication } from '@nestjs/common';
 import { PrismaClient, UserRole, PlanTier } from '@prisma/client';
 import request from 'supertest';
 import { bootstrapTestApp } from './support/bootstrap-app';
-import { uniqueSlot } from './support/unique-slot';
+import { uniquePastSlot, uniqueSlot } from './support/unique-slot';
+import { attendedSession } from './support/attended-session';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
@@ -54,27 +55,27 @@ function toSuperuserUrl(databaseUrl: string): string {
 
 /**
  * Pré-requisito de dados para os testes de BillingController/PaymentController
- * (Etapa 3) — cria Appointment + confirma (gera Session) via adminToken.
- * AppointmentsController ainda não tem RolesGuard nesta etapa (Etapa 5,
- * pendente), então qualquer token válido serve só para montar o cenário;
- * a rota sob teste em cada caso usa o token do papel sendo validado.
+ * (Etapa 3) — uma sessão a faturar, via adminToken só para montar o cenário;
+ * a rota sob teste em cada caso usa o token do papel sendo validado. K2-b:
+ * consulta que já aconteceu, com a realização registrada (confirmar não cria
+ * mais sessão).
  */
 async function createConfirmedSession(): Promise<string> {
-  const apptRes = await request(app.getHttpServer())
+  const { appointmentId, sessionId } = await attendedSession(app, adminToken, { patientId: fixture.patientId, therapistId: billingTherapistId });
+  fixture.appointmentIds.push(appointmentId);
+  fixture.sessionIds.push(sessionId);
+  return sessionId;
+}
+
+/** K2-b — uma consulta que já começou, sem desfecho: para as rotas de realização e falta. */
+async function createPastAppointment(): Promise<string> {
+  const res = await request(app.getHttpServer())
     .post('/api/v1/appointments')
     .set('Authorization', `Bearer ${adminToken}`)
-    .send({ patientId: fixture.patientId, therapistId: billingTherapistId, scheduledAt: uniqueSlot(), modality: 'presencial' });
-  expect(apptRes.status).toBe(201);
-  fixture.appointmentIds.push(apptRes.body.id);
-
-  const confirmRes = await request(app.getHttpServer())
-    .post(`/api/v1/appointments/${apptRes.body.id}/confirm`)
-    .set('Authorization', `Bearer ${adminToken}`);
-  expect(confirmRes.status).toBe(201);
-
-  const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: apptRes.body.id } });
-  fixture.sessionIds.push(session.id);
-  return session.id;
+    .send({ patientId: fixture.patientId, therapistId: billingTherapistId, scheduledAt: uniquePastSlot(), modality: 'presencial' });
+  expect(res.status).toBe(201);
+  fixture.appointmentIds.push(res.body.id);
+  return res.body.id;
 }
 
 /**
@@ -690,92 +691,112 @@ describe('AD-003 — AppointmentsController RBAC (admin + therapist)', () => {
     fixture.appointmentIds.push(res.body.id);
   });
 
-  it('PATCH /appointments/:id/reschedule — admin: sucesso', async () => {
+  // K2-b — a remarcação cria uma ocorrência nova; quem pediu é obrigatório (DP-25).
+  it.each([
+    ['admin', () => adminToken],
+    ['therapist', () => therapistToken],
+    ['super_admin', () => superAdminToken],
+  ])('PATCH /appointments/:id/reschedule — %s: sucesso', async (_role, token) => {
     const appointmentId = await createAppointment();
     const res = await request(app.getHttpServer())
       .patch(`/api/v1/appointments/${appointmentId}/reschedule`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ newScheduledAt: uniqueSlot() });
+      .set('Authorization', `Bearer ${token()}`)
+      .send({ newScheduledAt: uniqueSlot(), requestedBy: 'paciente' });
     expect(res.status).toBe(200);
-    expect(res.body.state).toBe('Reagendada');
+    expect(res.body.previous.outcome.outcome).toBe('Remarcada');
+    expect(res.body.current.state).toBe('Reservada');
+    fixture.appointmentIds.push(res.body.current.id);
   });
 
-  it('PATCH /appointments/:id/reschedule — therapist: sucesso', async () => {
-    const appointmentId = await createAppointment();
-    const res = await request(app.getHttpServer())
-      .patch(`/api/v1/appointments/${appointmentId}/reschedule`)
-      .set('Authorization', `Bearer ${therapistToken}`)
-      .send({ newScheduledAt: uniqueSlot() });
-    expect(res.status).toBe(200);
-  });
-
-  it('PATCH /appointments/:id/reschedule — super_admin: sucesso', async () => {
-    const appointmentId = await createAppointment();
-    const res = await request(app.getHttpServer())
-      .patch(`/api/v1/appointments/${appointmentId}/reschedule`)
-      .set('Authorization', `Bearer ${superAdminToken}`)
-      .send({ newScheduledAt: uniqueSlot() });
-    expect(res.status).toBe(200);
-  });
-
-  it('POST /appointments/:id/cancel — admin: sucesso', async () => {
+  it.each([
+    ['admin', () => adminToken],
+    ['therapist', () => therapistToken],
+    ['super_admin', () => superAdminToken],
+  ])('POST /appointments/:id/cancel — %s: sucesso', async (_role, token) => {
     const appointmentId = await createAppointment();
     const res = await request(app.getHttpServer())
       .post(`/api/v1/appointments/${appointmentId}/cancel`)
-      .set('Authorization', `Bearer ${adminToken}`);
+      .set('Authorization', `Bearer ${token()}`)
+      .send({ requestedBy: 'clinica' });
     expect(res.status).toBe(201);
     expect(res.body.state).toBe('Cancelada');
   });
 
-  it('POST /appointments/:id/cancel — therapist: sucesso', async () => {
-    const appointmentId = await createAppointment();
-    const res = await request(app.getHttpServer())
-      .post(`/api/v1/appointments/${appointmentId}/cancel`)
-      .set('Authorization', `Bearer ${therapistToken}`);
-    expect(res.status).toBe(201);
-  });
-
-  it('POST /appointments/:id/cancel — super_admin: sucesso', async () => {
-    const appointmentId = await createAppointment();
-    const res = await request(app.getHttpServer())
-      .post(`/api/v1/appointments/${appointmentId}/cancel`)
-      .set('Authorization', `Bearer ${superAdminToken}`);
-    expect(res.status).toBe(201);
-  });
-
-  it('POST /appointments/:id/confirm — admin: sucesso', async () => {
+  it.each([
+    ['admin', () => adminToken],
+    ['therapist', () => therapistToken],
+    ['super_admin', () => superAdminToken],
+  ])('POST /appointments/:id/confirm — %s: sucesso, sem sessão (K2-b)', async (_role, token) => {
     const appointmentId = await createAppointment();
     const res = await request(app.getHttpServer())
       .post(`/api/v1/appointments/${appointmentId}/confirm`)
-      .set('Authorization', `Bearer ${adminToken}`);
+      .set('Authorization', `Bearer ${token()}`);
     expect(res.status).toBe(201);
     expect(res.body.state).toBe('Confirmada');
-    // Confirmar gera uma Session como efeito colateral (ver
-    // ConfirmarConsultaUseCase) — precisa ser rastreada em
-    // fixture.sessionIds, senão bloqueia o deleteMany de appointmentIds no
-    // cleanup por FK (session_appointment_id_fkey), descoberto ao rodar.
-    const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId } });
-    fixture.sessionIds.push(session.id);
+    expect(await fixturePrisma.session.count({ where: { appointmentId } })).toBe(0);
   });
 
-  it('POST /appointments/:id/confirm — therapist: sucesso', async () => {
-    const appointmentId = await createAppointment();
+  // K2-b (ADR-0069, seção 2.11) — realização e falta: admin e therapist (a
+  // restrição do terapeuta às próprias consultas ainda não existe, achado 7).
+  it.each([
+    ['attended', 'admin', () => adminToken],
+    ['attended', 'therapist', () => therapistToken],
+    ['no-show', 'admin', () => adminToken],
+    ['no-show', 'therapist', () => therapistToken],
+  ])('POST /appointments/:id/%s — %s: sucesso', async (action, _role, token) => {
+    const appointmentId = await createPastAppointment();
     const res = await request(app.getHttpServer())
-      .post(`/api/v1/appointments/${appointmentId}/confirm`)
-      .set('Authorization', `Bearer ${therapistToken}`);
+      .post(`/api/v1/appointments/${appointmentId}/${action}`)
+      .set('Authorization', `Bearer ${token()}`);
     expect(res.status).toBe(201);
-    const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId } });
-    fixture.sessionIds.push(session.id);
+    expect(res.body.outcome.outcome).toBe(action === 'attended' ? 'Realizada' : 'Falta');
   });
 
-  it('POST /appointments/:id/confirm — super_admin: sucesso', async () => {
-    const appointmentId = await createAppointment();
+  // Cobrança da falta, abono e reversão: só admin (DP-23, DP-24a).
+  it.each(['no-show/charge', 'no-show/excuse', 'no-show/excuse/revert'])('POST /appointments/:id/%s — therapist: 403', async (action) => {
+    const appointmentId = await createPastAppointment();
+    await request(app.getHttpServer()).post(`/api/v1/appointments/${appointmentId}/no-show`).set('Authorization', `Bearer ${adminToken}`);
     const res = await request(app.getHttpServer())
-      .post(`/api/v1/appointments/${appointmentId}/confirm`)
-      .set('Authorization', `Bearer ${superAdminToken}`);
+      .post(`/api/v1/appointments/${appointmentId}/${action}`)
+      .set('Authorization', `Bearer ${therapistToken}`)
+      .send({ reason: 'motivo' });
+    expect(res.status).toBe(403);
+  });
+
+  it('POST /appointments/:id/no-show/charge — admin: sucesso, com o item falta elegível', async () => {
+    const appointmentId = await createPastAppointment();
+    await request(app.getHttpServer()).post(`/api/v1/appointments/${appointmentId}/no-show`).set('Authorization', `Bearer ${adminToken}`);
+    const res = await request(app.getHttpServer())
+      .post(`/api/v1/appointments/${appointmentId}/no-show/charge`)
+      .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(201);
-    const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId } });
-    fixture.sessionIds.push(session.id);
+    expect(res.body.session).toMatchObject({ kind: 'falta', billingEligibility: 'elegivel' });
+  });
+
+  it('POST /appointments/:id/no-show/excuse — admin: sucesso; super_admin: 403 FORBIDDEN (DP-23, mesmo passando pelo RolesGuard)', async () => {
+    const appointmentId = await createPastAppointment();
+    await request(app.getHttpServer()).post(`/api/v1/appointments/${appointmentId}/no-show`).set('Authorization', `Bearer ${adminToken}`);
+
+    const bySuperAdmin = await request(app.getHttpServer())
+      .post(`/api/v1/appointments/${appointmentId}/no-show/excuse`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
+      .send({ reason: 'atestado' });
+    expect(bySuperAdmin.status).toBe(403);
+    expect(bySuperAdmin.body.error.code).toBe('FORBIDDEN');
+
+    const byAdmin = await request(app.getHttpServer())
+      .post(`/api/v1/appointments/${appointmentId}/no-show/excuse`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ reason: 'atestado' });
+    expect(byAdmin.status).toBe(201);
+    expect(byAdmin.body.outcome.outcome).toBe('FaltaAbonada');
+
+    const revert = await request(app.getHttpServer())
+      .post(`/api/v1/appointments/${appointmentId}/no-show/excuse/revert`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ reason: 'atestado inválido' });
+    expect(revert.status).toBe(201);
+    expect(revert.body.outcome).toMatchObject({ outcome: 'Falta', noShowDecision: 'aguardando_decisao' });
   });
 
   it('POST /appointments/recurring — admin: sucesso', async () => {

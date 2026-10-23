@@ -26,6 +26,8 @@ function fakeSession(id: string) {
     patientId: 'p1',
     therapistId: 't1',
     state: 'Faturada',
+    kind: 'atendimento',
+    billingEligibility: 'elegivel',
   });
 }
 
@@ -34,6 +36,7 @@ function sessionRepoMock(sessionIds: string[]) {
   const sessions = new Map(sessionIds.map((id) => [id, fakeSession(id)]));
   return {
     findById: vi.fn((id: string) => Promise.resolve(sessions.get(id) ?? null)),
+    findByAppointmentId: vi.fn(),
     save: vi.fn().mockResolvedValue(undefined),
     findSummaries: vi.fn(),
   };

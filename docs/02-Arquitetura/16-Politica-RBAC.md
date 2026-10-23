@@ -45,6 +45,11 @@ Toda rota desta tabela tem `RolesGuard` na cadeia de `@UseGuards()` do seu Contr
 | `AppointmentsController` | POST | `/appointments/:id/cancel` | `admin`, `therapist` | Idem. | **AD-003** |
 | `AppointmentsController` | POST | `/appointments/:id/confirm` | `admin`, `therapist` | Idem. | **AD-003** |
 | `AppointmentsController` | POST | `/appointments/recurring` | `admin`, `therapist` | Idem. | **AD-003** |
+| `AppointmentsController` | POST | `/appointments/:id/attended` | `admin`, `therapist` | Registrar o que aconteceu depois do horário é da equipe que atende. Exige usuário humano. O terapeuta ainda não está restrito às próprias consultas (achado 7 da ADR-0069). | **K2-b** (ADR-0069, seção 2.11) |
+| `AppointmentsController` | POST | `/appointments/:id/no-show` | `admin`, `therapist` | Idem. | **K2-b** |
+| `AppointmentsController` | POST | `/appointments/:id/no-show/charge` | `admin` | Confirmar a cobrança de uma falta é decisão financeira. | **K2-b** |
+| `AppointmentsController` | POST | `/appointments/:id/no-show/excuse` | `admin` | DP-23: o padrão é o `admin`; o `super_admin` **nunca** abona — recusado no caso de uso (403), embora o `RolesGuard` o deixe passar. A habilitação do profissional responsável depende da restrição do terapeuta às próprias consultas, que ainda não existe. | **K2-b** |
+| `AppointmentsController` | POST | `/appointments/:id/no-show/excuse/revert` | `admin` | DP-24a: o `admin` reverte, com motivo. | **K2-b** |
 | `RecurringBlocksController` | POST | `/recurring-blocks` | `admin`, `therapist` | Gestão da própria agenda (bloqueios recorrentes). | **AD-003** |
 | `UsersController` | POST | `/users` | `admin` | Gestão de usuários — criar outro usuário (admin ou therapist) é decisão administrativa. | **AD-001** |
 | `UsersController` | PATCH | `/users/:id` | `admin` | Alterar papel/vínculo de um usuário existente. | **AD-001** |

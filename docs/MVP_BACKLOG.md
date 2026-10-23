@@ -57,6 +57,8 @@ Bloqueadores **fora do domínio** que continuam valendo para qualquer uso real (
 
 Desenho técnico proposto: [ADR-0069](./02-Arquitetura/ADRs/ADR-0069-ciclo-de-vida-da-consulta.md) (não aprovada).
 
+> **Situação em 23/10/2026 — parcialmente implementado (K2-b, commit local, sem push):** confirmar não cria sessão; realização, falta, cobrança da falta, abono e reversão por pessoa, depois do início; cancelamento e remarcação só antes do início, com quem pediu e com histórico (ocorrência nova); elegibilidade das sessões no banco, legado inelegível. **Fica para as fases seguintes:** aviso tardio (T4) e a decisão de consequência (T11, que depende do MVP-02 para o valor); correção de desfecho (T10); comunicações do WhatsApp com o carimbo da Meta e a confirmação explícita (K11, fase 5); revisão de comunicações e histórico consultável; restrição do terapeuta às próprias consultas; políticas por clínica; classificação do legado (fase 7). Ver o CHANGELOG.
+
 **Problema.**
 - `ConfirmarConsultaUseCase` cria a sessão com estado `Realizada` no momento da confirmação, que pode ser dias antes do atendimento (o `completed_at` nem chega a ser gravado). A intenção `confirmar_presenca` do WhatsApp usa o mesmo caso de uso.
 - Não existe falta nem falta abonada.

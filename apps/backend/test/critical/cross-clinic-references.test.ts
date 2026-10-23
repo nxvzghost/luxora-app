@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 import { clinicTimeAt } from '../support/clinic-time';
+import { attendedSession } from './support/attended-session';
 
 /**
  * [CRÍTICO — Tarefa 06 da auditoria] Nenhum registro de uma clínica pode
@@ -47,18 +48,16 @@ const blockBody = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-/** Uma sessão a cobrar na clínica A, criada pela API (consulta marcada e confirmada). */
+/**
+ * Uma sessão a cobrar na clínica A, criada pela API. K2-b: consulta que já
+ * aconteceu, com a realização registrada (confirmar não cria mais sessão).
+ */
 async function billableSession(hourOffset: number): Promise<string> {
-  const scheduledAt = new Date(FIRST.getTime() + hourOffset * 60 * 60 * 1000).toISOString();
-  const appointment = await api()
-    .post('/api/v1/appointments')
-    .set(auth())
-    .send({ patientId: clinicA.patientId, therapistId: clinicA.therapistId, scheduledAt, modality: 'presencial' });
-  expect(appointment.status).toBe(201);
-  expect((await api().post(`/api/v1/appointments/${appointment.body.id}/confirm`).set(auth())).status).toBe(201);
-  const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: appointment.body.id } });
-  clinicA.sessionIds.push(session.id);
-  return session.id;
+  const scheduledAt = new Date(clinicTimeAt(-60, 10).getTime() + hourOffset * 60 * 60 * 1000).toISOString();
+  const { appointmentId, sessionId } = await attendedSession(app, tokenA, { patientId: clinicA.patientId, therapistId: clinicA.therapistId, scheduledAt });
+  clinicA.appointmentIds.push(appointmentId);
+  clinicA.sessionIds.push(sessionId);
+  return sessionId;
 }
 
 beforeAll(async () => {

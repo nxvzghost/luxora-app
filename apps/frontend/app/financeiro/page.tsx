@@ -295,7 +295,10 @@ function BillingForm(props: { patients: Array<{ id: string; name: string }>; onC
           {loadingSessions && <Loading>Buscando sessões...</Loading>}
           {sessionsFailed && <ErrorMessage>{describeApiError(sessionsError, 'Não foi possível buscar as sessões deste paciente.')}</ErrorMessage>}
           {!loadingSessions && !sessionsFailed && sessions.length === 0 && (
-            <p style={hintStyle}>Este paciente não tem sessão a cobrar. Uma sessão aparece aqui depois que a consulta é confirmada na Agenda.</p>
+            <p style={hintStyle}>
+              Este paciente não tem sessão a cobrar. Uma sessão aparece aqui depois que o atendimento é registrado na Agenda (ou a cobrança de uma falta é
+              confirmada). Confirmar a consulta não gera cobrança.
+            </p>
           )}
           {sessions.map((session) => (
             <label key={session.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '0.25rem 0', fontSize: '0.9375rem' }}>
@@ -306,6 +309,7 @@ function BillingForm(props: { patients: Array<{ id: string; name: string }>; onC
               />
               {formatInZone(session.scheduledAt, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }, timeZone)} ·{' '}
               {therapistName(session.therapistId)}
+              {session.kind === 'falta' && ' · falta (sem aviso prévio)'}
             </label>
           ))}
         </fieldset>

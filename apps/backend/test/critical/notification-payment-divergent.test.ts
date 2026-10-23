@@ -8,7 +8,8 @@ import { PrismaService } from '@infrastructure/database/prisma.service';
 import { PrismaNotificationRepository } from '@infrastructure/database/repositories/prisma-notification.repository';
 import { TenantContext } from '@shared/tenant-context';
 import { bootstrapTestApp } from './support/bootstrap-app';
-import { uniqueSlot } from './support/unique-slot';
+import { uniquePastSlot as uniqueSlot } from './support/unique-slot';
+import { attendedSession } from './support/attended-session';
 import {
   createDedicatedFixture,
   createDedicatedUserAndLogin,
@@ -37,21 +38,12 @@ describe('[CRÍTICO] Notification gerada por PaymentStateChangedEvent (Divergent
   let fixtureA: DedicatedFixture;
   let fixtureB: DedicatedFixture;
 
+  // K2-b — a sessão a cobrar vem da realização registrada numa consulta que já aconteceu.
   async function createBillingWithOneSession(fixture: DedicatedFixture, scheduledAt: string, amount: number) {
-    const apptRes = await request(app.getHttpServer())
-      .post('/api/v1/appointments')
-      .set('Authorization', `Bearer ${fixture.token}`)
-      .send({ patientId: fixture.patientId, therapistId: fixture.therapistId, scheduledAt, modality: 'presencial' });
-    expect(apptRes.status).toBe(201);
-    fixture.appointmentIds.push(apptRes.body.id);
-
-    const confirmRes = await request(app.getHttpServer())
-      .post(`/api/v1/appointments/${apptRes.body.id}/confirm`)
-      .set('Authorization', `Bearer ${fixture.token}`);
-    expect(confirmRes.status).toBe(201);
-
-    const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: apptRes.body.id } });
-    fixture.sessionIds.push(session.id);
+    const attended = await attendedSession(app, fixture.token as string, { patientId: fixture.patientId, therapistId: fixture.therapistId, scheduledAt });
+    fixture.appointmentIds.push(attended.appointmentId);
+    fixture.sessionIds.push(attended.sessionId);
+    const session = { id: attended.sessionId };
 
     const billingRes = await request(app.getHttpServer())
       .post('/api/v1/billings')

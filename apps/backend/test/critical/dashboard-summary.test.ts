@@ -3,7 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { BillingStatus, PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
-import { uniqueSlot } from './support/unique-slot';
+import { attendedSession } from './support/attended-session';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
@@ -53,22 +53,12 @@ const TENANT_A_BILLINGS: Array<[number, BillingStatus, string, boolean]> = [
 const OVERDUE_AMOUNTS_A = TENANT_A_BILLINGS.filter(([, , , overdue]) => overdue).map(([amount]) => amount);
 const PENDING_TOTAL_A = TENANT_A_BILLINGS.filter(([, status]) => status !== 'quitada' && status !== 'cancelada').reduce((sum, [amount]) => sum + amount, 0);
 
+/** K2-b — sessão a cobrar: consulta que já aconteceu, com a realização registrada (confirmar não cria sessão). */
 async function createConfirmedSession(fixture: DedicatedFixture): Promise<string> {
-  const apptRes = await request(app.getHttpServer())
-    .post('/api/v1/appointments')
-    .set('Authorization', `Bearer ${fixture.token}`)
-    .send({ patientId: fixture.patientId, therapistId: fixture.therapistId, scheduledAt: uniqueSlot(), modality: 'presencial' });
-  expect(apptRes.status).toBe(201);
-  fixture.appointmentIds.push(apptRes.body.id);
-
-  const confirmRes = await request(app.getHttpServer())
-    .post(`/api/v1/appointments/${apptRes.body.id}/confirm`)
-    .set('Authorization', `Bearer ${fixture.token}`);
-  expect(confirmRes.status).toBe(201);
-
-  const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: apptRes.body.id } });
-  fixture.sessionIds.push(session.id);
-  return session.id;
+  const { appointmentId, sessionId } = await attendedSession(app, fixture.token as string, { patientId: fixture.patientId, therapistId: fixture.therapistId });
+  fixture.appointmentIds.push(appointmentId);
+  fixture.sessionIds.push(sessionId);
+  return sessionId;
 }
 
 async function createBillingWithStatus(fixture: DedicatedFixture, amount: number, status: BillingStatus, dueDate: string = LAST_MONTH): Promise<string> {

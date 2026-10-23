@@ -4,6 +4,7 @@ import request from 'supertest';
 import { PrismaClient, UserRole } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
 import { uniqueSlot } from './support/unique-slot';
+import { attendedSession } from './support/attended-session';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
@@ -36,21 +37,12 @@ function toSuperuserUrl(databaseUrl: string): string {
 const api = () => request(app.getHttpServer());
 const as = (token: string) => ({ Authorization: `Bearer ${token}` });
 
+/** K2-b — sessão a cobrar: consulta que já aconteceu, com a realização registrada (confirmar não cria sessão). */
 async function createConfirmedSession(): Promise<{ sessionId: string; scheduledAt: string }> {
-  const scheduledAt = uniqueSlot();
-  const appointment = await api()
-    .post('/api/v1/appointments')
-    .set(as(tokenA))
-    .send({ patientId: clinicA.patientId, therapistId: clinicA.therapistId, scheduledAt, modality: 'presencial' });
-  expect(appointment.status).toBe(201);
-  clinicA.appointmentIds.push(appointment.body.id);
-
-  const confirm = await api().post(`/api/v1/appointments/${appointment.body.id}/confirm`).set(as(tokenA));
-  expect(confirm.status).toBe(201);
-
-  const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: appointment.body.id } });
-  clinicA.sessionIds.push(session.id);
-  return { sessionId: session.id, scheduledAt };
+  const { appointmentId, sessionId, scheduledAt } = await attendedSession(app, tokenA, { patientId: clinicA.patientId, therapistId: clinicA.therapistId });
+  clinicA.appointmentIds.push(appointmentId);
+  clinicA.sessionIds.push(sessionId);
+  return { sessionId, scheduledAt };
 }
 
 async function createBilling(sessionId: string): Promise<string> {

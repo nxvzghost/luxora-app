@@ -33,6 +33,14 @@ import { PrismaService } from '@infrastructure/database/prisma.service';
 import { CLINIC_TIME_ZONE_READER } from '@domain-services/platform/clinic-time-zone.reader';
 import { PrismaClinicTimeZoneReader } from '@infrastructure/database/prisma-clinic-time-zone.reader';
 import { WhatsAppInboundQueueWorker } from '@infrastructure/messaging/whatsapp-inbound-queue.worker';
+import { APPOINTMENT_OUTCOME_REPOSITORY } from '@domain-services/patient-ops/appointment-outcome.repository';
+import { APPOINTMENT_NOTICE_REPOSITORY } from '@domain-services/patient-ops/appointment-notice.repository';
+import { UNIT_OF_WORK } from '@domain-services/platform/unit-of-work';
+import { CLOCK } from '@domain-services/platform/clock';
+import { PrismaAppointmentOutcomeRepository } from '@infrastructure/database/repositories/prisma-appointment-outcome.repository';
+import { PrismaAppointmentNoticeRepository } from '@infrastructure/database/repositories/prisma-appointment-notice.repository';
+import { PrismaUnitOfWork } from '@infrastructure/database/prisma-unit-of-work';
+import { SystemClock } from '@infrastructure/clock/system-clock';
 import { CommunicationModule } from '../communication/communication.module';
 import { AuditModule } from '../audit/audit.module';
 import { InboxModule } from '../platform/inbox.module';
@@ -88,6 +96,12 @@ import { ContactModule } from '../patient-ops/contact.module';
     PrismaService,
     // AD-039 — fuso da clínica, lido de clinic_settings.
     { provide: CLINIC_TIME_ZONE_READER, useClass: PrismaClinicTimeZoneReader },
+    // K2-b — confirmar, cancelar e remarcar rodam numa unidade de trabalho e
+    // conferem o desfecho da consulta e o início previsto.
+    { provide: APPOINTMENT_OUTCOME_REPOSITORY, useClass: PrismaAppointmentOutcomeRepository },
+    { provide: APPOINTMENT_NOTICE_REPOSITORY, useClass: PrismaAppointmentNoticeRepository },
+    { provide: UNIT_OF_WORK, useClass: PrismaUnitOfWork },
+    { provide: CLOCK, useClass: SystemClock },
   ],
   exports: [ProcessarMensagemUseCase],
 })

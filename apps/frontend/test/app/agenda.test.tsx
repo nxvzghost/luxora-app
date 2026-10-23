@@ -31,9 +31,12 @@ const APPOINTMENT = {
   recurring: false,
 };
 
+/** K2-b — uma consulta que já começou (ontem), para as ações de desfecho. */
+const PAST_APPOINTMENT = { ...APPOINTMENT, id: 'appt-passada', scheduledAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), state: 'Confirmada' };
+
 type Routes = Record<string, MockReply | ((request: MockRequest) => MockReply)>;
 
-function mockAgenda(overrides: Routes = {}, appointments: Array<typeof APPOINTMENT> = [APPOINTMENT]) {
+function mockAgenda(overrides: Routes = {}, appointments: Array<Record<string, unknown>> = [APPOINTMENT]) {
   return mockApi({
     'GET /appointments': { body: { data: appointments } },
     'GET /patients': {
@@ -158,17 +161,33 @@ describe('AgendaPage — ações de cada estado', () => {
     expect(api.sent('POST', '/appointments/:id/cancel')).toHaveLength(0);
   });
 
-  it('cancelar confirmado chama POST /appointments/:id/cancel', async () => {
+  it('cancelar confirmado chama POST /appointments/:id/cancel com quem pediu e o motivo (DP-25)', async () => {
     const user = userEvent.setup();
     const api = mockAgenda({ 'POST /appointments/:id/cancel': { status: 201, body: { ...APPOINTMENT, state: 'Cancelada' } } });
     renderWithQueryClient(<AgendaPage />);
 
     await user.click(await screen.findByRole('button', { name: /^cancelar$/i }));
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancelar consulta' }));
+    const dialog = screen.getByRole('dialog');
+    await user.selectOptions(within(dialog).getByLabelText('Quem pediu'), 'clinica');
+    await user.type(within(dialog).getByLabelText(/motivo/i), 'agenda do profissional');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar consulta' }));
 
     await waitFor(() => expect(api.sent('POST', '/appointments/:id/cancel')).toHaveLength(1));
+    expect(api.sent('POST', '/appointments/:id/cancel')[0].body).toEqual({ requestedBy: 'clinica', reason: 'agenda do profissional' });
     expect(await screen.findByRole('status')).toHaveTextContent(/cancelada/i);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('cancelar sem dizer quem pediu: não chama a API e pede a informação', async () => {
+    const user = userEvent.setup();
+    const api = mockAgenda();
+    renderWithQueryClient(<AgendaPage />);
+
+    await user.click(await screen.findByRole('button', { name: /^cancelar$/i }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancelar consulta' }));
+
+    expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(/quem pediu/i);
+    expect(api.sent('POST', '/appointments/:id/cancel')).toHaveLength(0);
   });
 
   it('erro ao cancelar aparece dentro da confirmação, que continua aberta', async () => {
@@ -177,9 +196,120 @@ describe('AgendaPage — ações de cada estado', () => {
     renderWithQueryClient(<AgendaPage />);
 
     await user.click(await screen.findByRole('button', { name: /^cancelar$/i }));
+    await user.selectOptions(within(screen.getByRole('dialog')).getByLabelText('Quem pediu'), 'paciente');
     await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancelar consulta' }));
 
     expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent(/não é possível cancelar/i);
+  });
+});
+
+/**
+ * K2-b (ADR-0069) — depois do horário, a pessoa registra o que aconteceu.
+ * Confirmar, remarcar e cancelar deixam de aparecer; a cobrança da falta, o
+ * abono e a reversão são só do administrador.
+ */
+describe('AgendaPage — desfecho da consulta (K2-b)', () => {
+  it('consulta que já começou, sem desfecho: oferece registrar atendimento ou falta, e não confirmar/remarcar/cancelar', async () => {
+    mockAgenda({}, [PAST_APPOINTMENT]);
+    renderWithQueryClient(<AgendaPage />);
+    await screen.findByText(/Ana Souza/);
+
+    expect(screen.getByRole('button', { name: 'Registrar atendimento' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Registrar falta' })).toBeInTheDocument();
+    for (const name of ['Confirmar', 'Remarcar', 'Cancelar']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+  });
+
+  it('consulta que ainda não começou não oferece registrar atendimento nem falta', async () => {
+    mockAgenda({}, [{ ...APPOINTMENT, state: 'Confirmada' }]);
+    renderWithQueryClient(<AgendaPage />);
+    await screen.findByText(/Ana Souza/);
+
+    expect(screen.queryByRole('button', { name: 'Registrar atendimento' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Registrar falta' })).not.toBeInTheDocument();
+  });
+
+  it('registrar atendimento chama POST /appointments/:id/attended e avisa', async () => {
+    const api = mockAgenda(
+      { 'POST /appointments/:id/attended': { status: 201, body: { ...PAST_APPOINTMENT, outcome: { outcome: 'Realizada' } } } },
+      [PAST_APPOINTMENT],
+    );
+    renderWithQueryClient(<AgendaPage />);
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Registrar atendimento' }));
+
+    await waitFor(() => expect(api.sent('POST', '/appointments/:id/attended')).toHaveLength(1));
+    expect(api.sent('POST', '/appointments/:id/attended')[0].path).toBe('/appointments/appt-passada/attended');
+    expect(await screen.findByRole('status')).toHaveTextContent(/atendimento registrado/i);
+  });
+
+  it('com desfecho registrado: mostra o desfecho e não oferece outro', async () => {
+    mockAgenda({}, [{ ...PAST_APPOINTMENT, outcome: { outcome: 'Realizada', recordedAt: PAST_APPOINTMENT.scheduledAt, noShowDecision: null, lateNoticeDecision: null, noticeTiming: null } }]);
+    renderWithQueryClient(<AgendaPage />);
+
+    const row = (await screen.findByText(/Ana Souza · Dra\. Marta/)).closest('li') as HTMLElement;
+    expect(within(row).getByText('Atendimento realizado')).toBeInTheDocument();
+    expect(within(row).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  const NO_SHOW = { ...PAST_APPOINTMENT, outcome: { outcome: 'Falta', recordedAt: PAST_APPOINTMENT.scheduledAt, noShowDecision: 'aguardando_decisao', lateNoticeDecision: null, noticeTiming: null } };
+
+  it('falta aguardando decisão: o administrador confirma a cobrança ou abona', async () => {
+    const api = mockAgenda({ 'POST /appointments/:id/no-show/charge': { status: 201, body: NO_SHOW } }, [NO_SHOW]);
+    renderWithQueryClient(<AgendaPage />);
+
+    expect(await screen.findByText('Falta · aguardando decisão')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Abonar falta' })).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Confirmar cobrança da falta' }));
+
+    await waitFor(() => expect(api.sent('POST', '/appointments/:id/no-show/charge')).toHaveLength(1));
+    expect(await screen.findByRole('status')).toHaveTextContent(/cobrança da falta confirmada/i);
+  });
+
+  it('falta aguardando decisão, perfil terapeuta: não oferece cobrar nem abonar', async () => {
+    useAuthStore.setState({ accessToken: fakeToken('therapist'), refreshToken: 'fake-refresh' });
+    mockAgenda({}, [NO_SHOW]);
+    renderWithQueryClient(<AgendaPage />);
+
+    await screen.findByText('Falta · aguardando decisão');
+    expect(screen.queryByRole('button', { name: 'Confirmar cobrança da falta' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Abonar falta' })).not.toBeInTheDocument();
+  });
+
+  it('abonar exige motivo (DP-23): sem motivo não chama a API; com motivo, chama e avisa', async () => {
+    const user = userEvent.setup();
+    const api = mockAgenda({ 'POST /appointments/:id/no-show/excuse': { status: 201, body: NO_SHOW } }, [NO_SHOW]);
+    renderWithQueryClient(<AgendaPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Abonar falta' }));
+    const dialog = screen.getByRole('dialog', { name: /abonar esta falta/i });
+    await user.click(within(dialog).getByRole('button', { name: 'Abonar falta' }));
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/informe o motivo/i);
+    expect(api.sent('POST', '/appointments/:id/no-show/excuse')).toHaveLength(0);
+
+    await user.type(within(dialog).getByLabelText(/motivo/i), 'atestado');
+    await user.click(within(dialog).getByRole('button', { name: 'Abonar falta' }));
+
+    await waitFor(() => expect(api.sent('POST', '/appointments/:id/no-show/excuse')).toHaveLength(1));
+    expect(api.sent('POST', '/appointments/:id/no-show/excuse')[0].body).toEqual({ reason: 'atestado' });
+    expect(await screen.findByRole('status')).toHaveTextContent(/falta abonada/i);
+  });
+
+  it('falta abonada: o administrador pode reverter, com motivo (DP-24a)', async () => {
+    const user = userEvent.setup();
+    const excused = { ...NO_SHOW, outcome: { ...NO_SHOW.outcome, outcome: 'FaltaAbonada', noShowDecision: null } };
+    const api = mockAgenda({ 'POST /appointments/:id/no-show/excuse/revert': { status: 201, body: NO_SHOW } }, [excused]);
+    renderWithQueryClient(<AgendaPage />);
+
+    expect(await screen.findByText('Falta abonada')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Reverter abono' }));
+    const dialog = screen.getByRole('dialog', { name: /reverter o abono/i });
+    await user.type(within(dialog).getByLabelText(/motivo/i), 'atestado inválido');
+    await user.click(within(dialog).getByRole('button', { name: 'Reverter abono' }));
+
+    await waitFor(() => expect(api.sent('POST', '/appointments/:id/no-show/excuse/revert')).toHaveLength(1));
+    expect(await screen.findByRole('status')).toHaveTextContent(/abono revertido/i);
   });
 });
 
@@ -278,11 +408,36 @@ describe('AgendaPage — criar consulta', () => {
 });
 
 describe('AgendaPage — remarcar', () => {
-  it('escolhe um novo horário livre do mesmo terapeuta e chama PATCH /appointments/:id/reschedule', async () => {
+  it('escolhe um novo horário livre do mesmo terapeuta, diz quem pediu e chama PATCH /appointments/:id/reschedule', async () => {
     const user = userEvent.setup();
     const api = mockAgenda({
-      'PATCH /appointments/:id/reschedule': { body: { ...APPOINTMENT, scheduledAt: SLOT_15.startsAt, state: 'Reagendada' } },
+      // K2-b — a remarcação devolve a ocorrência anterior (encerrada) e a nova.
+      'PATCH /appointments/:id/reschedule': {
+        body: {
+          previous: { ...APPOINTMENT, state: 'Cancelada', outcome: { outcome: 'Remarcada' } },
+          current: { ...APPOINTMENT, id: 'appt-2', scheduledAt: SLOT_15.startsAt, state: 'Reservada', rescheduledFromId: 'appt-1' },
+        },
+      },
     });
+    renderWithQueryClient(<AgendaPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Remarcar' }));
+    const dialog = screen.getByRole('dialog', { name: 'Remarcar consulta' });
+    fireEvent.change(within(dialog).getByLabelText('Dia'), { target: { value: TOMORROW_DAY } });
+    await user.selectOptions(await within(dialog).findByLabelText('Horário'), SLOT_15.startsAt);
+    await user.selectOptions(within(dialog).getByLabelText('Quem pediu'), 'paciente');
+    await user.click(within(dialog).getByRole('button', { name: 'Remarcar' }));
+
+    await waitFor(() => expect(api.sent('PATCH', '/appointments/:id/reschedule')).toHaveLength(1));
+    const request = api.sent('PATCH', '/appointments/:id/reschedule')[0];
+    expect(request.path).toBe('/appointments/appt-1/reschedule');
+    expect(request.body).toEqual({ newScheduledAt: SLOT_15.startsAt, requestedBy: 'paciente' });
+    expect(await screen.findByRole('status')).toHaveTextContent(/remarcada/i);
+  });
+
+  it('sem dizer quem pediu, não chama a API e pede a informação', async () => {
+    const user = userEvent.setup();
+    const api = mockAgenda();
     renderWithQueryClient(<AgendaPage />);
 
     await user.click(await screen.findByRole('button', { name: 'Remarcar' }));
@@ -291,11 +446,8 @@ describe('AgendaPage — remarcar', () => {
     await user.selectOptions(await within(dialog).findByLabelText('Horário'), SLOT_15.startsAt);
     await user.click(within(dialog).getByRole('button', { name: 'Remarcar' }));
 
-    await waitFor(() => expect(api.sent('PATCH', '/appointments/:id/reschedule')).toHaveLength(1));
-    const request = api.sent('PATCH', '/appointments/:id/reschedule')[0];
-    expect(request.path).toBe('/appointments/appt-1/reschedule');
-    expect(request.body).toEqual({ newScheduledAt: SLOT_15.startsAt });
-    expect(await screen.findByRole('status')).toHaveTextContent(/remarcada/i);
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/quem pediu/i);
+    expect(api.sent('PATCH', '/appointments/:id/reschedule')).toHaveLength(0);
   });
 
   it('sem escolher horário, não chama a API e pede a escolha', async () => {

@@ -4,7 +4,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
-import { uniqueSlot } from './support/unique-slot';
+import { attendedSession } from './support/attended-session';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
@@ -34,15 +34,11 @@ const api = () => request(app.getHttpServer());
 const auth = () => ({ Authorization: `Bearer ${token}` });
 
 async function createBilling(): Promise<{ billingId: string; sessionId: string }> {
-  const appointment = await api()
-    .post('/api/v1/appointments')
-    .set(auth())
-    .send({ patientId: fixture.patientId, therapistId: fixture.therapistId, scheduledAt: uniqueSlot(), modality: 'presencial' });
-  expect(appointment.status).toBe(201);
-  fixture.appointmentIds.push(appointment.body.id);
-  expect((await api().post(`/api/v1/appointments/${appointment.body.id}/confirm`).set(auth())).status).toBe(201);
-  const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: appointment.body.id } });
-  fixture.sessionIds.push(session.id);
+  // K2-b — a sessão a cobrar vem da realização registrada, não da confirmação.
+  const attended = await attendedSession(app, token, { patientId: fixture.patientId, therapistId: fixture.therapistId });
+  fixture.appointmentIds.push(attended.appointmentId);
+  fixture.sessionIds.push(attended.sessionId);
+  const session = { id: attended.sessionId };
 
   const billing = await api()
     .post('/api/v1/billings')

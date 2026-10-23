@@ -141,6 +141,22 @@ export async function readContactUnlinkAudit(contactId: string): Promise<Contact
   return audit ? { userId: audit.userId, actorType: audit.actorType, payload: audit.payload } : null;
 }
 
+/**
+ * K2-b (ADR-0069) — uma consulta confirmada cujo horário já começou (há
+ * `minutesAgo` minutos). A sessão a cobrar só nasce do atendimento
+ * registrado depois do início, e a tela não marca consulta no passado (o
+ * seletor só oferece horários futuros). Por isso a consulta em si é
+ * preparada aqui, como uma que já estava na agenda; registrar o atendimento
+ * e cobrar continuam sendo feitos pela tela.
+ */
+export async function createStartedAppointment(clinic: TestClinic, patientId: string, minutesAgo: number): Promise<{ id: string; scheduledAt: Date }> {
+  const scheduledAt = new Date(Date.now() - minutesAgo * 60_000);
+  const appointment = await prisma().appointment.create({
+    data: { tenantId: clinic.tenantId, patientId, therapistId: clinic.therapist.id, scheduledAt, modality: 'presencial', state: 'Confirmada' },
+  });
+  return { id: appointment.id, scheduledAt };
+}
+
 /** Desativa um usuário como o painel faz: o acesso acaba e os refresh tokens já emitidos deixam de valer. */
 export async function deactivateUser(userId: string): Promise<void> {
   await prisma().user.update({ where: { id: userId }, data: { deletedAt: new Date(), tokenVersion: { increment: 1 } } });
@@ -158,6 +174,10 @@ export async function removeClinic(tenantId: string): Promise<void> {
     'billingSession',
     'billing',
     'session',
+    // K2-b — o desfecho congela a consulta: decisões, desfecho e comunicações saem antes dela.
+    'appointmentDecision',
+    'appointmentOutcomeRecord',
+    'appointmentNotice',
     'appointment',
     'recurringBlock',
     'clinicHoliday',

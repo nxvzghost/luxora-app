@@ -5,7 +5,8 @@ import { PrismaClient } from '@prisma/client';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import { bootstrapTestApp } from './support/bootstrap-app';
-import { uniqueSlot } from './support/unique-slot';
+import { uniquePastSlot as uniqueSlot } from './support/unique-slot';
+import { attendedSession } from './support/attended-session';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
@@ -25,21 +26,12 @@ describe('[CRÍTICO #8] Idempotência de Pagamento (RNF-008)', () => {
   let fixturePrisma: PrismaClient;
   let fixture: DedicatedFixture;
 
+  // K2-b — a sessão a cobrar vem da realização registrada numa consulta que já aconteceu.
   async function createBillingWithOneSession(scheduledAt: string, amount: number) {
-    const apptRes = await request(app.getHttpServer())
-      .post('/api/v1/appointments')
-      .set('Authorization', `Bearer ${fixture.token}`)
-      .send({ patientId: fixture.patientId, therapistId: fixture.therapistId, scheduledAt, modality: 'presencial' });
-    expect(apptRes.status).toBe(201);
-    fixture.appointmentIds.push(apptRes.body.id);
-
-    const confirmRes = await request(app.getHttpServer())
-      .post(`/api/v1/appointments/${apptRes.body.id}/confirm`)
-      .set('Authorization', `Bearer ${fixture.token}`);
-    expect(confirmRes.status).toBe(201);
-
-    const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: apptRes.body.id } });
-    fixture.sessionIds.push(session.id);
+    const attended = await attendedSession(app, fixture.token as string, { patientId: fixture.patientId, therapistId: fixture.therapistId, scheduledAt });
+    fixture.appointmentIds.push(attended.appointmentId);
+    fixture.sessionIds.push(attended.sessionId);
+    const session = { id: attended.sessionId };
 
     const billingRes = await request(app.getHttpServer())
       .post('/api/v1/billings')

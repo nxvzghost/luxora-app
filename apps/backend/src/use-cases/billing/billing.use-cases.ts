@@ -48,6 +48,10 @@ export interface GerarCobrancaInput {
  * sessão precisa ser do paciente da cobrança e estar a faturar (Realizada);
  * a clínica é a da RLS. O banco confere de novo paciente e clínica por chave
  * composta e exige o protocolo de elegibilidade na cobrança.
+ *
+ * K2-b — e cada sessão precisa ser elegível (Session.isBillable): o item
+ * faturável de um desfecho registrado por pessoa. O banco confere de novo
+ * pela chave composta do vínculo com a elegibilidade da sessão.
  */
 @Injectable()
 export class GerarCobrancaUseCase {
@@ -99,10 +103,15 @@ export class GerarCobrancaUseCase {
             category: 'business_rule',
           });
         }
-        if (session.state !== 'Realizada') {
+        // K2-b (ADR-0069, seção 2.9) — só entra a sessão que é o item
+        // faturável de um desfecho registrado por pessoa (realização ou falta
+        // com cobrança confirmada), elegível e não anulada. A sessão legada,
+        // criada pela confirmação, nunca entra (DP-27). O banco confere de
+        // novo pela chave composta com a elegibilidade.
+        if (!session.isBillable) {
           throw new ConflictException({
             code: 'SESSION_NOT_BILLABLE',
-            message: `A sessão ${sessionId} não está a faturar (estado ${session.state}).`,
+            message: `A sessão ${sessionId} não pode ser cobrada: não é o item faturável de um desfecho registrado, ou foi anulada.`,
             category: 'business_rule',
           });
         }

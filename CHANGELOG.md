@@ -4,6 +4,21 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### K2-b — desfecho da consulta e elegibilidade definitiva das sessões (2026-10-23)
+
+Fase autorizada pelo responsável: K2-b integrada ao núcleo do MVP-01 ([ADR-0069](./docs/02-Arquitetura/ADRs/ADR-0069-ciclo-de-vida-da-consulta.md), seções 2.4 a 2.9, 3.7 e 9.4; exceção restrita à ADR-0060). A ADR continua em revisão. Commit local, sem push nem deploy.
+
+- **Confirmar não é realizar:** `ConfirmarConsultaUseCase` só muda o estado de agenda, e só antes do início; não cria sessão. A sessão a cobrar nasce do desfecho registrado por pessoa, depois do início: realização (`POST /appointments/:id/attended`, item `atendimento`) ou falta com cobrança confirmada pelo administrador (`/no-show` e `/no-show/charge`, item `falta`). Abono (`/no-show/excuse`) e reversão (`/no-show/excuse/revert`) exigem motivo; o `super_admin` nunca abona (DP-23, DP-24a).
+- **Desfecho numa tabela própria** (`appointment_outcome`), sem valor novo em `AppointmentState` (alternativa (b)). O retrato de `state`, `scheduled_at` e `modality` é chave estrangeira para a consulta: com desfecho, ela fica congelada para qualquer papel; a política RLS restritiva `appointment_frozen_after_outcome` tira a consulta de qualquer `UPDATE` do papel da aplicação; o papel da aplicação não apaga o desfecho nem reescreve o retrato. Sem trigger.
+- **Comunicação** (`appointment_notice`, somente acréscimo) gravada no cancelamento e na remarcação pelo painel, com quem pediu (obrigatório, DP-25) e a classificação pelo limite da clínica; fora do prazo, pedido do paciente, abre a decisão de consequência (DP-22, decisão humana; a decisão em si é de outra fase). **Decisões** sobre a falta guardadas com o motivo em `appointment_decision`, fora da auditoria.
+- **Remarcação com histórico:** a ocorrência atual vai a `Cancelada` com o desfecho `Remarcada` e o horário original; a nova nasce `Reservada`, com `rescheduled_from_id`. A resposta passou a ser `{ previous, current }`.
+- **Cancelar, remarcar e confirmar só antes do início** (`APPOINTMENT_ALREADY_STARTED`); depois, realização ou falta.
+- **Elegibilidade no banco:** `session.billing_eligibility` (toda sessão existente e toda sessão criada por versão anterior nasce `nao_elegivel`, DP-27; elegível só com `kind` e sem anulação, CHECK), e o vínculo novo exige `required_eligibility = 'elegivel'` por chave composta com paciente e clínica. Uma sessão vinculada não deixa de ser elegível. `POST /billings` recusa sessão não elegível (`SESSION_NOT_BILLABLE`).
+- **WhatsApp:** a IA continua confirmando, cancelando e remarcando só antes do início, sem registrar comunicação nem desfecho (K11 é da fase 5).
+- **Painel:** Agenda com "Registrar atendimento", "Registrar falta", "Confirmar cobrança da falta", "Abonar falta" e "Reverter abono"; "Quem pediu" no cancelamento e na remarcação. Financeiro mostra o item de falta.
+- **Operação:** capacidade `appointment-outcome-v1` na imagem e no banco; `deploy.sh`, `rollback.sh` e `restore-drill.sh` conferem as proteções da K2-b. A `fb93885` vira retorno degradado. Ensaio com a imagem anterior de verdade: `infra/tests/k2b-compat-rehearsal.sh`.
+- **Fora desta fase:** aviso tardio (T4/T11), decisão de consequência, correção de desfecho (T10), registro de cada mensagem do WhatsApp e confirmação explícita (K11), histórico consultável, classificação do legado (fase 7), políticas por clínica, lembretes e feriados.
+
 ### Um único cliente Prisma na aplicação (2026-10-22)
 
 Correção do risco de esgotar as conexões do Postgres, separada da K2-a. A investigação partiu do CI `39737046589`, em que três testes AD-039 receberam 500 por "Too many database connections" (falha intermitente; passou no rerun).

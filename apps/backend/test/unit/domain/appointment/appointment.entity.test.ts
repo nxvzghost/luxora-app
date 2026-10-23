@@ -40,30 +40,72 @@ describe('Appointment', () => {
     expect(() => a.transitionTo('Reservada')).toThrow();
   });
 
-  it('reschedule() move para Reagendada apenas a partir de ReagendamentoSolicitado', () => {
-    const a = newAppointment();
-    a.transitionTo('Reservada');
-    a.transitionTo('Confirmada');
-    a.transitionTo('ReagendamentoSolicitado');
+  // K2-b (ADR-0069, seção 5) — a remarcação não move o horário da mesma
+  // ocorrência: cria outra, ligada à anterior.
+  it('rescheduledFrom() cria a ocorrência nova Reservada, no horário novo, ligada à anterior', () => {
+    const previous = newAppointment();
+    previous.transitionTo('Reservada');
+    previous.transitionTo('Confirmada');
     const novaData = new Date('2026-08-05T15:00:00Z');
-    a.reschedule(novaData);
-    expect(a.state).toBe('Reagendada');
-    expect(a.scheduledAt).toEqual(novaData);
+    const next = Appointment.rescheduledFrom(previous, { id: 'a1b', scheduledAt: novaData });
+    expect(next.id).toBe('a1b');
+    expect(next.state).toBe('Reservada');
+    expect(next.scheduledAt).toEqual(novaData);
+    expect(next.rescheduledFromId).toBe('a1');
+    expect([next.patientId, next.therapistId, next.modality, next.tenantId]).toEqual(['p1', 't1', 'presencial', TENANT_ID]);
+    // A anterior não muda: quem a encerra é o caso de uso.
+    expect(previous.state).toBe('Confirmada');
+    expect(previous.scheduledAt).toEqual(new Date('2026-08-01T15:00:00Z'));
+    expect(next.pullDomainEvents().map((e) => e.eventName)).toEqual(['AgendamentoEstadoAlterado', 'ConsultaRemarcada']);
   });
 
-  it('reschedule() lança erro se chamado fora de ReagendamentoSolicitado', () => {
-    const a = newAppointment();
-    expect(() => a.reschedule(new Date())).toThrow(/solicite o reagendamento primeiro/);
+  it('a ocorrência nova não herda o horário fixo de origem (a anterior mantém a chave de materialização)', () => {
+    const previous = Appointment.reconstitute({
+      id: 'a6',
+      tenantId: TENANT_ID,
+      patientId: 'p1',
+      therapistId: 't1',
+      scheduledAt: new Date('2026-08-01T15:00:00Z'),
+      modality: 'online',
+      state: 'Reservada',
+      recurring: true,
+      recurringBlockId: 'rb1',
+    });
+    const next = Appointment.rescheduledFrom(previous, { id: 'a6b', scheduledAt: new Date('2026-08-02T15:00:00Z') });
+    expect(next.recurringBlockId).toBeUndefined();
+    expect(next.isRecurring).toBe(true);
+    expect(next.modality).toBe('online');
   });
 
-  it('Reagendada pode ser confirmada novamente', () => {
-    const a = newAppointment();
-    a.transitionTo('Reservada');
-    a.transitionTo('Confirmada');
-    a.transitionTo('ReagendamentoSolicitado');
-    a.reschedule(new Date('2026-08-05T15:00:00Z'));
+  it('Reagendada (legado) ainda pode ser confirmada', () => {
+    const a = Appointment.reconstitute({
+      id: 'a7',
+      tenantId: TENANT_ID,
+      patientId: 'p1',
+      therapistId: 't1',
+      scheduledAt: new Date('2026-08-05T15:00:00Z'),
+      modality: 'presencial',
+      state: 'Reagendada',
+      recurring: false,
+    });
     a.transitionTo('Confirmada');
     expect(a.state).toBe('Confirmada');
+  });
+
+  it('hasStarted(): no instante do início já começou; 1 ms antes, não', () => {
+    const a = newAppointment();
+    const start = new Date('2026-08-01T15:00:00Z');
+    expect(a.hasStarted(new Date(start.getTime() - 1))).toBe(false);
+    expect(a.hasStarted(start)).toBe(true);
+    expect(a.hasStarted(new Date(start.getTime() + 60_000))).toBe(true);
+  });
+
+  it('isOpen só em Reservada, Confirmada e Reagendada', () => {
+    const states = ['Criada', 'Reservada', 'Confirmada', 'ReagendamentoSolicitado', 'Reagendada', 'Cancelada'] as const;
+    const open = states.filter((state) =>
+      Appointment.reconstitute({ id: 'x', tenantId: TENANT_ID, patientId: 'p1', therapistId: 't1', scheduledAt: new Date(), modality: 'presencial', state, recurring: false }).isOpen,
+    );
+    expect(open).toEqual(['Reservada', 'Confirmada', 'Reagendada']);
   });
 
   it('isRecurring reflete o valor definido na criação', () => {

@@ -1,7 +1,22 @@
-import { billingRow, bookAndConfirm, clinicDate, createBilling, expect, openMenu, signIn, statCard, test } from '../support/fixtures';
+import {
+  appointmentRow,
+  billingRow,
+  bookAppointment,
+  clinicDate,
+  createBilling,
+  expect,
+  openAgendaDayOf,
+  openMenu,
+  recordAttendance,
+  recordNoShow,
+  signIn,
+  statCard,
+  test,
+} from '../support/fixtures';
 
 /**
- * Ciclo financeiro pela tela — cobrança a partir da sessão realizada,
+ * Ciclo financeiro pela tela — cobrança a partir da sessão realizada
+ * (K2-b: o atendimento registrado na Agenda, nunca a confirmação),
  * pagamento, valores e estados, atraso, pagamento divergente com a
  * notificação que ele gera, e estorno.
  *
@@ -16,7 +31,7 @@ test.describe('Cobrança e pagamento', () => {
   test('cria a cobrança da sessão, registra o pagamento e os valores fecham no Financeiro e no Dashboard', async ({ page, clinicWithHours: clinic }) => {
     const [ana] = clinic.patients;
     await signIn(page, clinic.admin);
-    await bookAndConfirm(page, clinic, ana.name, TOMORROW);
+    await recordAttendance(page, clinic, ana.name);
 
     await createBilling(page, ana.name, '250,00', NEXT_MONTH);
     const row = billingRow(page, ana.name);
@@ -50,8 +65,8 @@ test.describe('Cobrança e pagamento', () => {
   test('cobrança vencida aparece em atraso no Financeiro e no Dashboard; paga, sai da contagem', async ({ page, clinicWithHours: clinic }) => {
     const [ana, bruno] = clinic.patients;
     await signIn(page, clinic.admin);
-    await bookAndConfirm(page, clinic, ana.name, TOMORROW);
-    await bookAndConfirm(page, clinic, bruno.name, TOMORROW);
+    await recordAttendance(page, clinic, ana.name);
+    await recordAttendance(page, clinic, bruno.name, 120);
 
     await createBilling(page, ana.name, '180,00', LAST_WEEK);
     await createBilling(page, bruno.name, '120,00', NEXT_MONTH);
@@ -82,7 +97,7 @@ test.describe('Cobrança e pagamento', () => {
   test('enviar sem WhatsApp conectado é recusado e a cobrança continua Criada', async ({ page, clinicWithHours: clinic }) => {
     const [ana] = clinic.patients;
     await signIn(page, clinic.admin);
-    await bookAndConfirm(page, clinic, ana.name, TOMORROW);
+    await recordAttendance(page, clinic, ana.name);
     await createBilling(page, ana.name, '200,00', NEXT_MONTH);
     const row = billingRow(page, ana.name);
 
@@ -99,7 +114,7 @@ test.describe('Cobrança e pagamento', () => {
   test('perfil terapeuta consulta o financeiro, sem as ações do administrador', async ({ page, clinicWithHours: clinic }) => {
     const [ana] = clinic.patients;
     await signIn(page, clinic.admin);
-    await bookAndConfirm(page, clinic, ana.name, TOMORROW);
+    await recordAttendance(page, clinic, ana.name);
     await createBilling(page, ana.name, '200,00', NEXT_MONTH);
     await page.getByRole('button', { name: 'Sair' }).click();
     await expect(page).toHaveURL(/\/login$/);
@@ -116,11 +131,57 @@ test.describe('Cobrança e pagamento', () => {
   });
 });
 
+/**
+ * K2-b (ADR-0069, MVP-01) — confirmar não é realizar: a consulta só
+ * confirmada não aparece para cobrança; a falta só vira item a cobrar depois
+ * que o administrador confirma a cobrança.
+ */
+test.describe('Desfecho da consulta e o que pode ser cobrado', () => {
+  test('consulta só confirmada não gera nada a cobrar; falta registrada só entra depois da cobrança confirmada', async ({ page, clinicWithHours: clinic }) => {
+    const [ana, bruno] = clinic.patients;
+    await signIn(page, clinic.admin);
+
+    // Confirmada para amanhã: nada a cobrar.
+    await bookAppointment(page, clinic, ana.name, TOMORROW);
+    await appointmentRow(page, ana.name).getByRole('button', { name: 'Confirmar' }).click();
+    await expect(page.getByRole('status')).toContainText(`Consulta de ${ana.name} confirmada`);
+    await openMenu(page, 'Financeiro');
+    await page.getByRole('button', { name: 'Nova cobrança' }).click();
+    const form = page.getByRole('form', { name: 'Nova cobrança' });
+    await form.locator('#billing-patient').selectOption({ label: ana.name });
+    await expect(form).toContainText('não tem sessão a cobrar');
+    await expect(form).toContainText('Confirmar a consulta não gera cobrança');
+    await page.getByRole('button', { name: 'Fechar' }).click();
+
+    // Falta registrada: ainda nada a cobrar, até o administrador confirmar a cobrança.
+    await recordNoShow(page, clinic, bruno.name);
+    await openMenu(page, 'Financeiro');
+    await page.getByRole('button', { name: 'Nova cobrança' }).click();
+    await page.getByRole('form', { name: 'Nova cobrança' }).locator('#billing-patient').selectOption({ label: bruno.name });
+    await expect(page.getByRole('form', { name: 'Nova cobrança' })).toContainText('não tem sessão a cobrar');
+    await page.getByRole('button', { name: 'Fechar' }).click();
+
+    await openMenu(page, 'Agenda');
+    await openAgendaDayOf(page, bruno.name);
+    await appointmentRow(page, bruno.name).getByRole('button', { name: 'Confirmar cobrança da falta' }).click();
+    await expect(page.getByRole('status')).toContainText(`Consulta de ${bruno.name}: cobrança da falta confirmada`);
+
+    await openMenu(page, 'Financeiro');
+    await page.getByRole('button', { name: 'Nova cobrança' }).click();
+    const billingForm = page.getByRole('form', { name: 'Nova cobrança' });
+    await billingForm.locator('#billing-patient').selectOption({ label: bruno.name });
+    await expect(billingForm).toContainText('falta (sem aviso prévio)');
+    await page.getByRole('button', { name: 'Fechar' }).click();
+    await createBilling(page, bruno.name, '150,00', NEXT_MONTH);
+    await expect(billingRow(page, bruno.name)).toContainText('R$ 150,00');
+  });
+});
+
 test.describe('Pagamento divergente e notificação', () => {
   test('valor diferente pede um segundo passo, deixa a cobrança em aberto e gera a notificação', async ({ page, clinicWithHours: clinic }) => {
     const [ana] = clinic.patients;
     await signIn(page, clinic.admin);
-    await bookAndConfirm(page, clinic, ana.name, TOMORROW);
+    await recordAttendance(page, clinic, ana.name);
     await createBilling(page, ana.name, '180,00', NEXT_MONTH);
     const row = billingRow(page, ana.name);
 
@@ -161,7 +222,7 @@ test.describe('Estorno', () => {
   test('estorna em dois passos; o valor sai do recebido e a cobrança mostra o estorno', async ({ page, clinicWithHours: clinic }) => {
     const [ana] = clinic.patients;
     await signIn(page, clinic.admin);
-    await bookAndConfirm(page, clinic, ana.name, TOMORROW);
+    await recordAttendance(page, clinic, ana.name);
     await createBilling(page, ana.name, '250,00', NEXT_MONTH);
     const row = billingRow(page, ana.name);
     await row.getByRole('button', { name: 'Pagamento' }).click();

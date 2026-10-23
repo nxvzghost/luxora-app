@@ -3,7 +3,8 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
-import { uniqueSlot } from './support/unique-slot';
+import { uniquePastSlot } from './support/unique-slot';
+import { attendedSession } from './support/attended-session';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
@@ -18,22 +19,16 @@ let app: INestApplication;
 let fixturePrisma: PrismaClient;
 let fixture: DedicatedFixture;
 
-async function createConfirmedSession(scheduledAt: string = uniqueSlot()): Promise<string> {
-  const apptRes = await request(app.getHttpServer())
-    .post('/api/v1/appointments')
-    .set('Authorization', `Bearer ${fixture.token}`)
-    .send({ patientId: fixture.patientId, therapistId: fixture.therapistId, scheduledAt, modality: 'presencial' });
-  expect(apptRes.status).toBe(201);
-  fixture.appointmentIds.push(apptRes.body.id);
-
-  const confirmRes = await request(app.getHttpServer())
-    .post(`/api/v1/appointments/${apptRes.body.id}/confirm`)
-    .set('Authorization', `Bearer ${fixture.token}`);
-  expect(confirmRes.status).toBe(201);
-
-  const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: apptRes.body.id } });
-  fixture.sessionIds.push(session.id);
-  return session.id;
+/** K2-b — a sessão nasce Realizada ("a faturar") do registro da realização, não da confirmação. */
+async function createConfirmedSession(scheduledAt: string = uniquePastSlot()): Promise<string> {
+  const { appointmentId, sessionId } = await attendedSession(app, fixture.token as string, {
+    patientId: fixture.patientId,
+    therapistId: fixture.therapistId,
+    scheduledAt,
+  });
+  fixture.appointmentIds.push(appointmentId);
+  fixture.sessionIds.push(sessionId);
+  return sessionId;
 }
 
 async function sessionState(sessionId: string): Promise<string> {

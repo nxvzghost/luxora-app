@@ -264,18 +264,26 @@ export async function cleanupDedicatedFixture(fixturePrisma: PrismaClient, fixtu
     await fixturePrisma.billingSession.deleteMany({ where: { billingId: { in: billingIds } } });
     await fixturePrisma.billing.deleteMany({ where: { id: { in: billingIds } } });
   }
-  if (fixture.sessionIds.length > 0) {
-    await fixturePrisma.session.deleteMany({ where: { id: { in: fixture.sessionIds } } });
-  }
-  if (fixture.appointmentIds.length > 0) {
-    await fixturePrisma.appointment.deleteMany({ where: { id: { in: fixture.appointmentIds } } });
-  }
+  // K2-b — os desfechos criam sessões (realização, cobrança da falta) cujo id
+  // a API devolve, mas que nem todo teste rastreia; e a remarcação cria uma
+  // consulta nova, ligada à anterior. Mesma justificativa do AD-035, abaixo:
+  // o filtro é o id de um Tenant que só esta fixture possui.
+  await fixturePrisma.billingSession.deleteMany({ where: { tenantId: fixture.tenantId } });
+  await fixturePrisma.session.deleteMany({ where: { OR: [{ id: { in: fixture.sessionIds } }, { tenantId: fixture.tenantId }] } });
+  // Desfecho, decisões e comunicações antes das consultas: o desfecho congela
+  // a consulta (a chave do retrato recusa apagá-la). O superusuário daqui
+  // apaga o que o papel da aplicação não consegue.
+  await fixturePrisma.appointmentDecision.deleteMany({ where: { tenantId: fixture.tenantId } });
+  await fixturePrisma.appointmentOutcomeRecord.deleteMany({ where: { tenantId: fixture.tenantId } });
+  await fixturePrisma.appointmentNotice.deleteMany({ where: { tenantId: fixture.tenantId } });
   // AD-035 — consultas, horários fixos e feriados criados por Repository ou
   // Use Case (materialização de horário fixo, por exemplo) não têm id que o
   // teste consiga rastrear. Mesma justificativa do audit_log, abaixo: o
   // filtro é o id de um Tenant que só esta fixture possui. As consultas vêm
-  // antes dos horários fixos, que elas referenciam.
-  await fixturePrisma.appointment.deleteMany({ where: { tenantId: fixture.tenantId } });
+  // antes dos horários fixos, que elas referenciam. Uma única instrução para
+  // as rastreadas e as demais: a ocorrência remarcada e a nova saem juntas
+  // (a chave da remarcação é conferida no fim da instrução).
+  await fixturePrisma.appointment.deleteMany({ where: { OR: [{ id: { in: fixture.appointmentIds } }, { tenantId: fixture.tenantId }] } });
   await fixturePrisma.recurringBlock.deleteMany({ where: { tenantId: fixture.tenantId } });
   await fixturePrisma.clinicHoliday.deleteMany({ where: { tenantId: fixture.tenantId } });
   if (fixture.calendarId) {

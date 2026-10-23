@@ -2,6 +2,17 @@ import { Appointment } from '@domain/appointment/appointment.entity';
 
 export interface AppointmentRepository {
   findById(id: string): Promise<Appointment | null>;
+  /**
+   * K2-b (ADR-0069, seção 2.7) — a consulta com a linha travada até o fim da
+   * unidade de trabalho (`SELECT … FOR UPDATE`): uma transição por vez. Só
+   * dentro de uma unidade de trabalho. Devolve null também para a consulta
+   * com desfecho, que a política restritiva do banco deixa fora de qualquer
+   * escrita (e de qualquer trava) do papel da aplicação; quem chama distingue
+   * os dois casos lendo a consulta e o desfecho sem trava.
+   */
+  findByIdForUpdate(id: string): Promise<Appointment | null>;
+  /** K2-b — id da ocorrência criada pela remarcação desta, se houver. */
+  findSuccessorId(id: string): Promise<string | null>;
   /** Busca agendamentos ativos (não cancelados) de um terapeuta num intervalo — base de ConsultarDisponibilidade. */
   findActiveByTherapistAndRange(therapistId: string, from: Date, to: Date): Promise<Appointment[]>;
   /** Módulo 15 — lista agendamentos do Tenant inteiro (todos os terapeutas) num intervalo, para a tela de Agenda. */

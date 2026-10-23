@@ -123,6 +123,10 @@ require_image() {
 
 # Restrições (validadas) que acompanham billing-eligibility-v1.
 K2A_CONSTRAINTS="billing_eligibility_protocol_fkey billing_legacy_or_protocol_check billing_session_billing_patient_fkey billing_session_session_patient_fkey billing_session_legacy_or_patient_check"
+# Restrições (validadas) que acompanham appointment-outcome-v1 (K2-b): o
+# congelamento da consulta com desfecho, a elegibilidade do vínculo e da
+# sessão, e a coerência do desfecho, da comunicação e das decisões.
+K2B_CONSTRAINTS="appointment_outcome_freeze_fkey appointment_outcome_closing_notice_fkey appointment_notice_appointment_fkey appointment_decision_outcome_fkey appointment_rescheduled_from_fkey billing_session_session_eligibility_fkey session_billing_eligibility_check session_void_check billing_session_required_eligibility_check billing_session_legacy_or_eligibility_check appointment_outcome_state_check appointment_outcome_no_show_decision_check appointment_outcome_no_show_decided_check appointment_outcome_late_notice_decision_check appointment_outcome_late_notice_decided_check appointment_outcome_closing_notice_check appointment_outcome_closing_timing_check appointment_notice_actor_check appointment_notice_reference_check appointment_notice_timing_check appointment_notice_limit_check appointment_notice_review_check appointment_decision_reason_check"
 
 db_query() { # sql [banco]
   compose exec -T postgres psql -U postgres -d "${2:-$DATABASE_NAME}" -v ON_ERROR_STOP=1 -tAq -c "$1"
@@ -187,6 +191,61 @@ db_missing_protections() { # [banco]
       select name from privileges where granted) missing" "${1:-}"
 }
 
+# Proteções da K2-b que faltam no banco: restrições ausentes ou não
+# validadas, a política restritiva de congelamento, a RLS das tabelas novas e
+# os privilégios do papel da aplicação que as contornariam (apagar desfecho,
+# reescrever o retrato, a comunicação ou as decisões, marcar vínculo como legado).
+db_missing_k2b_protections() { # [banco]
+  local constraints
+  # shellcheck disable=SC2086  # lista separada por espaço
+  constraints="$(printf "'%s'," $K2B_CONSTRAINTS)"
+  db_query "
+    with expected(name) as (select unnest(array[${constraints%,}])),
+    privileges(name, granted) as (values
+      ('privilegio:appointment_outcome.apagar', has_table_privilege('luxora_app', 'public.appointment_outcome', 'DELETE,TRUNCATE')),
+      ('privilegio:appointment_outcome.retrato', has_column_privilege('luxora_app', 'public.appointment_outcome', 'state_at_outcome', 'UPDATE')
+                                                  or has_column_privilege('luxora_app', 'public.appointment_outcome', 'scheduled_at_at_outcome', 'UPDATE')
+                                                  or has_column_privilege('luxora_app', 'public.appointment_outcome', 'modality_at_outcome', 'UPDATE')
+                                                  or has_column_privilege('luxora_app', 'public.appointment_outcome', 'appointment_id', 'UPDATE')
+                                                  or has_column_privilege('luxora_app', 'public.appointment_outcome', 'tenant_id', 'UPDATE')
+                                                  or has_column_privilege('luxora_app', 'public.appointment_outcome', 'outcome_recorded_by_user_id', 'UPDATE')),
+      ('privilegio:appointment_notice.apagar', has_table_privilege('luxora_app', 'public.appointment_notice', 'DELETE,TRUNCATE')),
+      ('privilegio:appointment_notice.horarios', has_column_privilege('luxora_app', 'public.appointment_notice', 'reference_time', 'UPDATE')
+                                                  or has_column_privilege('luxora_app', 'public.appointment_notice', 'recorded_at', 'UPDATE')
+                                                  or has_column_privilege('luxora_app', 'public.appointment_notice', 'received_at', 'UPDATE')
+                                                  or has_column_privilege('luxora_app', 'public.appointment_notice', 'timing', 'UPDATE')
+                                                  or has_column_privilege('luxora_app', 'public.appointment_notice', 'requested_by', 'UPDATE')),
+      ('privilegio:appointment_decision', has_table_privilege('luxora_app', 'public.appointment_decision', 'DELETE,TRUNCATE')
+                                          or has_column_privilege('luxora_app', 'public.appointment_decision', 'reason', 'UPDATE')
+                                          or has_column_privilege('luxora_app', 'public.appointment_decision', 'decision', 'UPDATE')),
+      ('privilegio:billing_session.legacy_eligibility_link', has_column_privilege('luxora_app', 'public.billing_session', 'legacy_eligibility_link', 'INSERT,UPDATE')),
+      ('politica:appointment_frozen_after_outcome', not exists (select 1 from pg_policy p
+                                                                 where p.polrelid = 'public.appointment'::regclass and p.polname = 'appointment_frozen_after_outcome'
+                                                                   and not p.polpermissive and p.polcmd = 'w')),
+      ('rls:tabelas-do-desfecho', (select count(*) from pg_class c
+                                    where c.relnamespace = 'public'::regnamespace
+                                      and c.relname in ('appointment_outcome', 'appointment_notice', 'appointment_decision')
+                                      and c.relrowsecurity and c.relforcerowsecurity) <> 3))
+    select coalesce(string_agg(name, ' ' order by name), '') from (
+      select e.name from expected e
+       where not exists (select 1 from pg_constraint c
+                          where c.connamespace = 'public'::regnamespace and c.conname = e.name and c.convalidated)
+      union all
+      select name from privileges where granted) missing" "${1:-}"
+}
+
+# Proteções que faltam para as capacidades exigidas (lista separada por espaço).
+db_missing_required_protections() { # "capacidades" [banco]
+  local missing="" found
+  case " $1 " in
+    *" billing-eligibility-v1 "*) found="$(db_missing_protections "${2:-}")" || return 1; missing="$found" ;;
+  esac
+  case " $1 " in
+    *" appointment-outcome-v1 "*) found="$(db_missing_k2b_protections "${2:-}")" || return 1; missing="${missing:+$missing }$found" ;;
+  esac
+  echo "${missing% }"
+}
+
 # Confere o banco em uso contra a exigência já registrada neste ambiente e
 # contra as proteções. Preenche REQUIRED_CAPABILITIES; se algo falta,
 # devolve 1 com o motivo em CAPABILITY_PROBLEM.
@@ -200,11 +259,7 @@ check_database_protections() {
     CAPABILITY_PROBLEM="este ambiente já exigia '$lost' e o banco não declara mais (backup anterior restaurado sem migrations?); rode deploy.sh com uma versão que tenha a capacidade, que reaplica as migrations antes de subir a aplicação"
     return 1
   fi
-  case " $required " in
-    *" billing-eligibility-v1 "*)
-      missing="$(db_missing_protections)" || { CAPABILITY_PROBLEM="não foi possível conferir as proteções do banco"; return 1; }
-      [ -z "$missing" ] || { CAPABILITY_PROBLEM="o banco exige billing-eligibility-v1 mas faltam proteções: $missing"; return 1; }
-      ;;
-  esac
+  missing="$(db_missing_required_protections "$required")" || { CAPABILITY_PROBLEM="não foi possível conferir as proteções do banco"; return 1; }
+  [ -z "$missing" ] || { CAPABILITY_PROBLEM="o banco exige '$required' mas faltam proteções: $missing"; return 1; }
   REQUIRED_CAPABILITIES="$required"
 }

@@ -7,10 +7,17 @@ import { DomainEvent } from '../shared/domain-event';
  * Fonte: docs/01-Domain/03-Maquina-de-Estados.md, seção "Sessão", subconjunto
  * final; resolvido em docs/01-Domain/05-Linguagem-Ubiqua.md.
  *
- * Uma Sessão só é criada a partir de um Appointment em estado "Confirmada"
- * — ver Session.createFromConfirmedAppointment.
+ * K2-b (ADR-0069, seções 2.9 e 3.4) — a sessão é o ITEM FATURÁVEL de uma
+ * consulta. `Realizada` continua sendo o nome do estado inicial ("a
+ * faturar"), por compatibilidade com as versões anteriores; o que a sessão
+ * cobra está em `kind`. Ela só nasce (ou é reaproveitada) de um desfecho
+ * registrado por pessoa: realização (T6) ou cobrança de falta confirmada
+ * (T8). Confirmar a consulta não cria sessão.
  */
 export type SessionState = 'Realizada' | 'Faturada' | 'Recebida';
+export type SessionKind = 'atendimento' | 'falta' | 'aviso_fora_do_prazo' | 'aviso_tardio';
+export type BillingEligibility = 'elegivel' | 'nao_elegivel';
+export type SessionVoidReason = 'desfecho_corrigido' | 'legado_consulta_cancelada' | 'legado_consulta_futura';
 
 const sessionTransitions: Record<SessionState, readonly SessionState[]> = {
   Realizada: ['Faturada'],
@@ -29,6 +36,15 @@ export class SessionStateChangedEvent extends DomainEvent {
   }
 }
 
+/** Uma sessão que já existia (legada, sem desfecho comprovado) passou a ser o item faturável de um desfecho registrado. */
+export class SessionBecameBillableEvent extends DomainEvent {
+  declare readonly kind: SessionKind;
+
+  constructor(entityId: string, tenantId: string, kind: SessionKind) {
+    super('SessaoTornadaElegivel', entityId, tenantId, { kind });
+  }
+}
+
 export interface SessionProps {
   id: string;
   tenantId: string;
@@ -37,6 +53,12 @@ export interface SessionProps {
   therapistId: string;
   state: SessionState;
   completedAt?: Date;
+  /** Vazio nas sessões legadas, criadas pela confirmação (DP-27). */
+  kind?: SessionKind;
+  billingEligibility: BillingEligibility;
+  voidedAt?: Date;
+  voidReason?: SessionVoidReason;
+  voidedByUserId?: string;
 }
 
 export class Session {
@@ -48,22 +70,20 @@ export class Session {
   }
 
   /**
-   * Único ponto de criação de uma Sessão — exige um Appointment confirmado,
-   * reforçando a regra de que atendimento nunca existe sem reserva prévia.
+   * Item faturável novo de um desfecho registrado por pessoa — realização
+   * (`atendimento`) ou falta com cobrança confirmada (`falta`). Nasce a
+   * faturar e elegível. `completedAt` é o momento em que o desfecho foi
+   * registrado.
    */
-  static createFromConfirmedAppointment(params: {
+  static createBillableItem(params: {
     id: string;
     tenantId: string;
     appointmentId: string;
-    appointmentState: string;
     patientId: string;
     therapistId: string;
+    kind: SessionKind;
+    at: Date;
   }): Session {
-    if (params.appointmentState !== 'Confirmada') {
-      throw new Error(
-        'Uma Sessão só pode ser criada a partir de um Agendamento em estado "Confirmada".',
-      );
-    }
     const session = new Session({
       id: params.id,
       tenantId: params.tenantId,
@@ -71,11 +91,11 @@ export class Session {
       patientId: params.patientId,
       therapistId: params.therapistId,
       state: 'Realizada',
-      completedAt: new Date(),
+      completedAt: params.at,
+      kind: params.kind,
+      billingEligibility: 'elegivel',
     });
-    session._pendingEvents.push(
-      new SessionStateChangedEvent(params.id, params.tenantId, null, 'Realizada'),
-    );
+    session._pendingEvents.push(new SessionStateChangedEvent(params.id, params.tenantId, null, 'Realizada'));
     return session;
   }
 
@@ -105,6 +125,79 @@ export class Session {
 
   get state(): SessionState {
     return this._state;
+  }
+
+  get completedAt(): Date | undefined {
+    return this.props.completedAt;
+  }
+
+  get kind(): SessionKind | undefined {
+    return this.props.kind;
+  }
+
+  get billingEligibility(): BillingEligibility {
+    return this.props.billingEligibility;
+  }
+
+  get voidedAt(): Date | undefined {
+    return this.props.voidedAt;
+  }
+
+  get voidReason(): SessionVoidReason | undefined {
+    return this.props.voidReason;
+  }
+
+  get voidedByUserId(): string | undefined {
+    return this.props.voidedByUserId;
+  }
+
+  /** Já entrou numa cobrança (AD-009). */
+  get isBilled(): boolean {
+    return this._state !== 'Realizada';
+  }
+
+  /**
+   * Pode entrar numa cobrança nova (ADR-0069, seção 2.9, falha fechada): tem
+   * o que cobrar, está elegível, não foi anulada e ainda está a faturar. O
+   * paciente e a clínica são conferidos por quem monta a cobrança, e o banco
+   * confere tudo de novo pelas chaves compostas.
+   */
+  get isBillable(): boolean {
+    return (
+      this.props.kind !== undefined &&
+      this.props.billingEligibility === 'elegivel' &&
+      this.props.voidedAt === undefined &&
+      this._state === 'Realizada'
+    );
+  }
+
+  /**
+   * Reaproveita a sessão que já existia para esta consulta (`appointment_id`
+   * é único) como o item faturável do desfecho registrado agora — nunca
+   * recria (seção 2.8). É o caso da sessão legada, criada pela confirmação
+   * antes da K2-b, ou por uma versão anterior num rollback: ela passa a ser o
+   * que a pessoa registrou. Uma anulação é desfeita. Sessão já cobrada não é
+   * tocada (quem chama confere antes); outro `kind` já definido é correção de
+   * desfecho (T10), fora desta fase.
+   */
+  makeBillable(kind: SessionKind, at: Date): 'applied' | 'unchanged' {
+    if (this.isBilled) {
+      throw new Error('Uma sessão já cobrada não muda de item faturável.');
+    }
+    if (this.isBillable && this.props.kind === kind) {
+      return 'unchanged';
+    }
+    if (this.props.kind !== undefined && this.props.kind !== kind && this.props.voidedAt === undefined) {
+      throw new Error(`A sessão já é o item "${this.props.kind}"; trocar o item é correção de desfecho.`);
+    }
+    this.props.kind = kind;
+    this.props.billingEligibility = 'elegivel';
+    this.props.completedAt = at;
+    this.props.voidedAt = undefined;
+    this.props.voidReason = undefined;
+    this.props.voidedByUserId = undefined;
+    this._pendingEvents.push(new SessionBecameBillableEvent(this.props.id, this.props.tenantId, kind));
+    return 'applied';
   }
 
   transitionTo(newState: SessionState): void {

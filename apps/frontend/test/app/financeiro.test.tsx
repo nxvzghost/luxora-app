@@ -189,7 +189,29 @@ describe('FinanceiroPage — criar cobrança', () => {
 
     await user.selectOptions(within(form).getByLabelText('Paciente'), 'patient-1');
 
-    expect(await within(form).findByText(/não tem sessão a cobrar/i)).toHaveTextContent(/depois que a consulta é confirmada/i);
+    // K2-b — a sessão a cobrar vem do atendimento registrado, não da confirmação.
+    const hint = await within(form).findByText(/não tem sessão a cobrar/i);
+    expect(hint).toHaveTextContent(/depois que o atendimento é registrado na Agenda/i);
+    expect(hint).toHaveTextContent(/confirmar a consulta não gera cobrança/i);
+  });
+
+  it('K2-b — o item de falta com cobrança confirmada aparece identificado na lista a cobrar', async () => {
+    const user = userEvent.setup();
+    mockFinance({
+      'GET /sessions': {
+        body: {
+          data: [
+            { id: 'session-falta', appointmentId: 'a-falta', patientId: 'patient-1', therapistId: 'therapist-1', state: 'Realizada', scheduledAt: '2026-10-12T14:00:00.000Z', kind: 'falta', billingEligibility: 'elegivel' },
+          ],
+        },
+      },
+    });
+    renderWithQueryClient(<FinanceiroPage />);
+    const form = await openForm(user);
+
+    await user.selectOptions(within(form).getByLabelText('Paciente'), 'patient-1');
+
+    expect(await within(form).findByText(/falta \(sem aviso prévio\)/i)).toBeInTheDocument();
   });
 
   it('sem sessão marcada ou com valor inválido, não chama a API', async () => {

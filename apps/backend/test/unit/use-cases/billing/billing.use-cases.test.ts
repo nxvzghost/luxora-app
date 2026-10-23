@@ -21,6 +21,7 @@ function unitOfWork() {
   return { run: <T>(work: () => Promise<T>) => work() };
 }
 
+/** K2-b — uma sessão que pode ser cobrada é o item faturável de um desfecho (aqui, realização), elegível. */
 function fakeSession(id: string, patientId = 'p1', state: 'Realizada' | 'Faturada' | 'Recebida' = 'Realizada') {
   return Session.reconstitute({
     id,
@@ -29,6 +30,8 @@ function fakeSession(id: string, patientId = 'p1', state: 'Realizada' | 'Faturad
     patientId,
     therapistId: 't1',
     state,
+    kind: 'atendimento',
+    billingEligibility: 'elegivel',
   });
 }
 
@@ -37,6 +40,7 @@ function sessionRepoMock(sessionIds: string[]) {
   const sessions = new Map(sessionIds.map((id) => [id, fakeSession(id)]));
   return {
     findById: vi.fn((id: string) => Promise.resolve(sessions.get(id) ?? null)),
+    findByAppointmentId: vi.fn(),
     save: vi.fn().mockResolvedValue(undefined),
     findSummaries: vi.fn(),
   };
@@ -191,9 +195,43 @@ describe('K2-a — GerarCobrancaUseCase confere a elegibilidade e grava tudo de 
   }
   function sessionRepoWith(...sessions: Session[]) {
     const byId = new Map(sessions.map((session) => [session.id, session]));
-    return { findById: vi.fn((id: string) => Promise.resolve(byId.get(id) ?? null)), save: vi.fn().mockResolvedValue(undefined), findSummaries: vi.fn() };
+    return {
+      findById: vi.fn((id: string) => Promise.resolve(byId.get(id) ?? null)),
+      findByAppointmentId: vi.fn(),
+      save: vi.fn().mockResolvedValue(undefined),
+      findSummaries: vi.fn(),
+    };
   }
   const patientRepo = () => ({ findById: vi.fn().mockResolvedValue({ id: 'p1' }) }) as never;
+
+  // K2-b (ADR-0069, seção 2.9) — só entra o item faturável de um desfecho, elegível e não anulado.
+  it.each([
+    ['legada (criada pela confirmação: sem kind, não elegível)', { kind: undefined, billingEligibility: 'nao_elegivel' as const }],
+    ['com kind mas não elegível', { kind: 'atendimento' as const, billingEligibility: 'nao_elegivel' as const }],
+    ['anulada', { kind: 'atendimento' as const, billingEligibility: 'elegivel' as const, voidedAt: new Date(), voidReason: 'desfecho_corrigido' as const }],
+  ])('sessão %s: 409 SESSION_NOT_BILLABLE, nada gravado', async (_label, overrides) => {
+    const repo = billingRepo();
+    const session = Session.reconstitute({ id: 's1', tenantId: TENANT_ID, appointmentId: 'apt-s1', patientId: 'p1', therapistId: 't1', state: 'Realizada', ...overrides });
+    const sessionRepo = sessionRepoWith(fakeSession('s0'), session);
+    const audit = { recordAll: vi.fn() };
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepo, audit as never, tenantContext(), patientRepo(), unitOfWork());
+
+    await expect(useCase.execute({ patientId: 'p1', amount: 800, dueDate: new Date(), sessionIds: ['s0', 's1'] })).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'SESSION_NOT_BILLABLE' },
+    });
+    expect(repo.createWithSessions).not.toHaveBeenCalled();
+    expect(sessionRepo.save).not.toHaveBeenCalled();
+    expect(audit.recordAll).not.toHaveBeenCalled();
+  });
+
+  it('o item de falta com cobrança confirmada entra na cobrança', async () => {
+    const repo = billingRepo();
+    const falta = Session.reconstitute({ id: 's1', tenantId: TENANT_ID, appointmentId: 'apt-s1', patientId: 'p1', therapistId: 't1', state: 'Realizada', kind: 'falta', billingEligibility: 'elegivel' });
+    const useCase = new GerarCobrancaUseCase(repo, sessionRepoWith(falta), auditService(), tenantContext(), patientRepo(), unitOfWork());
+    await useCase.execute({ patientId: 'p1', amount: 400, dueDate: new Date(), sessionIds: ['s1'] });
+    expect(repo.createWithSessions).toHaveBeenCalledWith(expect.objectContaining({ patientId: 'p1' }), ['s1']);
+  });
 
   it('sessão de outro paciente da mesma clínica: 409 SESSION_OF_ANOTHER_PATIENT, nada gravado', async () => {
     const repo = billingRepo();

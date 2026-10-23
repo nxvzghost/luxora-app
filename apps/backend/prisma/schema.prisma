@@ -523,10 +523,24 @@ model Appointment {
   recurringBlock   RecurringBlock? @relation(fields: [recurringBlockId], references: [id])
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
+  // K2-b (ADR-0069, seção 5) — a remarcação encerra a ocorrência e cria
+  // outra, ligada a esta. Uma ocorrência tem no máximo uma sucessora; a chave
+  // composta garante que ela é da mesma clínica e do mesmo paciente.
+  rescheduledFromId String?      @unique @map("rescheduled_from_id")
+  rescheduledFrom   Appointment? @relation("AppointmentReschedule", fields: [rescheduledFromId, tenantId, patientId], references: [id, tenantId, patientId], onDelete: NoAction, onUpdate: NoAction, map: "appointment_rescheduled_from_fkey")
+  rescheduledTo     Appointment[] @relation("AppointmentReschedule")
 
-  session Session?
+  session  Session?
+  // K2-b (ADR-0069, seção 2.4) — o desfecho fica em tabela própria, e a
+  // chave estrangeira dele congela state, scheduled_at e modality.
+  outcomes AppointmentOutcomeRecord[] @relation("AppointmentOutcomeFreeze")
+  notices  AppointmentNotice[]
 
   @@index([tenantId, therapistId, scheduledAt])
+  // K2-b — alvos das chaves compostas: o desfecho (congelamento), a
+  // comunicação e a remarcação apontam para a consulta da mesma clínica.
+  @@unique([id, tenantId, state, scheduledAt, modality], map: "appointment_freeze_key")
+  @@unique([id, tenantId, patientId], map: "appointment_id_tenant_id_patient_id_key")
   // Defesa em profundidade contra dupla-reserva concorrente (Teste Crítico
   // #10): ver prisma/rls/unique-active-appointment.sql — um índice único
   // PARCIAL (só sobre estados não-terminais), aplicado via SQL bruto porque
@@ -545,6 +559,177 @@ model Appointment {
   @@map("appointment")
 }
 
+// ─────────────────────────────────────────────
+// K2-b (ADR-0069, seções 2.3, 2.4, 3.2 e 3.2b) — desfecho da consulta e
+// comunicação do paciente. AppointmentState não ganha valor novo
+// (alternativa (b), decisão de 21/10/2026): uma versão anterior continua
+// lendo todas as consultas. Restrições que o Prisma não declara (CHECKs,
+// RLS, política restritiva e privilégios) estão na migration
+// 20261023130014_k2b_appointment_outcome.
+// ─────────────────────────────────────────────
+enum AppointmentOutcome {
+  Realizada
+  Falta
+  FaltaAbonada
+  AvisoTardio
+  Remarcada
+  Cancelada
+}
+
+enum NoShowDecision {
+  aguardando_decisao
+  cobranca_confirmada
+}
+
+// DP-22: nenhum valor cobra sem confirmação humana.
+enum LateNoticeDecision {
+  aguardando_decisao
+  sem_cobranca
+  cobranca_confirmada
+}
+
+enum NoticeTiming {
+  no_prazo
+  fora_do_prazo
+  sem_limite_configurado
+  depois_do_inicio
+}
+
+enum NoticeIntent {
+  nao_comparecera
+  atraso
+  pedido_cancelamento
+  pedido_remarcacao
+  indefinida
+}
+
+enum NoticeIntentSource {
+  ia
+  pessoa
+}
+
+enum NoticeChannel {
+  whatsapp
+  painel
+}
+
+enum NoticeReferenceSource {
+  meta_timestamp
+  recebimento_webhook
+  registro_no_painel
+}
+
+enum NoticeRequestedBy {
+  paciente
+  clinica
+  profissional
+}
+
+enum NoticeReviewStatus {
+  pendente
+  revisada
+  sem_revisao_necessaria
+}
+
+enum AppointmentDecisionKind {
+  cobranca_de_falta_confirmada
+  falta_abonada
+  abono_revertido
+}
+
+// Desfecho, 1:1 com a consulta. O retrato (state, scheduled_at e modality no
+// momento do registro) é a chave estrangeira de congelamento: enquanto esta
+// linha existir, o banco recusa mudar esses campos da consulta ou apagá-la,
+// venha a escrita de que versão vier. O papel da aplicação não apaga esta
+// linha nem reescreve o retrato (privilégios na migration).
+model AppointmentOutcomeRecord {
+  appointmentId           String              @id @map("appointment_id")
+  tenantId                String              @map("tenant_id")
+  outcome                 AppointmentOutcome
+  outcomeRecordedAt       DateTime            @default(now()) @map("outcome_recorded_at")
+  outcomeRecordedByUserId String              @map("outcome_recorded_by_user_id")
+  stateAtOutcome          AppointmentState    @map("state_at_outcome")
+  scheduledAtAtOutcome    DateTime            @map("scheduled_at_at_outcome")
+  modalityAtOutcome       String              @map("modality_at_outcome")
+  closingNoticeId         String?             @map("closing_notice_id")
+  closingNoticeTiming     NoticeTiming?       @map("closing_notice_timing")
+  noShowDecision          NoShowDecision?     @map("no_show_decision")
+  noShowDecisionAt        DateTime?           @map("no_show_decision_at")
+  noShowDecisionByUserId  String?             @map("no_show_decision_by_user_id")
+  lateNoticeDecision      LateNoticeDecision? @map("late_notice_decision")
+  lateNoticeDecisionAt    DateTime?           @map("late_notice_decision_at")
+  lateNoticeDecisionByUserId String?          @map("late_notice_decision_by_user_id")
+
+  appointment   Appointment        @relation("AppointmentOutcomeFreeze", fields: [appointmentId, tenantId, stateAtOutcome, scheduledAtAtOutcome, modalityAtOutcome], references: [id, tenantId, state, scheduledAt, modality], onDelete: NoAction, onUpdate: NoAction, map: "appointment_outcome_freeze_fkey")
+  closingNotice AppointmentNotice? @relation(fields: [closingNoticeId, appointmentId, closingNoticeTiming], references: [id, appointmentId, timing], onDelete: NoAction, onUpdate: NoAction, map: "appointment_outcome_closing_notice_fkey")
+  decisions     AppointmentDecision[]
+
+  @@unique([appointmentId, tenantId], map: "appointment_outcome_appointment_id_tenant_id_key")
+  @@map("appointment_outcome")
+}
+
+// Comunicação do paciente sobre uma consulta, somente acréscimo: os horários
+// e a origem nunca são reescritos; só as colunas de revisão mudam. Nesta
+// fase só o painel grava (cancelamento e remarcação); a gravação de cada
+// mensagem do WhatsApp, com o carimbo da Meta, é da fase 5.
+model AppointmentNotice {
+  id                  String                @id @default(uuid())
+  tenantId            String                @map("tenant_id")
+  appointmentId       String                @map("appointment_id")
+  patientId           String                @map("patient_id")
+  channel             NoticeChannel
+  messageId           String?               @unique @map("message_id")
+  providerSentAt      DateTime?             @map("provider_sent_at")
+  receivedAt          DateTime?             @map("received_at")
+  recordedAt          DateTime              @default(now()) @map("recorded_at")
+  referenceTime       DateTime              @map("reference_time")
+  referenceSource     NoticeReferenceSource @map("reference_source")
+  timing              NoticeTiming
+  // Minutos entre o horário de referência e o início previsto: positivo
+  // antes do início, zero ou negativo no início e depois.
+  minutesFromStart    Int                   @map("minutes_from_start")
+  limitHoursApplied   Int?                  @map("limit_hours_applied")
+  intent              NoticeIntent
+  intentSource        NoticeIntentSource    @map("intent_source")
+  ambiguous           Boolean               @default(false)
+  requestedBy         NoticeRequestedBy?    @map("requested_by")
+  arrivedAfterOutcome Boolean               @default(false) @map("arrived_after_outcome")
+  outcomeAtArrival    AppointmentOutcome?   @map("outcome_at_arrival")
+  recordedByUserId    String?               @map("recorded_by_user_id")
+  recordedByActorType ActorType             @map("recorded_by_actor_type")
+  // Motivo livre, fora da auditoria e da IA (ADR-0069, seção 2.10).
+  reason              String?               @db.VarChar(200)
+  reviewStatus        NoticeReviewStatus    @default(pendente) @map("review_status")
+  reviewedByUserId    String?               @map("reviewed_by_user_id")
+  reviewedAt          DateTime?             @map("reviewed_at")
+
+  appointment Appointment                @relation(fields: [appointmentId, tenantId, patientId], references: [id, tenantId, patientId], onDelete: NoAction, onUpdate: NoAction, map: "appointment_notice_appointment_fkey")
+  closes      AppointmentOutcomeRecord[]
+
+  @@unique([id, appointmentId, timing], map: "appointment_notice_closing_key")
+  @@index([tenantId, appointmentId])
+  @@map("appointment_notice")
+}
+
+// Decisões sobre um desfecho (cobrança da falta, abono, reversão do abono),
+// somente acréscimo: o motivo de cada uma fica guardado, inclusive quando
+// um abono é revertido e decidido de novo. O desfecho guarda só o estado
+// atual da decisão.
+model AppointmentDecision {
+  id              String                  @id @default(uuid())
+  tenantId        String                  @map("tenant_id")
+  appointmentId   String                  @map("appointment_id")
+  decision        AppointmentDecisionKind
+  reason          String?                 @db.VarChar(200)
+  decidedAt       DateTime                @default(now()) @map("decided_at")
+  decidedByUserId String                  @map("decided_by_user_id")
+
+  outcome AppointmentOutcomeRecord @relation(fields: [appointmentId, tenantId], references: [appointmentId, tenantId], onDelete: NoAction, onUpdate: NoAction, map: "appointment_decision_outcome_fkey")
+
+  @@index([tenantId, appointmentId])
+  @@map("appointment_decision")
+}
+
 // Alinhado 1:1 com SessionState em domain/session/session.entity.ts.
 // Substituiu SessionStatus (scheduled/completed/no_show — nada a ver com o
 // Domain real: Realizada/Faturada/Recebida) no Módulo 07. Ver ADR-0028.
@@ -552,6 +737,26 @@ enum SessionState {
   Realizada
   Faturada
   Recebida
+}
+
+// K2-b (ADR-0069, seção 3.1). DP-22: os dois tipos de aviso só nascem de
+// cobrança confirmada por pessoa (fora desta fase).
+enum SessionKind {
+  atendimento
+  falta
+  aviso_fora_do_prazo
+  aviso_tardio
+}
+
+enum SessionVoidReason {
+  desfecho_corrigido
+  legado_consulta_cancelada
+  legado_consulta_futura
+}
+
+enum BillingEligibility {
+  elegivel
+  nao_elegivel
 }
 
 model Session {
@@ -567,13 +772,28 @@ model Session {
   state         SessionState  @default(Realizada)
   completedAt   DateTime?     @map("completed_at")
   createdAt     DateTime      @default(now()) @map("created_at")
+  // K2-b (ADR-0069, seções 2.9 e 3.3) — o que esta sessão cobra. Vazio nas
+  // sessões legadas, criadas pela confirmação: nenhuma delas tem desfecho
+  // comprovado (DP-27). Só os casos de uso de desfecho preenchem.
+  kind               SessionKind?
+  voidedAt           DateTime?          @map("voided_at")
+  voidReason         SessionVoidReason? @map("void_reason")
+  voidedByUserId     String?            @map("voided_by_user_id")
+  // Elegível só com kind preenchido e sem anulação (CHECK na migration). Toda
+  // sessão que já existia, e toda sessão criada por uma versão que não
+  // conhece a coluna, nasce não elegível.
+  billingEligibility BillingEligibility @default(nao_elegivel) @map("billing_eligibility")
 
   billingSessions          BillingSession[] @relation("BillingSessionSession")
   // K2-a (ADR-0069, seção 3.7) — alvo da chave composta do vínculo: a sessão
   // vinculada é do mesmo paciente e da mesma clínica do vínculo.
   billingSessionsOfPatient BillingSession[] @relation("BillingSessionSessionOfPatient")
+  // K2-b — alvo da chave composta de elegibilidade: o vínculo novo só aponta
+  // para sessão elegível, e uma sessão vinculada não deixa de ser elegível.
+  billingSessionsEligible  BillingSession[] @relation("BillingSessionEligibleSession")
 
   @@unique([id, tenantId, patientId], map: "session_id_tenant_id_patient_id_key")
+  @@unique([id, tenantId, patientId, billingEligibility], map: "session_eligibility_key")
   @@index([tenantId, patientId])
   @@map("session")
 }
@@ -667,6 +887,14 @@ model BillingSession {
   legacyLink       Boolean  @default(false) @map("legacy_link") @ignore // @ignore: ver Billing.legacyBilling
   billingOfPatient Billing? @relation("BillingSessionBillingOfPatient", fields: [billingId, tenantId, patientId], references: [id, tenantId, patientId], onDelete: NoAction, onUpdate: NoAction, map: "billing_session_billing_patient_fkey")
   sessionOfPatient Session? @relation("BillingSessionSessionOfPatient", fields: [sessionId, tenantId, patientId], references: [id, tenantId, patientId], onDelete: NoAction, onUpdate: NoAction, map: "billing_session_session_patient_fkey")
+  // K2-b (ADR-0069, seção 3.7) — elegibilidade exigida da sessão. Sempre
+  // 'elegivel' num vínculo novo (CHECK); nula só nos vínculos que já existiam
+  // antes da K2-b (legacy_eligibility_link), cuja sessão o banco não
+  // conferiu. Uma versão que não conhece a coluna recebe o padrão e passa
+  // pela mesma chave.
+  requiredEligibility   BillingEligibility? @default(elegivel) @map("required_eligibility")
+  legacyEligibilityLink Boolean             @default(false) @map("legacy_eligibility_link") @ignore // @ignore: ver Billing.legacyBilling
+  sessionEligible       Session?            @relation("BillingSessionEligibleSession", fields: [sessionId, tenantId, patientId, requiredEligibility], references: [id, tenantId, patientId, billingEligibility], onDelete: NoAction, onUpdate: NoAction, map: "billing_session_session_eligibility_fkey")
 
   @@map("billing_session")
 }

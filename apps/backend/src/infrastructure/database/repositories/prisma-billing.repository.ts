@@ -5,6 +5,7 @@ import { AWAITING_PAYMENT_STATES, Billing, BillingState, overdueDueDateLimit } f
 import { BILLING_ELIGIBILITY_PROTOCOL, BillingRepository } from '@domain-services/financial/billing.repository';
 
 const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
+const FOREIGN_KEY_VIOLATION = 'P2003';
 
 /**
  * Mapeamento de case entre o Domain (PascalCase: 'Criada') e o banco
@@ -106,6 +107,16 @@ export class PrismaBillingRepository implements BillingRepository {
         throw new ConflictException({
           code: 'SESSION_ALREADY_BILLED',
           message: 'Uma ou mais sessões já estão vinculadas a outra cobrança em aberto.',
+          category: 'business_rule',
+        });
+      }
+      // K2-b — a última barreira: as chaves compostas do vínculo recusaram a
+      // sessão (inelegível, de outro paciente ou de outra clínica). O caso
+      // de uso confere antes; isto só aparece numa corrida. Nada foi gravado.
+      if ((err as Prisma.PrismaClientKnownRequestError)?.code === FOREIGN_KEY_VIOLATION) {
+        throw new ConflictException({
+          code: 'SESSION_NOT_BILLABLE',
+          message: 'O banco recusou o vínculo: uma ou mais sessões não podem ser cobradas.',
           category: 'business_rule',
         });
       }

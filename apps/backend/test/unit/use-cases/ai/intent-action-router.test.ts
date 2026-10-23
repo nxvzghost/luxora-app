@@ -63,7 +63,8 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
       { tenantId: 'tenant1', patientId: 'p1' },
     );
     expect(result.actionTaken).toBe(true);
-    expect(cancelarConsulta.execute).toHaveBeenCalledWith('a1', { expectedPatientId: 'p1' });
+    // K2-b — a ação é marcada como da IA: sem comunicação nem desfecho registrados por ela (K11, fase 5).
+    expect(cancelarConsulta.execute).toHaveBeenCalledWith('a1', {}, { expectedPatientId: 'p1', actor: 'ai_agent' });
   });
 
   it('cancelar_consulta SEM appointmentId nunca executa (nunca "adivinha" qual consulta)', async () => {
@@ -123,13 +124,15 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
 
   it('AD-010: remarcar_consulta com appointmentId e newScheduledAt executa', async () => {
     const { router, remarcarConsulta } = makeRouter();
-    remarcarConsulta.execute.mockResolvedValue({ scheduledAt: new Date('2026-08-02T10:00:00') });
+    // K2-b — a remarcação devolve a ocorrência anterior e a nova; o horário dito ao paciente é o da nova.
+    remarcarConsulta.execute.mockResolvedValue({ previous: { scheduledAt: new Date('2026-08-01T10:00:00') }, current: { scheduledAt: new Date('2026-08-02T10:00:00') } });
     const result = await router.route(
       { intent: 'remarcar_consulta', confidence: 0.9, entities: { appointmentId: 'a1', newScheduledAt: '2026-08-02T10:00:00' }, requiresEscalation: false },
       { tenantId: 'tenant1', patientId: 'p1' },
     );
     expect(result.actionTaken).toBe(true);
-    expect(remarcarConsulta.execute).toHaveBeenCalledWith('a1', new Date('2026-08-02T10:00:00'), { expectedPatientId: 'p1' });
+    expect(remarcarConsulta.execute).toHaveBeenCalledWith('a1', new Date('2026-08-02T10:00:00'), {}, { expectedPatientId: 'p1', actor: 'ai_agent' });
+    expect(result.actionSummary).toContain(new Date('2026-08-02T10:00:00').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
   });
 
   it('AD-010: remarcar_consulta com horário indisponível (SlotNotAvailableError) nunca é mascarado como sucesso', async () => {
@@ -249,7 +252,20 @@ describe('IntentActionRouter — identidade antes da ação (ADR-0063, AD-038)',
       { tenantId: 'tenant1', patientId: 'p1', identityResolved: true },
     );
 
-    expect(confirmarConsulta.execute).toHaveBeenCalledWith('a1', { expectedPatientId: 'p1' });
+    expect(confirmarConsulta.execute).toHaveBeenCalledWith('a1', { expectedPatientId: 'p1', actor: 'ai_agent' });
+  });
+
+  it('K2-b — a recusa do caso de uso depois do início (APPOINTMENT_ALREADY_STARTED) vira "nenhuma ação", nunca sucesso', async () => {
+    const { router, cancelarConsulta } = makeRouter();
+    cancelarConsulta.execute.mockRejectedValue(new Error('A consulta já começou: não pode mais ser cancelada, remarcada nem confirmada.'));
+
+    const result = await router.route(
+      { intent: 'cancelar_consulta', confidence: 0.9, entities: { appointmentId: 'a1' }, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1', identityResolved: true },
+    );
+
+    expect(result.actionTaken).toBe(false);
+    expect(result.actionSummary).toBeUndefined();
   });
 
   it('consulta de outro paciente (o Caso de Uso recusa como inexistente): nenhuma ação, nunca sucesso', async () => {

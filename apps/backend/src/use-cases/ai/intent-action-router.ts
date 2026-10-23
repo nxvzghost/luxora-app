@@ -152,11 +152,17 @@ export class IntentActionRouter {
   // Nas três rotas de consulta abaixo, `expectedPatientId` faz o próprio Caso
   // de Uso recusar (como "não encontrado") a consulta que não é do paciente
   // da conversa — antes de qualquer mudança de estado.
+  //
+  // K2-b (ADR-0069) — `actor: 'ai_agent'`: a IA confirma, cancela e remarca
+  // só antes do início previsto e só consulta sem desfecho (os casos de uso
+  // recusam o resto, e a recusa vira "nenhuma ação"). Ela não registra
+  // comunicação nem desfecho: isso depende da confirmação explícita do
+  // paciente (K11), que é da fase 5.
   private async routeCancelarConsulta(intent: IntentResult, patientId: string): Promise<IntentActionResult> {
     const { appointmentId } = intent.entities as { appointmentId?: string };
     if (!appointmentId) return { actionTaken: false };
 
-    await this.cancelarConsulta.execute(appointmentId, { expectedPatientId: patientId });
+    await this.cancelarConsulta.execute(appointmentId, {}, { expectedPatientId: patientId, actor: 'ai_agent' });
     return { actionTaken: true, actionSummary: 'Consulta cancelada.' };
   }
 
@@ -164,7 +170,7 @@ export class IntentActionRouter {
     const { appointmentId } = intent.entities as { appointmentId?: string };
     if (!appointmentId) return { actionTaken: false };
 
-    await this.confirmarConsulta.execute(appointmentId, { expectedPatientId: patientId });
+    await this.confirmarConsulta.execute(appointmentId, { expectedPatientId: patientId, actor: 'ai_agent' });
     return { actionTaken: true, actionSummary: 'Presença confirmada.' };
   }
 
@@ -186,12 +192,14 @@ export class IntentActionRouter {
     const { appointmentId, newScheduledAt } = intent.entities as { appointmentId?: string; newScheduledAt?: string };
     if (!appointmentId || !newScheduledAt) return { actionTaken: false };
 
-    const appointment = await this.remarcarConsulta.execute(appointmentId, new Date(newScheduledAt), {
+    // K2-b — a remarcação cria uma ocorrência nova; o horário dito ao paciente é o dela.
+    const { current } = await this.remarcarConsulta.execute(appointmentId, new Date(newScheduledAt), {}, {
       expectedPatientId: patientId,
+      actor: 'ai_agent',
     });
     return {
       actionTaken: true,
-      actionSummary: `Consulta reagendada para ${await this.inClinicTime(appointment.scheduledAt)}.`,
+      actionSummary: `Consulta reagendada para ${await this.inClinicTime(current.scheduledAt)}.`,
     };
   }
 

@@ -80,7 +80,7 @@ test.describe('Consulta', () => {
     await expect(booking.locator('#slot-time option', { hasText: slotLabel })).toHaveCount(0);
   });
 
-  test('remarca para outro horário e a consulta volta a pedir confirmação', async ({ page, clinicWithHours: clinic }) => {
+  test('remarca para outro horário: a ocorrência nova pede confirmação', async ({ page, clinicWithHours: clinic }) => {
     const [ana] = clinic.patients;
     await signIn(page, clinic.admin);
     const { slotLabel } = await bookAppointment(page, clinic, ana.name, TOMORROW);
@@ -95,10 +95,15 @@ test.describe('Consulta', () => {
     await expect(slot.locator('option', { hasText: slotLabel })).toHaveCount(0);
     const newLabel = (await slot.locator('option').nth(1).textContent()) ?? '';
     await slot.selectOption({ index: 1 });
+    // K2-b (DP-25) — quem pediu é obrigatório.
+    await dialog.locator('#reschedule-requested-by').selectOption('paciente');
     await dialog.getByRole('button', { name: 'Remarcar' }).click();
 
+    // K2-b — a remarcação cria uma ocorrência nova, Reservada, ligada à anterior; a anterior sai da agenda.
     await expect(page.getByRole('status')).toContainText(`Consulta de ${ana.name} remarcada`);
-    await expect(row).toContainText('Reagendado');
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText('Reservado');
+    await expect(row).toContainText('remarcada');
     await expect(row).toContainText(newLabel.slice(0, 5)); // hora de início do novo horário
     await expect(row.getByRole('button', { name: 'Confirmar' })).toBeVisible();
   });
@@ -116,7 +121,10 @@ test.describe('Consulta', () => {
     await expect(row).toContainText('Reservado');
 
     await row.getByRole('button', { name: 'Cancelar' }).click();
-    await page.getByRole('dialog', { name: 'Cancelar esta consulta?' }).getByRole('button', { name: 'Cancelar consulta' }).click();
+    const confirmCancel = page.getByRole('dialog', { name: 'Cancelar esta consulta?' });
+    // K2-b (DP-25) — quem pediu é obrigatório.
+    await confirmCancel.locator('#cancel-requested-by').selectOption('paciente');
+    await confirmCancel.getByRole('button', { name: 'Cancelar consulta' }).click();
 
     await expect(page.getByRole('status')).toContainText(`Consulta de ${ana.name} cancelada`);
     await expect(row).toHaveCount(0);

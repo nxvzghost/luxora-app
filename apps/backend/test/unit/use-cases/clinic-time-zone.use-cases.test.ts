@@ -106,7 +106,10 @@ describe('"amanhã" e os horários do resumo de agenda são os da clínica', () 
 describe('o que a secretária escreve ao paciente está na hora da clínica', () => {
   function routerIn(timeZone: string) {
     const agendarConsulta = { execute: vi.fn().mockResolvedValue({ scheduledAt: new Date('2026-08-03T12:00:00Z') }) };
-    const remarcarConsulta = { execute: vi.fn().mockResolvedValue({ scheduledAt: new Date('2026-08-04T17:30:00Z') }) };
+    // K2-b — a remarcação devolve a ocorrência anterior e a nova (o horário anunciado é o da nova).
+    const remarcarConsulta = {
+      execute: vi.fn().mockResolvedValue({ previous: { scheduledAt: new Date('2026-08-03T12:00:00Z') }, current: { scheduledAt: new Date('2026-08-04T17:30:00Z') } }),
+    };
     const consultarDisponibilidade = {
       execute: vi.fn().mockResolvedValue([
         { startsAt: new Date('2026-08-03T12:00:00Z'), endsAt: new Date('2026-08-03T13:00:00Z') },

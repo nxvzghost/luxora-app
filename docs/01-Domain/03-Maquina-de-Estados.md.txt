@@ -43,6 +43,12 @@ Estados possíveis:
 * Faturada
 * Recebida
 
+K2-b (23/10/2026, ADR-0069, seções 2.4 e 2.5 — a ADR continua em revisão):
+
+* O Agendamento (`appointment.state`) não ganhou estado novo. "Reagendamento Solicitado" e "Reagendada" só existem em consultas legadas: a remarcação cria uma ocorrência nova, ligada à anterior, e a anterior vai a "Cancelada".
+* Confirmar não cria Sessão. O que aconteceu depois do horário é um **desfecho**, registrado por pessoa no início previsto ou depois, numa estrutura própria (`appointment_outcome`): Realizada, Falta (aguardando decisão ou com cobrança confirmada), Falta Abonada, Remarcada, Cancelada (e Aviso Tardio, ainda sem fluxo). Com desfecho, a consulta fica congelada.
+* A Sessão é o item faturável do desfecho: nasce (ou a sessão legada é reaproveitada) na realização ou na cobrança confirmada da falta, e só ela pode ser cobrada. "Realizada" continua sendo o nome do estado inicial da Sessão ("a faturar"); o que ela cobra está em `kind` (atendimento ou falta).
+
 ---
 
 # Horário

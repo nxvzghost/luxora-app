@@ -34,6 +34,8 @@ function makeUseCase(
   const availabilityRepo = { findByTherapistId: vi.fn().mockResolvedValue(calendar), save: vi.fn() };
   const appointmentRepo = {
     findById: vi.fn(),
+    findByIdForUpdate: vi.fn(),
+    findSuccessorId: vi.fn(),
     findActiveByTherapistAndRange: vi.fn().mockResolvedValue(appointments),
     save: vi.fn(),
     saveMany: vi.fn(),

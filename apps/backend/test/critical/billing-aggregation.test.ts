@@ -3,16 +3,17 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { bootstrapTestApp } from './support/bootstrap-app';
-import { uniqueSlot } from './support/unique-slot';
+import { uniquePastSlot } from './support/unique-slot';
+import { attendedSession } from './support/attended-session';
 import { createDedicatedFixture, createDedicatedUserAndLogin, cleanupDedicatedFixture, DedicatedFixture } from './support/dedicated-fixture';
 
 /**
  * [CRÍTICO #4-7] Modelo de Cobrança Agregada — Módulo 09.
  * Fonte: docs/09-Testes/01-Testes-Criticos.md.
  *
- * Depende de ConfirmarConsultaUseCase criar a Sessão real — sem isso,
- * nenhum destes cenários é alcançável pela API real (billing_session.session_id
- * é FK para session.id).
+ * Depende de uma Sessão real (billing_session.session_id é FK para
+ * session.id). K2-b: ela nasce do registro da realização
+ * (RegistrarRealizacaoUseCase), não mais da confirmação.
  *
  * Infraestrutura de teste (Etapa 1 da correção de estabilidade da Suíte
  * Crítica): Tenant/Terapeuta/Paciente dedicados, não mais o Tenant A
@@ -23,22 +24,16 @@ let app: INestApplication;
 let fixturePrisma: PrismaClient;
 let fixture: DedicatedFixture;
 
-async function createConfirmedSession(scheduledAt: string = uniqueSlot()): Promise<string> {
-  const apptRes = await request(app.getHttpServer())
-    .post('/api/v1/appointments')
-    .set('Authorization', `Bearer ${fixture.token}`)
-    .send({ patientId: fixture.patientId, therapistId: fixture.therapistId, scheduledAt, modality: 'presencial' });
-  expect(apptRes.status).toBe(201);
-  fixture.appointmentIds.push(apptRes.body.id);
-
-  const confirmRes = await request(app.getHttpServer())
-    .post(`/api/v1/appointments/${apptRes.body.id}/confirm`)
-    .set('Authorization', `Bearer ${fixture.token}`);
-  expect(confirmRes.status).toBe(201);
-
-  const session = await fixturePrisma.session.findUniqueOrThrow({ where: { appointmentId: apptRes.body.id } });
-  fixture.sessionIds.push(session.id);
-  return session.id;
+/** K2-b — sessão a cobrar: consulta que já aconteceu, com a realização registrada (confirmar não cria sessão). */
+async function createConfirmedSession(scheduledAt: string = uniquePastSlot()): Promise<string> {
+  const { appointmentId, sessionId } = await attendedSession(app, fixture.token as string, {
+    patientId: fixture.patientId,
+    therapistId: fixture.therapistId,
+    scheduledAt,
+  });
+  fixture.appointmentIds.push(appointmentId);
+  fixture.sessionIds.push(sessionId);
+  return sessionId;
 }
 
 describe('[CRÍTICO #4] Cobrança por sessão avulsa: 1 session gera exatamente 1 billing (N=1)', () => {

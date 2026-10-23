@@ -69,23 +69,22 @@ if [ "$RESTORED_TABLES" -gt 0 ]; then
   [ "$RESTORED_MIGRATIONS" -gt 0 ] || PROBLEMS="$PROBLEMS sem-histórico-de-migrations"
 fi
 
-# K2-a — exigência de versão e proteções da cobrança no banco restaurado.
+# K2-a e K2-b — exigência de versão e proteções da cobrança e do desfecho da
+# consulta no banco restaurado.
 K2A="exigência=nenhuma"
 if ! RESTORED_REQUIRED="$(db_required_capabilities "$SCRATCH")"; then
   PROBLEMS="$PROBLEMS exigências-ilegíveis"
 else
   [ -z "$RESTORED_REQUIRED" ] || K2A="exigência=${RESTORED_REQUIRED// /,}"
-  case " $RESTORED_REQUIRED " in
-    *" billing-eligibility-v1 "*)
-      if ! RESTORED_MISSING="$(db_missing_protections "$SCRATCH")"; then
-        PROBLEMS="$PROBLEMS proteções-do-K2-a-ilegíveis"
-      elif [ -n "$RESTORED_MISSING" ]; then
-        PROBLEMS="$PROBLEMS proteções-do-K2-a-ausentes:${RESTORED_MISSING// /,}"
-      else
-        K2A="$K2A proteções=ok"
-      fi
-      ;;
-  esac
+  if [ -n "$RESTORED_REQUIRED" ]; then
+    if ! RESTORED_MISSING="$(db_missing_required_protections "$RESTORED_REQUIRED" "$SCRATCH")"; then
+      PROBLEMS="$PROBLEMS proteções-ilegíveis"
+    elif [ -n "$RESTORED_MISSING" ]; then
+      PROBLEMS="$PROBLEMS proteções-ausentes:${RESTORED_MISSING// /,}"
+    else
+      K2A="$K2A proteções=ok"
+    fi
+  fi
   # shellcheck disable=SC2046  # lista separada por espaço
   OLDER="$(missing_from "$RESTORED_REQUIRED" $(state_get requirement-active))"
   if [ -n "$OLDER" ]; then
@@ -93,7 +92,7 @@ else
     log "  AVISO: backup anterior à exigência '$OLDER' deste ambiente — restaurado de verdade, pede deploy.sh antes de subir a aplicação (rollback.sh recusa)"
   fi
 fi
-log "  K2-a: $K2A"
+log "  K2: $K2A"
 
 ELAPSED=$(( $(date +%s) - START ))
 if [ -n "$PROBLEMS" ]; then

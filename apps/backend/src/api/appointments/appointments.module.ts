@@ -9,8 +9,25 @@ import {
   CancelarConsultaUseCase,
   ConfirmarConsultaUseCase,
 } from '@use-cases/appointment/gerenciar-consulta.use-case';
+import {
+  AbonarFaltaUseCase,
+  ConfirmarCobrancaDeFaltaUseCase,
+  RegistrarFaltaUseCase,
+  RegistrarRealizacaoUseCase,
+  ReverterAbonoUseCase,
+} from '@use-cases/appointment/desfecho-consulta.use-case';
 import { CriarAgendamentoRecorrenteUseCase } from '@use-cases/appointment/criar-agendamento-recorrente.use-case';
 import { ListarAgendamentosUseCase } from '@use-cases/appointment/listar-agendamentos.use-case';
+import { APPOINTMENT_OUTCOME_REPOSITORY } from '@domain-services/patient-ops/appointment-outcome.repository';
+import { APPOINTMENT_NOTICE_REPOSITORY } from '@domain-services/patient-ops/appointment-notice.repository';
+import { CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
+import { UNIT_OF_WORK } from '@domain-services/platform/unit-of-work';
+import { CLOCK } from '@domain-services/platform/clock';
+import { PrismaAppointmentOutcomeRepository } from '@infrastructure/database/repositories/prisma-appointment-outcome.repository';
+import { PrismaAppointmentNoticeRepository } from '@infrastructure/database/repositories/prisma-appointment-notice.repository';
+import { PrismaClinicRepository } from '@infrastructure/database/repositories/prisma-clinic.repository';
+import { PrismaUnitOfWork } from '@infrastructure/database/prisma-unit-of-work';
+import { SystemClock } from '@infrastructure/clock/system-clock';
 import { VerificarDisponibilidadeUseCase } from '@use-cases/availability/verificar-disponibilidade.use-case';
 import { MaterializarRecurringBlockUseCase } from '@use-cases/availability/materializar-recurring-block.use-case';
 import { CriarRecurringBlockUseCase, ListarRecurringBlocksUseCase } from '@use-cases/availability/gerenciar-recurring-block.use-case';
@@ -52,6 +69,17 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     ConfirmarConsultaUseCase,
     CriarAgendamentoRecorrenteUseCase,
     ListarAgendamentosUseCase,
+    // K2-b (ADR-0069) — desfechos e decisões sobre a falta.
+    RegistrarRealizacaoUseCase,
+    RegistrarFaltaUseCase,
+    ConfirmarCobrancaDeFaltaUseCase,
+    AbonarFaltaUseCase,
+    ReverterAbonoUseCase,
+    { provide: APPOINTMENT_OUTCOME_REPOSITORY, useClass: PrismaAppointmentOutcomeRepository },
+    { provide: APPOINTMENT_NOTICE_REPOSITORY, useClass: PrismaAppointmentNoticeRepository },
+    { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
+    { provide: UNIT_OF_WORK, useClass: PrismaUnitOfWork },
+    { provide: CLOCK, useClass: SystemClock },
     MaterializarRecurringBlockUseCase,
     CriarRecurringBlockUseCase,
     ListarRecurringBlocksUseCase,

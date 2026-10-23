@@ -1,5 +1,5 @@
 import { test as base, expect, type Page } from '@playwright/test';
-import { createClinic, removeClinic, type TestClinic, type TestUser } from './database';
+import { createClinic, createStartedAppointment, removeClinic, type TestClinic, type TestUser } from './database';
 
 /**
  * Fixtures dos testes de ponta a ponta.
@@ -97,12 +97,58 @@ export function appointmentRow(page: Page, patientName: string) {
   return page.getByRole('listitem').filter({ hasText: patientName });
 }
 
-/** Marca e confirma: é a confirmação que gera a sessão a cobrar. */
-export async function bookAndConfirm(page: Page, clinic: TestClinic, patientName: string, day: string): Promise<void> {
-  await bookAppointment(page, clinic, patientName, day);
-  await appointmentRow(page, patientName).getByRole('button', { name: 'Confirmar' }).click();
-  await expect(page.getByRole('status')).toContainText(`Consulta de ${patientName} confirmada`);
-  await expect(appointmentRow(page, patientName)).toContainText('Confirmado');
+/**
+ * K2-b (ADR-0069) — uma consulta confirmada que já começou, e o atendimento
+ * registrado pela Agenda: é isso que gera a sessão a cobrar (confirmar não
+ * gera). A consulta é preparada no banco (a tela não marca no passado); se
+ * ela caiu no dia anterior da clínica, a semana anterior é aberta.
+ */
+export async function recordAttendance(page: Page, clinic: TestClinic, patientName: string, minutesAgo = 60): Promise<void> {
+  await recordOutcome(page, clinic, patientName, minutesAgo, 'Registrar atendimento', 'atendimento registrado', 'Atendimento realizado');
+}
+
+/** K2-b — o mesmo, registrando a falta (fica aguardando decisão; nada a cobrar ainda). */
+export async function recordNoShow(page: Page, clinic: TestClinic, patientName: string, minutesAgo = 90): Promise<void> {
+  await recordOutcome(page, clinic, patientName, minutesAgo, 'Registrar falta', 'falta registrada', 'Falta · aguardando decisão');
+}
+
+/** As consultas preparadas por createStartedAppointment() começaram há pouco; à meia-noite, caem no dia anterior. */
+const startedAppointmentDays = new Map<string, string>();
+
+/** Na Agenda já aberta, mostra a semana em que está a consulta preparada do paciente. */
+export async function openAgendaDayOf(page: Page, patientName: string): Promise<void> {
+  const day = startedAppointmentDays.get(patientName);
+  if (day && day !== clinicDate(0)) {
+    await page.getByRole('button', { name: 'Semana anterior' }).click();
+  }
+}
+
+async function recordOutcome(
+  page: Page,
+  clinic: TestClinic,
+  patientName: string,
+  minutesAgo: number,
+  button: string,
+  success: string,
+  label: string,
+): Promise<void> {
+  const patient = clinic.patients.find((candidate) => candidate.name === patientName);
+  if (!patient) throw new Error(`paciente ${patientName} não é da clínica do teste`);
+  const { scheduledAt } = await createStartedAppointment(clinic, patient.id, minutesAgo);
+  startedAppointmentDays.set(patientName, clinicDayOf(scheduledAt));
+  await openMenu(page, 'Agenda');
+  // A consulta foi criada no banco depois que a lista pode ter sido carregada (o painel guarda em cache).
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name: 'Agenda' })).toBeVisible();
+  await openAgendaDayOf(page, patientName);
+  const row = appointmentRow(page, patientName);
+  await row.getByRole('button', { name: button }).click();
+  await expect(page.getByRole('status')).toContainText(`Consulta de ${patientName}: ${success}`);
+  await expect(row).toContainText(label);
+}
+
+function clinicDayOf(instant: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(instant);
 }
 
 /** Cria, pela tela do Financeiro, a cobrança da única sessão a cobrar do paciente. */

@@ -18,17 +18,26 @@ const SUMMARY: SessionSummary = {
   therapistId: 'therapist-1',
   state: 'Realizada',
   scheduledAt: new Date('2026-10-12T14:00:00.000Z'),
+  kind: 'atendimento',
+  billingEligibility: 'elegivel',
+  voidedAt: null,
 };
 
 describe('ListarSessoesUseCase', () => {
-  it('repassa o filtro ao repositório e devolve o que ele encontrou', async () => {
+  it('state=Realizada ("a faturar") pede ao repositório só as que podem ser cobradas (K2-b)', async () => {
     const findSummaries = vi.fn().mockResolvedValue([SUMMARY]);
     const useCase = new ListarSessoesUseCase({ findSummaries } as unknown as SessionRepository);
 
     const result = await useCase.execute({ state: 'Realizada', patientId: 'patient-1', limit: 50 });
 
     expect(result).toEqual([SUMMARY]);
-    expect(findSummaries).toHaveBeenCalledWith({ state: 'Realizada', patientId: 'patient-1', limit: 50 });
+    expect(findSummaries).toHaveBeenCalledWith({ state: 'Realizada', patientId: 'patient-1', limit: 50, billableOnly: true });
+  });
+
+  it('outros estados: repassa o filtro como veio', async () => {
+    const findSummaries = vi.fn().mockResolvedValue([]);
+    await new ListarSessoesUseCase({ findSummaries } as unknown as SessionRepository).execute({ state: 'Faturada' });
+    expect(findSummaries).toHaveBeenCalledWith({ state: 'Faturada' });
   });
 
   it('sem filtro, lista tudo o que a clínica tem', async () => {

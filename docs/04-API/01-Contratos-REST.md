@@ -130,6 +130,27 @@ Ver `01-Domain/05-Linguagem-Ubiqua.md` para a distinção entre `appointment` (r
 - `POST /appointments`, `POST /appointments/recurring` e a criação de horário fixo respondem **404** (`Paciente não encontrado.` / `Terapeuta não encontrado.`) quando o id informado não existe **ou é de outra clínica**. Antes, o id de um paciente de outra clínica era aceito (201) e um id inexistente respondia 500.
 - `GET /appointments` e `GET /therapists/{id}/availability` exigem `from` e `to` como datas válidas; ausentes ou inválidos respondem **400** (antes, 500).
 
+**K2-b — desfecho da consulta (23/10/2026, [ADR-0069](../02-Arquitetura/ADRs/ADR-0069-ciclo-de-vida-da-consulta.md), seções 2.4 a 2.9 e 7; a ADR continua em revisão):**
+
+| Método | Rota | Caso de Uso | Papéis |
+|---|---|---|---|
+| POST | `/api/v1/appointments/{id}/attended` | RegistrarRealizacao (T6) | `admin`, `therapist` |
+| POST | `/api/v1/appointments/{id}/no-show` | RegistrarFalta (T7) | `admin`, `therapist` |
+| POST | `/api/v1/appointments/{id}/no-show/charge` | ConfirmarCobrancaDeFalta (T8) | `admin` |
+| POST | `/api/v1/appointments/{id}/no-show/excuse` | AbonarFalta (T9) | `admin` (o `super_admin` é recusado, DP-23) |
+| POST | `/api/v1/appointments/{id}/no-show/excuse/revert` | ReverterAbono (T9b) | `admin` |
+
+- **Toda consulta devolvida** (lista, criação, ações) ganhou `modality`, `rescheduledFromId` (a ocorrência anterior, quando esta nasceu de uma remarcação; senão `null`) e `outcome`: `null` sem desfecho, ou `{ outcome, recordedAt, noShowDecision, lateNoticeDecision, noticeTiming }`. `outcome` é `Realizada`, `Falta`, `FaltaAbonada`, `Remarcada` ou `Cancelada` (`AvisoTardio` existe no banco, mas nenhuma rota o grava nesta fase). `state` continua sendo o estado de agenda, sem valores novos.
+- **`POST /confirm` não cria mais sessão** e só é aceito antes do início previsto: no instante do início ou depois, **409** `APPOINTMENT_ALREADY_STARTED`. Consulta com desfecho: **409** `APPOINTMENT_OUTCOME_CONFLICT`. Confirmar de novo uma consulta já confirmada: **409** `INVALID_STATE_TRANSITION` (antes, 500).
+- **`POST /cancel` tem corpo:** `requestedBy` obrigatório (`paciente`, `clinica` ou `profissional`; sem ele, **400**) e `reason` opcional (até 200 caracteres, fora da auditoria). Só antes do início (**409** `APPOINTMENT_ALREADY_STARTED`). Grava a comunicação (canal `painel`, classificada pelo limite de cancelamento da clínica: `no_prazo`, `fora_do_prazo` ou `sem_limite_configurado`) e o desfecho `Cancelada`, que congela a consulta. Fora do prazo, pedido pelo paciente, a decisão de consequência fica `aguardando_decisao` (DP-22; a decisão em si é de outra fase); pedido da clínica ou do profissional não abre decisão (DP-25). Repetir o cancelamento responde **200**, sem efeito; cancelar uma consulta remarcada responde **409** `APPOINTMENT_ALREADY_RESCHEDULED`.
+- **`PATCH /reschedule` cria uma ocorrência nova:** corpo `newScheduledAt`, `requestedBy` (obrigatório) e `reason` (opcional). A ocorrência atual vai a `Cancelada` com o desfecho `Remarcada` e o horário original; a nova nasce `Reservada`, com `rescheduledFromId` apontando para a anterior. Resposta **200** `{ previous, current }` (antes, a mesma consulta, com o horário trocado e o estado `Reagendada`). **O id muda.** Remarcar de novo a ocorrência antiga: **409** `APPOINTMENT_ALREADY_RESCHEDULED`. Só antes do início. `SESSION_CONFLICT` e `SLOT_NOT_AVAILABLE` como antes.
+- **`POST /attended`** (depois do início, numa consulta `Reservada`, `Confirmada` ou `Reagendada`): grava o desfecho `Realizada` e cria o item faturável `atendimento`, elegível — ou reaproveita a sessão que já existia para a consulta (a sessão legada, criada pela confirmação antes da K2-b, inclusive), nunca cria uma segunda. Sessão já cobrada não é tocada. Resposta com `session: { id, state, kind, billingEligibility }`.
+- **`POST /no-show`** (depois do início): desfecho `Falta`, `noShowDecision: aguardando_decisao`; nenhum item faturável.
+- **`POST /no-show/charge`:** a cobrança da falta fica confirmada e o item `falta` nasce (ou a sessão legada é reaproveitada) elegível; resposta com `session`. Com a consulta já tendo uma sessão cobrada: **409** `SESSION_ALREADY_BILLED`. Falta abonada: **409** `NO_SHOW_DECISION_CLOSED`.
+- **`POST /no-show/excuse`** e **`/no-show/excuse/revert`:** corpo `reason` (obrigatório; vazio, **400** `REASON_REQUIRED`). O abono leva a `FaltaAbonada`; a reversão volta a `Falta` aguardando decisão, sem cobrar (DP-24a). Abonar com a cobrança confirmada: **409** `NO_SHOW_DECISION_CLOSED`. O motivo fica no histórico de decisões (`appointment_decision`), não na auditoria.
+- **Erros comuns das rotas de desfecho:** antes do início, **409** `APPOINTMENT_NOT_STARTED`; desfecho diferente já registrado, ou consulta cancelada, **409** `APPOINTMENT_OUTCOME_CONFLICT`; sem usuário autenticado (chave de API), **403** `HUMAN_ACTOR_REQUIRED`; consulta inexistente ou de outra clínica, **404**. Repetir a mesma ação responde **200** sem evento novo; a primeira vez, **201**.
+- **Pelo WhatsApp** a IA continua confirmando, cancelando e remarcando só antes do início, sem registrar comunicação nem desfecho: a confirmação explícita do paciente (K11) é da fase 5. Depois do início, a ação é recusada e a conversa segue sem ação.
+
 ---
 
 # Sessões (`/api/v1/sessions`)
@@ -140,7 +161,9 @@ Ver `01-Domain/05-Linguagem-Ubiqua.md` para a distinção entre `appointment` (r
 | GET | `/api/v1/sessions/{id}` | ConsultarSessao | — |
 | POST | `/api/v1/sessions/{id}/complete` | RegistrarSessaoRealizada | JP-006 — Sessão |
 
-**Estado em 08/10/2026:** das três, só `GET /sessions` existe no código, implementada na Tarefa 05 da auditoria (só leitura; qualquer usuário autenticado da clínica, com assinatura ativa). Filtros opcionais: `state` (`Realizada`, `Faturada` ou `Recebida`), `patientId` e `limit` (1 a 200, padrão 200); valor inválido responde 400. Cada item traz `id`, `appointmentId`, `patientId`, `therapistId`, `state` e `scheduledAt` (a data da consulta de origem). `state=Realizada` devolve as sessões ainda não cobradas — é de onde o painel monta uma cobrança nova. A sessão continua nascendo da confirmação da consulta, não de `POST /sessions/{id}/complete`.
+**Estado em 08/10/2026:** das três, só `GET /sessions` existe no código, implementada na Tarefa 05 da auditoria (só leitura; qualquer usuário autenticado da clínica, com assinatura ativa). Filtros opcionais: `state` (`Realizada`, `Faturada` ou `Recebida`), `patientId` e `limit` (1 a 200, padrão 200); valor inválido responde 400. Cada item traz `id`, `appointmentId`, `patientId`, `therapistId`, `state` e `scheduledAt` (a data da consulta de origem). `state=Realizada` devolve as sessões ainda não cobradas — é de onde o painel monta uma cobrança nova.
+
+**K2-b (23/10/2026):** a sessão nasce do desfecho registrado por pessoa (`POST /appointments/{id}/attended` ou `/no-show/charge`), não mais da confirmação, nem de `POST /sessions/{id}/complete`. Cada item ganhou `kind` (`atendimento`, `falta`, ou `null` na sessão legada), `billingEligibility` (`elegivel`, `nao_elegivel`) e `voidedAt`. `state=Realizada` devolve **só as que podem entrar numa cobrança nova** (com `kind`, elegíveis e não anuladas); as sessões legadas, criadas pela confirmação, continuam existindo, mas não aparecem ali (DP-27).
 
 ---
 
@@ -174,7 +197,7 @@ K2-a ([ADR-0069](../02-Arquitetura/ADRs/ADR-0069-ciclo-de-vida-da-consulta.md), 
 
 - **`POST /billings` confere cada sessão antes de gravar**, e a cobrança e os vínculos são gravados numa única transação: ou entram juntos, ou nada entra. Dois erros novos, ambos 409 e sem nada gravado:
   - `SESSION_OF_ANOTHER_PATIENT` — a sessão é da mesma clínica, mas de outro paciente. Antes, era vinculada à cobrança do paciente informado;
-  - `SESSION_NOT_BILLABLE` — a sessão ainda não foi faturada, mas não pode ser cobrada. Com os estados de hoje (`Realizada`, `Faturada`, `Recebida`) não ocorre; fica reservado para os estados que a K2-b trará.
+  - `SESSION_NOT_BILLABLE` — a sessão ainda não foi faturada, mas não pode ser cobrada. Desde a K2-b (23/10/2026): a sessão não é o item faturável de um desfecho registrado (a sessão legada, criada pela confirmação, sem `kind`), não está elegível ou foi anulada. Também é a resposta quando o banco recusa o vínculo pelas chaves compostas (corrida rara; nada é gravado).
 - Os demais erros não mudam: 404 para paciente ou sessão inexistente ou de outra clínica; 409 `SESSION_ALREADY_BILLED` quando a sessão já está `Faturada` ou `Recebida`, ou quando, entre a conferência e a gravação, outra cobrança vinculou a mesma sessão. Em nenhum desses casos a cobrança fica gravada (antes, a sessão já vinculada deixava a cobrança gravada sem vínculo). A conferência segue esta ordem: paciente, sessão inexistente ou de outra clínica (404), sessão de outro paciente, sessão já cobrada, sessão não faturável.
 - O corpo da requisição e da resposta não mudam.
 

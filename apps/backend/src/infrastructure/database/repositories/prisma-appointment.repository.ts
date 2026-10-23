@@ -15,6 +15,32 @@ export class PrismaAppointmentRepository implements AppointmentRepository {
     return record ? this.toDomain(record) : null;
   }
 
+  /**
+   * K2-b — mesmo recurso de PrismaContactRepository.findByIdForUpdate(): a
+   * trava dura enquanto a unidade de trabalho durar, por isso o uso fora de
+   * uma é recusado. `SELECT … FOR UPDATE` passa pelas políticas de UPDATE:
+   * a consulta com desfecho (appointment_frozen_after_outcome) e a de outra
+   * clínica não são devolvidas nem travadas.
+   */
+  async findByIdForUpdate(id: string): Promise<Appointment | null> {
+    if (!this.prisma.isInUnitOfWork) {
+      throw new Error('findByIdForUpdate() só pode ser chamado dentro de uma unidade de trabalho.');
+    }
+    const record = await this.prisma.forTenant(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "appointment" WHERE id = ${id} FOR UPDATE`;
+      if (locked.length === 0) return null;
+      return tx.appointment.findUnique({ where: { id } });
+    });
+    return record ? this.toDomain(record) : null;
+  }
+
+  async findSuccessorId(id: string): Promise<string | null> {
+    const record = await this.prisma.forTenant((tx) =>
+      tx.appointment.findUnique({ where: { rescheduledFromId: id }, select: { id: true } }),
+    );
+    return record?.id ?? null;
+  }
+
   async findActiveByTherapistAndRange(therapistId: string, from: Date, to: Date): Promise<Appointment[]> {
     const records = await this.prisma.forTenant((tx) =>
       tx.appointment.findMany({
@@ -103,6 +129,7 @@ export class PrismaAppointmentRepository implements AppointmentRepository {
           state: appointment.state as PrismaAppointment['state'],
           recurring: appointment.isRecurring,
           recurringBlockId: appointment.recurringBlockId,
+          rescheduledFromId: appointment.rescheduledFromId,
         },
         update: {
           scheduledAt: appointment.scheduledAt,
@@ -124,6 +151,7 @@ export class PrismaAppointmentRepository implements AppointmentRepository {
       state: record.state as AppointmentState,
       recurring: record.recurring,
       recurringBlockId: record.recurringBlockId ?? undefined,
+      rescheduledFromId: record.rescheduledFromId ?? undefined,
     });
   }
 }

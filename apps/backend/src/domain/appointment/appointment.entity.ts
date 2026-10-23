@@ -21,7 +21,11 @@ export type AppointmentState =
 const appointmentTransitions: Record<AppointmentState, readonly AppointmentState[]> = {
   Criada: ['Reservada', 'Cancelada'],
   Reservada: ['Confirmada', 'ReagendamentoSolicitado', 'Cancelada'],
-  Confirmada: ['ReagendamentoSolicitado', 'Cancelada'], // transição para "Realizada" pertence à entidade Session
+  // A realização e a falta não são estados de agenda: são desfechos, em
+  // appointment-outcome.ts (K2-b, ADR-0069 seção 2.4). Confirmar não cria sessão.
+  Confirmada: ['ReagendamentoSolicitado', 'Cancelada'],
+  // ReagendamentoSolicitado e Reagendada só existem em consultas legadas: desde a
+  // K2-b a remarcação cria uma ocorrência nova (Appointment.rescheduledFrom).
   ReagendamentoSolicitado: ['Reagendada', 'Cancelada'],
   Reagendada: ['Confirmada', 'ReagendamentoSolicitado', 'Cancelada'],
   Cancelada: [], // estado terminal
@@ -38,6 +42,15 @@ export class AppointmentStateChangedEvent extends DomainEvent {
 
   constructor(entityId: string, tenantId: string, fromState: AppointmentState, toState: AppointmentState) {
     super('AgendamentoEstadoAlterado', entityId, tenantId, { fromState, toState });
+  }
+}
+
+/** K2-b — a ocorrência nova de uma remarcação; o evento da anterior está no desfecho (appointment-outcome.ts). */
+export class AppointmentCreatedByRescheduleEvent extends DomainEvent {
+  declare readonly previousAppointmentId: string;
+
+  constructor(entityId: string, tenantId: string, previousAppointmentId: string) {
+    super('ConsultaRemarcada', entityId, tenantId, { previousAppointmentId });
   }
 }
 
@@ -59,7 +72,20 @@ export interface AppointmentProps {
    * existente de Appointment muda por causa deste campo.
    */
   recurringBlockId?: string;
+  /**
+   * K2-b (ADR-0069, seção 5) — ocorrência anterior, quando esta nasceu de uma
+   * remarcação. A remarcação não move mais o horário da mesma linha: encerra
+   * a ocorrência e cria esta, ligada a ela.
+   */
+  rescheduledFromId?: string;
 }
+
+/**
+ * Estados de agenda em que a consulta ainda pode receber um desfecho de
+ * atendimento (realização, falta) ou ser cancelada e remarcada pela versão
+ * atual — ADR-0069, seção 2.5 (T3 a T7).
+ */
+export const OPEN_APPOINTMENT_STATES: readonly AppointmentState[] = ['Reservada', 'Confirmada', 'Reagendada'];
 
 export class Appointment {
   private _state: AppointmentState;
@@ -75,6 +101,29 @@ export class Appointment {
 
   static reconstitute(props: AppointmentProps): Appointment {
     return new Appointment(props);
+  }
+
+  /**
+   * K2-b — a nova ocorrência de uma remarcação (T5): mesmo paciente,
+   * terapeuta e modalidade, no horário novo, já `Reservada`, ligada à
+   * anterior. Não herda o horário fixo de origem: a anterior mantém a chave
+   * de materialização (recurringBlockId, scheduledAt), e a cadeia de
+   * remarcações é quem liga as duas (achado 3 da ADR-0069).
+   */
+  static rescheduledFrom(previous: Appointment, params: { id: string; scheduledAt: Date }): Appointment {
+    const next = Appointment.create({
+      id: params.id,
+      tenantId: previous.tenantId,
+      patientId: previous.patientId,
+      therapistId: previous.therapistId,
+      scheduledAt: params.scheduledAt,
+      modality: previous.modality,
+      recurring: previous.isRecurring,
+      rescheduledFromId: previous.id,
+    });
+    next.transitionTo('Reservada');
+    next._pendingEvents.push(new AppointmentCreatedByRescheduleEvent(next.id, next.tenantId, previous.id));
+    return next;
   }
 
   get id(): string {
@@ -113,6 +162,20 @@ export class Appointment {
     return this.props.recurringBlockId;
   }
 
+  get rescheduledFromId(): string | undefined {
+    return this.props.rescheduledFromId;
+  }
+
+  /** O início previsto já chegou? No instante do início, sim (ADR-0069, seção 2.2). */
+  hasStarted(now: Date): boolean {
+    return now.getTime() >= this.props.scheduledAt.getTime();
+  }
+
+  /** Em estado de agenda que ainda aceita desfecho, cancelamento ou remarcação (seção 2.5). */
+  get isOpen(): boolean {
+    return OPEN_APPOINTMENT_STATES.includes(this._state);
+  }
+
   transitionTo(newState: AppointmentState): void {
     appointmentStateMachine.assertTransition(this._state, newState);
     const previousState = this._state;
@@ -120,21 +183,6 @@ export class Appointment {
     this._pendingEvents.push(
       new AppointmentStateChangedEvent(this.props.id, this.props.tenantId, previousState, newState),
     );
-  }
-
-  /**
-   * Reagenda o horário — RF-052. Só é permitido a partir de estados que
-   * já passaram pelo pedido de reagendamento (regra de negócio, não apenas
-   * de máquina de estados: mudar a data exige primeiro pedir o reagendamento).
-   */
-  reschedule(newScheduledAt: Date): void {
-    if (this._state !== 'ReagendamentoSolicitado') {
-      throw new Error(
-        `Não é possível reagendar a partir do estado "${this._state}" — solicite o reagendamento primeiro.`,
-      );
-    }
-    this.props.scheduledAt = newScheduledAt;
-    this.transitionTo('Reagendada');
   }
 
   pullDomainEvents(): DomainEvent[] {
