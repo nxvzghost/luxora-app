@@ -173,20 +173,54 @@ fi
 # e o certificado depende do DNS: uma falha aqui não desfaz um deploy que deu certo.
 # Com os endereços informados, o proxy também exige ACME_EMAIL (conta do Let's Encrypt);
 # sem ele, ou com um valor fora do formato, o proxy não é iniciado e o aviso diz por quê.
+#
+# A aplicação já foi trocada e registrada como success acima; o que acontece com o proxy
+# não muda o código de saída (0) nem o rollback. O resultado do proxy vira (1) um evento
+# separado "proxy" no history.jsonl, só quando os endereços estão preenchidos, e (2) a
+# linha final: "concluído" (proxy desativado ou iniciado) ou "concluído PARCIALMENTE"
+# (HTTPS pretendido, mas o proxy não foi iniciado ou atualizado). Este script não confere
+# DNS, certificado nem acesso por HTTPS: "iniciado" não é "HTTPS validado".
 ACME_EMAIL_RE='^[^][:space:]@"{}\\]+@[^][:space:]@"{}\\]+\.[^][:space:]@"{}\\]+$'
+PROXY_STATE=disabled   # disabled | started | partial
+PROXY_RESULT=""        # not-started | start-failed | reload-failed | reloaded
+PROXY_DETAIL=""
+PROXY_HISTORY_NOTE=""
 if [ -n "$(env_get PUBLIC_API_HOST)" ] && [ -n "$(env_get PUBLIC_PANEL_HOST)" ]; then
   if ! [[ "$(env_get ACME_EMAIL)" =~ $ACME_EMAIL_RE ]]; then
-    log "AVISO: ACME_EMAIL ausente ou inválido no arquivo de ambiente; o proxy HTTPS não foi iniciado e a aplicação segue no ar no loopback do host"
+    log "AVISO: ACME_EMAIL ausente ou inválido no arquivo de ambiente; o proxy HTTPS não foi iniciado nesta tentativa e a aplicação segue no ar no loopback do host"
+    PROXY_STATE=partial; PROXY_RESULT=not-started
+    PROXY_DETAIL="proxy HTTPS NÃO iniciado nesta tentativa (ACME_EMAIL ausente ou inválido); HTTPS não validado; aplicação acessível pelo loopback do host"
   else
     log "proxy HTTPS (Caddy)"
     if compose --profile proxy up -d --no-deps caddy >/dev/null; then
       # Recarrega o Caddyfile do checkout atual (o arquivo é montado, e o compose não percebe a mudança).
-      compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 \
-        || log "AVISO: o Caddy não recarregou a configuração; confira os logs do serviço caddy"
+      if compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+        PROXY_STATE=started; PROXY_RESULT=reloaded
+      else
+        log "AVISO: o Caddy não recarregou a configuração; ele pode continuar com a configuração anterior; confira os logs do serviço caddy"
+        PROXY_STATE=partial; PROXY_RESULT=reload-failed
+        PROXY_DETAIL="proxy Caddy iniciado, mas a configuração NÃO foi recarregada (pode continuar com a anterior); HTTPS não validado"
+      fi
     else
-      log "AVISO: o proxy HTTPS não subiu; a aplicação segue no ar no loopback do host"
+      log "AVISO: o Caddy não subiu nesta tentativa; o estado de um proxy HTTPS anterior, se existir, não foi confirmado; a aplicação segue no ar no loopback do host"
+      PROXY_STATE=partial; PROXY_RESULT=start-failed
+      PROXY_DETAIL="proxy HTTPS NÃO iniciado nem atualizado nesta tentativa (o Caddy não subiu); HTTPS não validado e o estado de um proxy anterior, se existir, não foi confirmado; aplicação acessível pelo loopback do host"
     fi
+  fi
+  # Evento separado do proxy. Se não puder ser gravado, o aviso vai para a linha final;
+  # nunca derruba o script (set -e) nem muda o código de saída.
+  if ! record_history proxy "$VERSION" "$PROXY_RESULT" "${PROXY_DETAIL:-proxy Caddy iniciado e configuração recarregada; HTTPS não verificado por este script}"; then
+    PROXY_HISTORY_NOTE=" | AVISO: o evento do proxy NÃO foi gravado no history.jsonl"
+    log "AVISO: não foi possível gravar o evento do proxy no history.jsonl"
   fi
 fi
 
-log "6/6 deploy concluído: $VERSION no ar em $APP_ENVIRONMENT (anterior: ${PREVIOUS:-nenhuma})"
+SUMMARY="$VERSION no ar em $APP_ENVIRONMENT (anterior: ${PREVIOUS:-nenhuma})"
+case "$PROXY_STATE" in
+  disabled)
+    log "6/6 deploy concluído: $SUMMARY | proxy HTTPS não configurado (PUBLIC_API_HOST e PUBLIC_PANEL_HOST não estão ambos preenchidos): aplicação acessível só pelo loopback do host" ;;
+  started)
+    log "6/6 deploy concluído: $SUMMARY | aplicação aprovada no readiness e no smoke; proxy Caddy iniciado e configuração recarregada; certificado e acesso por HTTPS não são verificados por este script$PROXY_HISTORY_NOTE" ;;
+  *)
+    log "6/6 deploy concluído PARCIALMENTE: $SUMMARY | $PROXY_DETAIL$PROXY_HISTORY_NOTE" ;;
+esac
