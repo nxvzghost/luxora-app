@@ -28,8 +28,11 @@ interface AuthState {
  * ADR-0056 — a renovação automática da sessão (401 → /auth/refresh) vive em
  * `lib/api-client/client.ts`, que lê e atualiza os tokens por aqui.
  *
- * Só os dois tokens vão para o localStorage (`partialize`): nada além do
- * que já era guardado passou a ser persistido.
+ * Vão para o localStorage (`partialize`) os dois tokens e o booleano
+ * `sessionExpired` — este para o aviso da tela de login sobreviver ao
+ * carregamento completo que o AuthGuard faz quando o servidor encerra a
+ * sessão (ver `leaveForLogin`). Nenhum dado pessoal; `setTokens` e `logout`
+ * o apagam.
  */
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -44,7 +47,7 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'luxora-auth-storage',
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ accessToken: state.accessToken, refreshToken: state.refreshToken }),
+      partialize: (state) => ({ accessToken: state.accessToken, refreshToken: state.refreshToken, sessionExpired: state.sessionExpired }),
     },
   ),
 );

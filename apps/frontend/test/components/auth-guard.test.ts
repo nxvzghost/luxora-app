@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { resolveGuardDecision } from '../../components/auth-guard';
+import { describe, it, expect, vi } from 'vitest';
+import { leaveForLogin, resolveGuardDecision } from '../../components/auth-guard';
 
 describe('resolveGuardDecision — Fase 9.1 (AD-028)', () => {
   it('permite /login mesmo sem hidratação concluída e sem accessToken', () => {
@@ -31,5 +31,29 @@ describe('resolveGuardDecision — Fase 9.1 (AD-028)', () => {
       expect(resolveGuardDecision({ pathname, hasHydrated: true, accessToken: null })).toBe('redirect');
       expect(resolveGuardDecision({ pathname, hasHydrated: true, accessToken: 'token-x' })).toBe('allow');
     }
+  });
+});
+
+describe('leaveForLogin — saída de uma rota protegida', () => {
+  it('sessão encerrada pelo servidor: carregamento completo de /login, sem a navegação do Next', () => {
+    const router = { replace: vi.fn() };
+    const reload = vi.fn();
+
+    leaveForLogin({ sessionExpired: true, router, reload });
+
+    expect(reload).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledWith('/login');
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it('"Sair" ou primeira visita sem sessão: navegação do Next, sem recarregar', () => {
+    const router = { replace: vi.fn() };
+    const reload = vi.fn();
+
+    leaveForLogin({ sessionExpired: false, router, reload });
+
+    expect(router.replace).toHaveBeenCalledOnce();
+    expect(router.replace).toHaveBeenCalledWith('/login');
+    expect(reload).not.toHaveBeenCalled();
   });
 });

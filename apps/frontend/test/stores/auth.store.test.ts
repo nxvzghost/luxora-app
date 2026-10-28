@@ -80,4 +80,36 @@ describe('useAuthStore — Fase 9.0 (AD-013) — persistência via localStorage'
     expect(useAuthStore.getState().accessToken).toBeNull();
     expect(useAuthStore.getState().refreshToken).toBeNull();
   });
+
+  it('sessão encerrada pelo servidor: o aviso sobrevive ao recarregamento, e só os tokens e esse booleano são gravados', async () => {
+    const storage = createMemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+
+    const first = await import('../../lib/stores/auth.store');
+    first.useAuthStore.getState().setTokens('access-x', 'refresh-y');
+    first.useAuthStore.getState().expireSession();
+
+    const parsed = JSON.parse(storage.getItem('luxora-auth-storage') as string);
+    expect(parsed.state).toEqual({ accessToken: null, refreshToken: null, sessionExpired: true });
+
+    vi.resetModules();
+    const second = await import('../../lib/stores/auth.store');
+    expect(second.useAuthStore.getState().sessionExpired).toBe(true);
+    expect(second.useAuthStore.getState().accessToken).toBeNull();
+  });
+
+  it('um novo login e o logout apagam o aviso persistido', async () => {
+    const storage = createMemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    const { useAuthStore } = await import('../../lib/stores/auth.store');
+    const persisted = () => JSON.parse(storage.getItem('luxora-auth-storage') as string).state.sessionExpired;
+
+    useAuthStore.getState().expireSession();
+    useAuthStore.getState().setTokens('access-novo', 'refresh-novo');
+    expect(persisted()).toBe(false);
+
+    useAuthStore.getState().expireSession();
+    useAuthStore.getState().logout();
+    expect(persisted()).toBe(false);
+  });
 });

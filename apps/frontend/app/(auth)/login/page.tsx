@@ -17,6 +17,10 @@ export default function LoginPage() {
   const setTokens = useAuthStore((s) => s.setTokens);
   const accessToken = useAuthStore((s) => s.accessToken);
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
+  // `sessionExpired` vem do localStorage, que o servidor não lê: o aviso só
+  // entra depois de montada a página, para o HTML do servidor e a primeira
+  // renderização do navegador serem iguais (sem erro de hidratação).
+  const [mounted, setMounted] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +31,8 @@ export default function LoginPage() {
   useEffect(() => {
     if (accessToken) router.replace('/dashboard');
   }, [accessToken, router]);
+
+  useEffect(() => setMounted(true), []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -88,7 +94,7 @@ export default function LoginPage() {
             Tecnologia que ilumina decisões.
           </p>
 
-          {sessionExpired && (
+          {mounted && sessionExpired && (
             <p role="status" style={{ fontSize: '0.8125rem', background: 'var(--gold-soft)', padding: '0.625rem 0.75rem', borderRadius: 'var(--radius-sm)', marginTop: 0 }}>
               Sua sessão foi encerrada. Entre novamente para continuar.
             </p>

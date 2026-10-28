@@ -99,12 +99,12 @@ describe('sessão encerrada pelo servidor', () => {
     expect(useAuthStore.getState().sessionExpired).toBe(false);
   });
 
-  it('a marca não vai para o localStorage — só os dois tokens são persistidos', () => {
+  it('a marca vai para o localStorage, para o aviso sobreviver ao carregamento completo do login — além dela, só os dois tokens', () => {
     useAuthStore.getState().setTokens('a', 'r');
     useAuthStore.getState().expireSession();
 
     const persisted = JSON.parse(localStorage.getItem('luxora-auth-storage') as string);
-    expect(Object.keys(persisted.state).sort()).toEqual(['accessToken', 'refreshToken']);
+    expect(persisted.state).toEqual({ accessToken: null, refreshToken: null, sessionExpired: true });
   });
 });
 
