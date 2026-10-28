@@ -199,6 +199,11 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # Antes do build, porque não usa imagem: roda o deploy.sh inteiro contra um
+      # docker e um curl simulados e confere o resultado do proxy HTTPS (desativado,
+      # sucesso parcial, ativado), o histórico e os códigos de saída 1, 2 e 3.
+      - name: Resultado do proxy no deploy (comandos simulados)
+        run: bash infra/tests/deploy-proxy-test.sh
       - name: Versão (commit curto)
         run: echo "VERSION=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
       - name: Build das imagens
