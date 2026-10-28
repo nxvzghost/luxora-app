@@ -171,14 +171,21 @@ fi
 # Proxy HTTPS (Caddy): só quando o ambiente informa os dois endereços públicos.
 # Não depende da versão da aplicação (acha backend e frontend pelo nome do serviço)
 # e o certificado depende do DNS: uma falha aqui não desfaz um deploy que deu certo.
+# Com os endereços informados, o proxy também exige ACME_EMAIL (conta do Let's Encrypt);
+# sem ele, ou com um valor fora do formato, o proxy não é iniciado e o aviso diz por quê.
+ACME_EMAIL_RE='^[^][:space:]@"{}\\]+@[^][:space:]@"{}\\]+\.[^][:space:]@"{}\\]+$'
 if [ -n "$(env_get PUBLIC_API_HOST)" ] && [ -n "$(env_get PUBLIC_PANEL_HOST)" ]; then
-  log "proxy HTTPS (Caddy)"
-  if compose --profile proxy up -d --no-deps caddy >/dev/null; then
-    # Recarrega o Caddyfile do checkout atual (o arquivo é montado, e o compose não percebe a mudança).
-    compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 \
-      || log "AVISO: o Caddy não recarregou a configuração; confira os logs do serviço caddy"
+  if ! [[ "$(env_get ACME_EMAIL)" =~ $ACME_EMAIL_RE ]]; then
+    log "AVISO: ACME_EMAIL ausente ou inválido no arquivo de ambiente; o proxy HTTPS não foi iniciado e a aplicação segue no ar no loopback do host"
   else
-    log "AVISO: o proxy HTTPS não subiu; a aplicação segue no ar no loopback do host"
+    log "proxy HTTPS (Caddy)"
+    if compose --profile proxy up -d --no-deps caddy >/dev/null; then
+      # Recarrega o Caddyfile do checkout atual (o arquivo é montado, e o compose não percebe a mudança).
+      compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 \
+        || log "AVISO: o Caddy não recarregou a configuração; confira os logs do serviço caddy"
+    else
+      log "AVISO: o proxy HTTPS não subiu; a aplicação segue no ar no loopback do host"
+    fi
   fi
 fi
 

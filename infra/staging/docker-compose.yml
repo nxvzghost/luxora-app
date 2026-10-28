@@ -117,7 +117,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   # Proxy HTTPS (Caddy). Perfil "proxy": só sobe quando o arquivo de ambiente traz
-  # PUBLIC_API_HOST e PUBLIC_PANEL_HOST (infra/scripts/deploy.sh). É a única peça
+  # PUBLIC_API_HOST, PUBLIC_PANEL_HOST e ACME_EMAIL (infra/scripts/deploy.sh). É a única peça
   # com portas públicas: a API e o painel continuam só no loopback do host e são
   # alcançados aqui pelo nome do serviço, na rede interna do compose.
   # Certificados e configuração ficam em volumes, para não serem pedidos de novo
@@ -129,6 +129,7 @@ services:
     environment:
       PUBLIC_API_HOST: ${PUBLIC_API_HOST:-}
       PUBLIC_PANEL_HOST: ${PUBLIC_PANEL_HOST:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
     ports:
       - "80:80"
       - "443:443"

@@ -46,6 +46,10 @@ FRONTEND_PORT=13001
 # Exemplos: api-staging.exemplo.com.br e painel-staging.exemplo.com.br
 PUBLIC_API_HOST=
 PUBLIC_PANEL_HOST=
+# E-mail da conta do Let's Encrypt (avisos de expiracao de certificado). Obrigatorio para o proxy subir
+# quando os dois enderecos acima estao preenchidos; sem ele o deploy avisa e nao inicia o proxy.
+# Use um e-mail real do responsavel, preenchido so no arquivo de ambiente do servidor; nunca no repositorio.
+ACME_EMAIL=
 
 JWT_SECRET=$(secret 32)
 WHATSAPP_TOKEN_ENCRYPTION_KEY=$(secret 32)

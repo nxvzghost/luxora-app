@@ -116,7 +116,7 @@ O serviço `caddy` do compose (perfil `proxy`, config em `infra/staging/Caddyfil
 
 Pontos de atenção:
 
-- O Caddy pede e renova o certificado (Let's Encrypt) sozinho. Sem DNS apontando para o servidor, a emissão falha e tenta de novo; os logs saem de `docker compose -p luxora-<ambiente> logs caddy`. Sem e-mail ACME configurado, os avisos de expiração não chegam a ninguém (a renovação é automática).
+- O Caddy pede e renova o certificado (Let's Encrypt) sozinho. Sem DNS apontando para o servidor, a emissão falha e tenta de novo; os logs saem de `docker compose -p luxora-<ambiente> logs caddy`. O e-mail da conta ACME vem de `ACME_EMAIL` no arquivo de ambiente (só no servidor, nunca no repositório) e recebe os avisos de expiração; a renovação é automática. Com `PUBLIC_API_HOST` e `PUBLIC_PANEL_HOST` preenchidos, o `deploy.sh` exige um `ACME_EMAIL` com formato válido antes de iniciar o Caddy. Sem ele, ou com um valor inválido, o proxy **não é iniciado**: o deploy registra um `AVISO` e a aplicação segue no ar só no loopback do host. Sem o proxy iniciado, nenhum certificado HTTPS é emitido e nenhum aviso de expiração é enviado. Ainda não validado com o binário do Caddy nem em servidor real.
 - Certificados e configuração ficam nos volumes `caddy_data` e `caddy_config`. Não apague esses volumes: pedir tudo de novo pode bater no limite de emissões do Let's Encrypt.
 - `/metrics` responde 404 pelo proxy; para coletar métricas use o loopback do host (`BACKEND_PORT`).
 - Não há log de acesso no proxy, de propósito: a verificação do webhook da Meta leva o token na query string.

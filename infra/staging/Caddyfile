@@ -16,6 +16,13 @@
 # Sem log de acesso, de propósito: a URL de verificação do webhook da Meta
 # leva o token na query string, e o log do proxy a guardaria em texto puro.
 
+# E-mail da conta ACME (Let's Encrypt): recebe os avisos de expiracao de certificado.
+# Vem de ACME_EMAIL. O Caddy rejeita "email" sem valor, por isso o deploy.sh so sobe
+# este proxy com ACME_EMAIL preenchido.
+{
+	email {$ACME_EMAIL}
+}
+
 {$PUBLIC_API_HOST} {
 	header -Server
 
