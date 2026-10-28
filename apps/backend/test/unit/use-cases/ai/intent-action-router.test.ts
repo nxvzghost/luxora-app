@@ -4,21 +4,17 @@ import { SlotNotAvailableError } from '@domain-services/availability/slot-not-av
 
 function makeRouter() {
   const agendarConsulta = { execute: vi.fn() };
-  const cancelarConsulta = { execute: vi.fn() };
   const confirmarConsulta = { execute: vi.fn() };
   const consultarCobranca = { execute: vi.fn() };
-  const remarcarConsulta = { execute: vi.fn() };
   const consultarDisponibilidade = { execute: vi.fn() };
   const router = new IntentActionRouter(
     agendarConsulta as never,
-    cancelarConsulta as never,
     confirmarConsulta as never,
     consultarCobranca as never,
-    remarcarConsulta as never,
     consultarDisponibilidade as never,
     { current: vi.fn().mockResolvedValue('America/Sao_Paulo') } as never,
   );
-  return { router, agendarConsulta, cancelarConsulta, confirmarConsulta, consultarCobranca, remarcarConsulta, consultarDisponibilidade };
+  return { router, agendarConsulta, confirmarConsulta, consultarCobranca, consultarDisponibilidade };
 }
 
 describe('IntentActionRouter — regra de segurança: nunca age com entidade faltando', () => {
@@ -55,26 +51,23 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
     expect(agendarConsulta.execute).not.toHaveBeenCalled();
   });
 
-  it('cancelar_consulta com appointmentId executa', async () => {
-    const { router, cancelarConsulta } = makeRouter();
-    cancelarConsulta.execute.mockResolvedValue({});
-    const result = await router.route(
-      { intent: 'cancelar_consulta', confidence: 0.9, entities: { appointmentId: 'a1' }, requiresEscalation: false },
-      { tenantId: 'tenant1', patientId: 'p1' },
+  // K11 (ADR-0069; D1 a D8) — cancelar e remarcar só em duas etapas, com a
+  // confirmação do paciente em outra mensagem (PedidoDeConsultaPeloWhatsAppUseCase).
+  // O roteador não executa nenhuma delas, nem com o id da consulta nas entidades.
+  it.each([
+    ['cancelar_consulta', { appointmentId: 'a1' }],
+    ['nao_comparecer', { appointmentId: 'a1' }],
+    ['remarcar_consulta', { appointmentId: 'a1', newScheduledAt: '2026-08-02T10:00:00' }],
+  ] as const)('K11 — %s não é executado pelo roteador: nenhuma ação, nenhum caso de uso', async (intent, entities) => {
+    const deps = makeRouter();
+    const result = await deps.router.route(
+      { intent, confidence: 0.9, entities, requiresEscalation: false },
+      { tenantId: 'tenant1', patientId: 'p1', identityResolved: true },
     );
-    expect(result.actionTaken).toBe(true);
-    // K2-b — a ação é marcada como da IA: sem comunicação nem desfecho registrados por ela (K11, fase 5).
-    expect(cancelarConsulta.execute).toHaveBeenCalledWith('a1', {}, { expectedPatientId: 'p1', actor: 'ai_agent' });
-  });
-
-  it('cancelar_consulta SEM appointmentId nunca executa (nunca "adivinha" qual consulta)', async () => {
-    const { router, cancelarConsulta } = makeRouter();
-    const result = await router.route(
-      { intent: 'cancelar_consulta', confidence: 0.9, entities: {}, requiresEscalation: false },
-      { tenantId: 'tenant1', patientId: 'p1' },
-    );
-    expect(result.actionTaken).toBe(false);
-    expect(cancelarConsulta.execute).not.toHaveBeenCalled();
+    expect(result).toEqual({ actionTaken: false });
+    for (const useCase of [deps.agendarConsulta, deps.confirmarConsulta, deps.consultarCobranca, deps.consultarDisponibilidade]) {
+      expect(useCase.execute).not.toHaveBeenCalled();
+    }
   });
 
   it('confirmar_presenca com appointmentId executa', async () => {
@@ -99,14 +92,13 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
   });
 
   it('intent sem roteamento definido (duvida_geral) nunca tenta agir', async () => {
-    const { router, agendarConsulta, cancelarConsulta, confirmarConsulta, consultarCobranca } = makeRouter();
+    const { router, agendarConsulta, confirmarConsulta, consultarCobranca } = makeRouter();
     const result = await router.route(
       { intent: 'duvida_geral', confidence: 0.9, entities: {}, requiresEscalation: false },
       { tenantId: 'tenant1', patientId: 'p1' },
     );
     expect(result.actionTaken).toBe(false);
     expect(agendarConsulta.execute).not.toHaveBeenCalled();
-    expect(cancelarConsulta.execute).not.toHaveBeenCalled();
     expect(confirmarConsulta.execute).not.toHaveBeenCalled();
     expect(consultarCobranca.execute).not.toHaveBeenCalled();
   });
@@ -122,24 +114,11 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
     expect(result.error).toContain('SESSION_CONFLICT');
   });
 
-  it('AD-010: remarcar_consulta com appointmentId e newScheduledAt executa', async () => {
-    const { router, remarcarConsulta } = makeRouter();
-    // K2-b — a remarcação devolve a ocorrência anterior e a nova; o horário dito ao paciente é o da nova.
-    remarcarConsulta.execute.mockResolvedValue({ previous: { scheduledAt: new Date('2026-08-01T10:00:00') }, current: { scheduledAt: new Date('2026-08-02T10:00:00') } });
+  it('erro de agenda do Caso de Uso (SlotNotAvailableError) nunca é mascarado como sucesso', async () => {
+    const { router, agendarConsulta } = makeRouter();
+    agendarConsulta.execute.mockRejectedValue(new SlotNotAvailableError());
     const result = await router.route(
-      { intent: 'remarcar_consulta', confidence: 0.9, entities: { appointmentId: 'a1', newScheduledAt: '2026-08-02T10:00:00' }, requiresEscalation: false },
-      { tenantId: 'tenant1', patientId: 'p1' },
-    );
-    expect(result.actionTaken).toBe(true);
-    expect(remarcarConsulta.execute).toHaveBeenCalledWith('a1', new Date('2026-08-02T10:00:00'), {}, { expectedPatientId: 'p1', actor: 'ai_agent' });
-    expect(result.actionSummary).toContain(new Date('2026-08-02T10:00:00').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
-  });
-
-  it('AD-010: remarcar_consulta com horário indisponível (SlotNotAvailableError) nunca é mascarado como sucesso', async () => {
-    const { router, remarcarConsulta } = makeRouter();
-    remarcarConsulta.execute.mockRejectedValue(new SlotNotAvailableError());
-    const result = await router.route(
-      { intent: 'remarcar_consulta', confidence: 0.9, entities: { appointmentId: 'a1', newScheduledAt: '2026-08-02T10:00:00' }, requiresEscalation: false },
+      { intent: 'agendar_consulta', confidence: 0.9, entities: { therapistId: 't1', scheduledAt: '2026-08-02T10:00:00' }, requiresEscalation: false },
       { tenantId: 'tenant1', patientId: 'p1' },
     );
     expect(result.actionTaken).toBe(false);
@@ -147,16 +126,6 @@ describe('IntentActionRouter — regra de segurança: nunca age com entidade fal
     // response.code — verificado lendo o próprio http.exception.js instalado,
     // não presumido.
     expect(result.error).toContain('não está disponível');
-  });
-
-  it('AD-010: remarcar_consulta SEM newScheduledAt nunca executa', async () => {
-    const { router, remarcarConsulta } = makeRouter();
-    const result = await router.route(
-      { intent: 'remarcar_consulta', confidence: 0.9, entities: { appointmentId: 'a1' }, requiresEscalation: false },
-      { tenantId: 'tenant1', patientId: 'p1' },
-    );
-    expect(result.actionTaken).toBe(false);
-    expect(remarcarConsulta.execute).not.toHaveBeenCalled();
   });
 
   it('AD-010: consultar_disponibilidade com therapistId retorna resumo dos horários', async () => {
@@ -198,13 +167,14 @@ describe('IntentActionRouter — identidade antes da ação (ADR-0063, AD-038)',
   const identityDependent = [
     ['agendar_consulta', { therapistId: 't1', scheduledAt: '2026-08-01T10:00:00' }],
     ['cancelar_consulta', { appointmentId: 'a1' }],
+    ['nao_comparecer', { appointmentId: 'a1' }],
     ['confirmar_presenca', { appointmentId: 'a1' }],
     ['remarcar_consulta', { appointmentId: 'a1', newScheduledAt: '2026-08-02T10:00:00' }],
     ['consultar_cobranca', { billingId: 'b1' }],
   ] as const;
 
   function expectNothingCalled(deps: ReturnType<typeof makeRouter>) {
-    for (const useCase of [deps.agendarConsulta, deps.cancelarConsulta, deps.confirmarConsulta, deps.remarcarConsulta, deps.consultarCobranca]) {
+    for (const useCase of [deps.agendarConsulta, deps.confirmarConsulta, deps.consultarCobranca]) {
       expect(useCase.execute).not.toHaveBeenCalled();
     }
   }
@@ -256,11 +226,11 @@ describe('IntentActionRouter — identidade antes da ação (ADR-0063, AD-038)',
   });
 
   it('K2-b — a recusa do caso de uso depois do início (APPOINTMENT_ALREADY_STARTED) vira "nenhuma ação", nunca sucesso', async () => {
-    const { router, cancelarConsulta } = makeRouter();
-    cancelarConsulta.execute.mockRejectedValue(new Error('A consulta já começou: não pode mais ser cancelada, remarcada nem confirmada.'));
+    const { router, confirmarConsulta } = makeRouter();
+    confirmarConsulta.execute.mockRejectedValue(new Error('A consulta já começou: não pode mais ser cancelada, remarcada nem confirmada.'));
 
     const result = await router.route(
-      { intent: 'cancelar_consulta', confidence: 0.9, entities: { appointmentId: 'a1' }, requiresEscalation: false },
+      { intent: 'confirmar_presenca', confidence: 0.9, entities: { appointmentId: 'a1' }, requiresEscalation: false },
       { tenantId: 'tenant1', patientId: 'p1', identityResolved: true },
     );
 
@@ -269,11 +239,11 @@ describe('IntentActionRouter — identidade antes da ação (ADR-0063, AD-038)',
   });
 
   it('consulta de outro paciente (o Caso de Uso recusa como inexistente): nenhuma ação, nunca sucesso', async () => {
-    const { router, cancelarConsulta } = makeRouter();
-    cancelarConsulta.execute.mockRejectedValue(new Error('Agendamento não encontrado.'));
+    const { router, confirmarConsulta } = makeRouter();
+    confirmarConsulta.execute.mockRejectedValue(new Error('Agendamento não encontrado.'));
 
     const result = await router.route(
-      { intent: 'cancelar_consulta', confidence: 0.9, entities: { appointmentId: 'a-de-outro' }, requiresEscalation: false },
+      { intent: 'confirmar_presenca', confidence: 0.9, entities: { appointmentId: 'a-de-outro' }, requiresEscalation: false },
       { tenantId: 'tenant1', patientId: 'p1' },
     );
 

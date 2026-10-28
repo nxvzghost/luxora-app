@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Appointment } from '@domain/appointment/appointment.entity';
+import type { AppointmentNotice } from '@domain/appointment/appointment-notice';
 import { AppointmentOutcomeRecord, AppointmentRuleViolation } from '@domain/appointment/appointment-outcome';
 import { InvalidStateTransitionError } from '@domain/shared/state-machine';
 import { AppointmentRepository } from '@domain-services/patient-ops/appointment.repository';
@@ -16,15 +17,54 @@ import { TenantContext } from '@shared/tenant-context';
  * informa de quem a consulta tem de ser. As rotas do painel não informam:
  * lá quem age é a equipe da clínica, já autorizada pelo papel.
  *
- * K2-b — `actor: 'ai_agent'` marca a ação da IA. Ela continua confirmando,
- * cancelando e remarcando antes do início como antes, mas não registra
- * comunicação nem desfecho: isso pede a confirmação explícita do paciente
- * (K11), que é da fase 5. A consulta que ela cancela fica `Cancelada` sem
- * desfecho, como a de uma versão anterior.
+ * K2-b — `actor: 'ai_agent'` marca a ação da IA, auditada com esse ator.
+ *
+ * K11 (D1, D4) — a IA só cancela ou remarca com `aiConfirmation`: o pedido
+ * feito pelo WhatsApp e a resposta `confirma` do paciente a ele, já
+ * registrados. O caso de uso confere de novo, com a consulta travada, que
+ * ela ainda é a perguntada e que nada começou, e grava o desfecho de autoria
+ * `ai_agent` ligado aos dois. Sem eles, a IA não cancela nem remarca nada.
+ * Confirmar presença continua sem essa exigência (não tem efeito financeiro
+ * e não é desfecho).
  */
 export interface AppointmentActionOptions {
   expectedPatientId?: string;
   actor?: 'ai_agent';
+  aiConfirmation?: { request: AppointmentNotice; confirmation: AppointmentNotice };
+}
+
+/**
+ * K11 — a confirmação vale para a consulta como ela está agora: aberta, sem
+ * desfecho, igual à perguntada (horário e modalidade), e a resposta é a
+ * `confirma` desse pedido, recebida antes do início. A consulta mudada no
+ * intervalo responde APPOINTMENT_REQUEST_STALE, e nada é executado.
+ */
+export function assertAiConfirmationStillValid(appointment: Appointment, options: AppointmentActionOptions, now: Date): {
+  request: AppointmentNotice;
+  confirmation: AppointmentNotice;
+} {
+  const ai = options.aiConfirmation;
+  if (!ai) {
+    throw new ForbiddenException({
+      code: 'PATIENT_CONFIRMATION_REQUIRED',
+      message: 'A IA só cancela ou remarca uma consulta depois da confirmação explícita do paciente (K11).',
+      category: 'authorization',
+    });
+  }
+  if (ai.confirmation.confirmsNoticeId !== ai.request.id || ai.confirmation.confirmationAnswer !== 'confirma') {
+    throw new ForbiddenException({
+      code: 'PATIENT_CONFIRMATION_REQUIRED',
+      message: 'A resposta registrada não confirma este pedido.',
+      category: 'authorization',
+    });
+  }
+  if (!ai.request.stillDescribes(appointment) || !appointment.isOpen) {
+    throw new AppointmentRuleViolation('APPOINTMENT_REQUEST_STALE', 'A consulta mudou depois da pergunta: a confirmação não vale para ela.');
+  }
+  if (appointment.hasStarted(now) || !ai.confirmation.isBeforeStart) {
+    throw new AppointmentRuleViolation('APPOINTMENT_ALREADY_STARTED', 'A consulta já começou: não pode mais ser cancelada nem remarcada.');
+  }
+  return ai;
 }
 
 /** A consulta com a linha travada, ou, se ela tem desfecho, o desfecho que a congela. */

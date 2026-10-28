@@ -620,6 +620,18 @@ describe('[A-14] O que sai para a Anthropic numa mensagem de paciente reconhecid
         // um paciente reconhecido, o caso em que o sistema mais conhece a pessoa.
         const patient = await fixturePrisma.patient.findUniqueOrThrow({ where: { id: fixture.patientId } });
         const from = `+55${patient.phone}`;
+        // K11 (D3) — com uma consulta futura, a instrução de interpretIntent
+        // passa a levar data, horário e profissional dela; nunca os ids.
+        const upcoming = await fixturePrisma.appointment.create({
+          data: {
+            tenantId: fixture.tenantId,
+            patientId: fixture.patientId,
+            therapistId: fixture.therapistId,
+            scheduledAt: new Date(Date.now() + 9 * 24 * 60 * 60 * 1000),
+            state: 'Reservada',
+          },
+        });
+        fixture.appointmentIds.push(upcoming.id);
         // Duas mensagens: na segunda o histórico já tem a primeira e a resposta
         // dela, e é o histórico que vai inteiro para a IA a cada turno.
         const firstWamid = `wamid.${randomUUID()}`;
@@ -653,6 +665,8 @@ describe('[A-14] O que sai para a Anthropic numa mensagem de paciente reconhecid
           contact.id,
           conversation.id,
           phoneNumberId,
+          upcoming.id,
+          fixture.therapistId,
         ];
 
         for (const raw of bodies) {
@@ -660,6 +674,8 @@ describe('[A-14] O que sai para a Anthropic numa mensagem de paciente reconhecid
           expect(Object.keys(body).sort()).toEqual(['max_tokens', 'messages', 'model', 'system']);
           for (const value of neverSent) expect(raw).not.toContain(value);
         }
+        // A consulta vai pela data e pelo horário (K11, D3): o backend é quem a localiza.
+        expect(bodies.some((raw) => (JSON.parse(raw) as { system: string }).system.includes('Consultas futuras do paciente'))).toBe(true);
         // O texto do paciente vai, e é o que precisa ir: sem ele o teste não provaria nada.
         expect(bodies.every((raw) => raw.includes(messageText))).toBe(true);
         expect(bodies.every((raw) => raw.includes(firstWamid))).toBe(true);

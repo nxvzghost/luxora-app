@@ -18,9 +18,28 @@ export type OutcomeName = 'Realizada' | 'Falta' | 'FaltaAbonada' | 'AvisoTardio'
 export interface AppointmentOutcome {
   outcome: OutcomeName;
   recordedAt: string;
+  /** K11 — `ai_agent`: cancelamento ou remarcação pela IA, confirmado pelo paciente no WhatsApp. */
+  recordedBy?: 'user' | 'ai_agent';
   noShowDecision: 'aguardando_decisao' | 'cobranca_confirmada' | null;
   lateNoticeDecision: 'aguardando_decisao' | 'sem_cobranca' | 'cobranca_confirmada' | null;
   noticeTiming: string | null;
+}
+
+/** K11 — estado de um pedido pelo WhatsApp, calculado pela API (ADR-0069, D2 e D6). */
+export type WhatsAppRequestStatus = 'aguardando' | 'vencido' | 'encaminhado' | 'nao_executado' | 'confirmado';
+
+/** K11 — pedido de cancelamento ou remarcação pelo WhatsApp na lista de pendências. */
+export interface WhatsAppRequest {
+  id: string;
+  status: WhatsAppRequestStatus;
+  requestedAction: 'cancelar' | 'remarcar' | null;
+  intent: string;
+  timing: string;
+  receivedAt: string;
+  askedScheduledAt: string | null;
+  proposedScheduledAt: string | null;
+  lastAnswer: 'confirma' | 'recusa' | 'ambigua' | null;
+  appointment: { id: string; patientId: string; therapistId: string; scheduledAt: string; modality: string; state: string };
 }
 
 export interface Appointment {
@@ -75,9 +94,24 @@ export function useAvailableSlots(therapistId: string, from: Date | null, to: Da
   });
 }
 
+/**
+ * K11 — pendências dos pedidos pelo WhatsApp: aguardando a confirmação do
+ * paciente, vencidos ou que precisam da equipe. A lista é recalculada a cada
+ * leitura (o pedido vence sem agendador).
+ */
+export function useWhatsAppRequests() {
+  const token = useAuthStore((s) => s.accessToken);
+  return useQuery({
+    queryKey: ['appointments', 'whatsapp-requests'],
+    queryFn: () => apiRequest<{ data: WhatsAppRequest[] }>('/appointments/whatsapp-requests', { token }),
+    enabled: !!token,
+  });
+}
+
 function useInvalidateAgenda() {
   const queryClient = useQueryClient();
   return () => {
+    // Também as pendências do WhatsApp (mesma raiz da chave): resolver a consulta as tira da lista.
     queryClient.invalidateQueries({ queryKey: ['appointments'] });
     queryClient.invalidateQueries({ queryKey: ['availability-slots'] });
     // A realização e a cobrança da falta criam a sessão que depois será cobrada.

@@ -397,8 +397,9 @@ describe('[CRÍTICO — K2-a] o banco confere paciente, clínica e privilégios,
 
   it('o banco declara a exigência billing-eligibility-v1 e mantém todas as restrições do K2-a', async () => {
     const requirement = await fixturePrisma.deploymentRequirement.findMany();
-    // K2-b acrescentou appointment-outcome-v1 (ver appointment-outcome-k2b.test.ts).
-    expect(requirement.map((row) => row.capability).sort()).toEqual(['appointment-outcome-v1', 'billing-eligibility-v1']);
+    // K2-b acrescentou appointment-outcome-v1 (ver appointment-outcome-k2b.test.ts);
+    // K11, appointment-ai-confirmation-v1 (ver k11-whatsapp-request-flow.test.ts).
+    expect(requirement.map((row) => row.capability).sort()).toEqual(['appointment-ai-confirmation-v1', 'appointment-outcome-v1', 'billing-eligibility-v1']);
     expect((await fixturePrisma.billingEligibilityProtocol.findMany()).map((row) => row.name)).toEqual(['billing-eligibility-v1']);
 
     const expected = [

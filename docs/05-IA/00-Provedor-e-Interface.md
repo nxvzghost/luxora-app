@@ -71,6 +71,7 @@ interface IntentResult {
   entities: Record<string, unknown>;
   requiresEscalation: boolean; // true quando o caso foge do padrão "tudo ok" (ver critério de autonomia abaixo)
   escalationReason?: string;   // motivo da consulta de segurança, quando requiresEscalation = true — nunca deixado em branco quando a flag é true
+  confirmation?: 'confirma' | 'recusa' | 'ambigua' | 'nao_relacionada'; // K11: só quando há pergunta pendente
 }
 
 interface UsageMetrics {
@@ -85,6 +86,7 @@ interface UsageMetrics {
 
 - Nenhum Caso de Uso do Backend chama o SDK da Anthropic diretamente — sempre através de `IAIProvider`.
 - `interpretIntent` **nunca** executa uma ação — apenas identifica a intenção. A execução segue o fluxo já definido: IA → Motor Operacional → Caso de Uso (ADR-0006).
+- **K11 — cancelar e remarcar em duas etapas** ([ADR-0069](../02-Arquitetura/ADRs/ADR-0069-ciclo-de-vida-da-consulta.md), seção 10.1, D1 a D8; implementado localmente em 23/10/2026, a validar com o modelo real). Para o paciente identificado, `ConversationInput.appointmentContext` leva o dia de hoje no fuso da clínica e as consultas futuras dele **sem nenhum identificador** (data, dia da semana, horário, profissional, modalidade) e, quando houver, a pergunta de confirmação ainda sem resposta (D3). A IA só extrai do texto de qual consulta se trata (`appointmentDate`, `appointmentTime`, `professional`; na remarcação, `newDate`, `newTime`) e classifica a resposta à pergunta em `confirmation`; o backend localiza a consulta, monta a pergunta e o resultado, e decide se algo acontece (D4). `confirmation` só é aceita com pergunta pendente; fora dos quatro valores, não há classificação, e o backend trata como resposta ambígua. A intenção `nao_comparecer` ("não vou conseguir ir") é pedido de cancelamento antes do início (D7). No turno do K11 não há `generateResponse`: o texto enviado é o do backend, sem menção a cobrança (D8).
 - Todo agente configurado por Tenant (personalidade, tom, mensagens padrão — já definido em `07-Multitenancy.md`) é resolvido **antes** da chamada ao provedor, idealmente aproveitando prompt caching para o bloco de configuração da clínica, que se repete em toda conversa daquele Tenant.
 - Todo `UsageMetrics` retornado é registrado em auditoria (`03-Database/08-Auditoria.md`, `actor_type = ai_agent`), incluindo `costEstimate`, permitindo acompanhar consumo real por Tenant frente ao teto definido acima.
 

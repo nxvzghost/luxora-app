@@ -28,6 +28,8 @@ function makeUseCase(
   const contactIntentActionRouter = { route: vi.fn().mockResolvedValue(contactRouterResult) };
   const metrics = new MetricsService();
   const solicitarAtendimentoHumano = { execute: vi.fn().mockResolvedValue(undefined) };
+  // K11: sem pedido pendente e sem tratamento do pedido — o turno segue o caminho de sempre.
+  const pedidoPeloWhatsApp = { prepare: vi.fn().mockResolvedValue({ pending: null }), handle: vi.fn().mockResolvedValue(null) };
   const useCase = new ProcessarMensagemUseCase(
     aiProvider,
     auditService as never,
@@ -35,8 +37,9 @@ function makeUseCase(
     contactIntentActionRouter as never,
     metrics,
     solicitarAtendimentoHumano as never,
+    pedidoPeloWhatsApp as never,
   );
-  return { useCase, aiProvider, auditService, intentActionRouter, contactIntentActionRouter, metrics, solicitarAtendimentoHumano };
+  return { useCase, aiProvider, auditService, intentActionRouter, contactIntentActionRouter, metrics, solicitarAtendimentoHumano, pedidoPeloWhatsApp };
 }
 
 describe('ProcessarMensagemUseCase', () => {
@@ -130,6 +133,72 @@ describe('ProcessarMensagemUseCase', () => {
       { inputTokens: 5000, outputTokens: 3000, costEstimate: 0.2, latencyMs: 800 },
     );
     await expect(useCase.execute({ tenantId: 't1', conversationHistory: [], message: 'oi' })).resolves.toBeDefined();
+  });
+
+  describe('K11 — pedido de cancelamento ou remarcação em duas etapas', () => {
+    const whatsApp = { conversationId: 'conv-1', messageId: 'wamid.1', receivedAt: new Date('2026-08-01T09:00:00Z') };
+    const context = { today: '2026-08-01 (sábado)', upcoming: [], pendingQuestion: 'Para confirmar: você quer cancelar a consulta de …?' };
+
+    it('o contexto do K11 vai para interpretIntent; o turno é do pedido: texto do backend, sem generateResponse nem roteador', async () => {
+      const { useCase, aiProvider, intentActionRouter, pedidoPeloWhatsApp, auditService } = makeUseCase({
+        intent: 'confirmar_presenca',
+        confidence: 0.9,
+        entities: {},
+        requiresEscalation: false,
+        confirmation: 'confirma',
+      });
+      pedidoPeloWhatsApp.prepare.mockResolvedValue({ context, pending: null });
+      pedidoPeloWhatsApp.handle.mockResolvedValue({ responseMessage: 'Pronto: a consulta de … foi cancelada.', actionTaken: true });
+
+      const result = await useCase.execute({ tenantId: 't1', patientId: 'p1', conversationHistory: [], message: 'sim', whatsApp });
+
+      expect(pedidoPeloWhatsApp.prepare).toHaveBeenCalledWith({ tenantId: 't1', ...whatsApp, patientId: 'p1', identityResolved: true });
+      expect(aiProvider.interpretIntent.mock.calls[0][0].appointmentContext).toEqual(context);
+      expect(pedidoPeloWhatsApp.handle).toHaveBeenCalledWith(
+        { tenantId: 't1', ...whatsApp, patientId: 'p1', identityResolved: true },
+        expect.objectContaining({ confirmation: 'confirma' }),
+        { context, pending: null },
+      );
+      expect(result).toEqual({ responseMessage: 'Pronto: a consulta de … foi cancelada.', requiresEscalation: false, escalationReason: undefined, actionTaken: true });
+      expect(aiProvider.generateResponse).not.toHaveBeenCalled();
+      expect(intentActionRouter.route).not.toHaveBeenCalled();
+      expect(auditService.recordAll).toHaveBeenCalledWith([expect.objectContaining({ eventName: 'InteracaoDeIA', actionTaken: true })], 'ai_agent');
+    });
+
+    it('quando a mensagem não é do K11, o turno segue o fluxo de sempre', async () => {
+      const { useCase, aiProvider, intentActionRouter, pedidoPeloWhatsApp } = makeUseCase({ intent: 'duvida_geral', confidence: 0.9, entities: {}, requiresEscalation: false });
+      await useCase.execute({ tenantId: 't1', patientId: 'p1', conversationHistory: [], message: 'qual o endereço?', whatsApp });
+      expect(pedidoPeloWhatsApp.handle).toHaveBeenCalledOnce();
+      expect(intentActionRouter.route).toHaveBeenCalledOnce();
+      expect(aiProvider.generateResponse).toHaveBeenCalledOnce();
+    });
+
+    it('identidade ambígua (ADR-0063): o pedido não é tratado; prepare recebe a identidade como não resolvida', async () => {
+      const { useCase, pedidoPeloWhatsApp, aiProvider } = makeUseCase({ intent: 'cancelar_consulta', confidence: 0.9, entities: {}, requiresEscalation: false });
+      await useCase.execute({ tenantId: 't1', patientId: 'p1', identityAmbiguous: true, conversationHistory: [], message: 'cancela', whatsApp });
+      expect(pedidoPeloWhatsApp.prepare).toHaveBeenCalledWith(expect.objectContaining({ patientId: undefined, identityResolved: false }));
+      expect(pedidoPeloWhatsApp.handle).not.toHaveBeenCalled();
+      expect(aiProvider.interpretIntent.mock.calls[0][0].patientId).toBeUndefined();
+    });
+
+    it('identidade pendente no eixo de contato: o pedido não é tratado neste turno', async () => {
+      const { useCase, pedidoPeloWhatsApp } = makeUseCase(
+        { intent: 'cancelar_consulta', confidence: 0.9, entities: {}, requiresEscalation: false },
+        { actionTaken: false },
+        undefined,
+        { actionTaken: false, requiresConfirmation: true, confirmationPrompt: 'Confirme seu nome completo.' },
+      );
+      await useCase.execute({ tenantId: 't1', patientId: 'p1', contactId: 'c1', conversationHistory: [], message: 'cancela', whatsApp });
+      expect(pedidoPeloWhatsApp.handle).not.toHaveBeenCalled();
+    });
+
+    it('fora do WhatsApp (sem a mensagem de origem), o K11 não roda', async () => {
+      const { useCase, pedidoPeloWhatsApp, aiProvider } = makeUseCase({ intent: 'cancelar_consulta', confidence: 0.9, entities: {}, requiresEscalation: false });
+      await useCase.execute({ tenantId: 't1', patientId: 'p1', conversationHistory: [], message: 'cancela' });
+      expect(pedidoPeloWhatsApp.prepare).not.toHaveBeenCalled();
+      expect(pedidoPeloWhatsApp.handle).not.toHaveBeenCalled();
+      expect(aiProvider.interpretIntent.mock.calls[0][0].appointmentContext).toBeUndefined();
+    });
   });
 
   describe('ADR-0055 (AD-018), Fase 7 — integração com ContactIntentActionRouter', () => {

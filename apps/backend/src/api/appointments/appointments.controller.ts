@@ -28,6 +28,7 @@ import {
 } from '@use-cases/appointment/desfecho-consulta.use-case';
 import { CriarAgendamentoRecorrenteUseCase } from '@use-cases/appointment/criar-agendamento-recorrente.use-case';
 import { ListarAgendamentosUseCase } from '@use-cases/appointment/listar-agendamentos.use-case';
+import { ListarPedidosPeloWhatsAppUseCase, PendingRequestItem } from '@use-cases/appointment/listar-pedidos-pelo-whatsapp.use-case';
 import { Appointment } from '@domain/appointment/appointment.entity';
 import { AppointmentOutcomeRecord } from '@domain/appointment/appointment-outcome';
 import { Session } from '@domain/session/session.entity';
@@ -66,9 +67,35 @@ function toOutcomeResponse(outcome: AppointmentOutcomeRecord | null) {
   return {
     outcome: outcome.outcome,
     recordedAt: outcome.recordedAt,
+    // K11 — `ai_agent`: cancelamento ou remarcação pela IA, confirmado pelo paciente.
+    recordedBy: outcome.recordedByActorType,
     noShowDecision: outcome.noShowDecision ?? null,
     lateNoticeDecision: outcome.lateNoticeDecision ?? null,
     noticeTiming: outcome.closingNoticeTiming ?? null,
+  };
+}
+
+/** K11 — um pedido pelo WhatsApp na lista de pendências; sem o texto da mensagem. */
+function toRequestResponse(item: PendingRequestItem) {
+  const { request, replies, status, appointment } = item;
+  return {
+    id: request.id,
+    status,
+    requestedAction: request.requestedAction ?? null,
+    intent: request.intent,
+    timing: request.timing,
+    receivedAt: request.receivedAt ?? request.recordedAt,
+    askedScheduledAt: request.askedScheduledAt ?? null,
+    proposedScheduledAt: request.proposedScheduledAt ?? null,
+    lastAnswer: replies[replies.length - 1]?.confirmationAnswer ?? null,
+    appointment: {
+      id: appointment.id,
+      patientId: appointment.patientId,
+      therapistId: appointment.therapistId,
+      scheduledAt: appointment.scheduledAt,
+      modality: appointment.modality,
+      state: appointment.state,
+    },
   };
 }
 
@@ -109,12 +136,25 @@ export class AppointmentsController {
     private readonly confirmarCobrancaDeFalta: ConfirmarCobrancaDeFaltaUseCase,
     private readonly abonarFalta: AbonarFaltaUseCase,
     private readonly reverterAbono: ReverterAbonoUseCase,
+    private readonly listarPedidosPeloWhatsApp: ListarPedidosPeloWhatsAppUseCase,
   ) {}
 
   @Get('appointments')
   async list(@Query('from') from: string, @Query('to') to: string) {
     const rows = await this.listarAgendamentos.execute(parseDateParam('from', from), parseDateParam('to', to));
     return { data: rows.map(({ appointment, outcome }) => toResponse(appointment, outcome)) };
+  }
+
+  /**
+   * K11 (ADR-0069; D6) — pendências da equipe: pedidos de cancelamento ou
+   * remarcação pelo WhatsApp aguardando a confirmação do paciente, vencidos
+   * ou que precisam de alguém da clínica. O estado é calculado na leitura.
+   */
+  @Get('appointments/whatsapp-requests')
+  @Roles('admin', 'therapist')
+  async whatsAppRequests() {
+    const items = await this.listarPedidosPeloWhatsApp.execute();
+    return { data: items.map(toRequestResponse) };
   }
 
   @Get('therapists/:id/availability')

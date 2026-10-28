@@ -74,7 +74,10 @@ LABEL org.opencontainers.image.title="luxora-backend" \
 # (tabela deployment_requirement) e recusam a imagem a que falte algo.
 # K2-b — appointment-outcome-v1: conhece o desfecho da consulta e a
 # elegibilidade definitiva das sessões (ADR-0069, seções 2.4 e 2.9).
-LABEL luxora.capabilities="billing-eligibility-v1,appointment-outcome-v1"
+# K11 — appointment-ai-confirmation-v1: lê o desfecho de autoria da IA (sem
+# usuário) e cancela ou remarca pelo WhatsApp só com a confirmação do
+# paciente em outra mensagem (ADR-0069, decisões D1 a D8).
+LABEL luxora.capabilities="billing-eligibility-v1,appointment-outcome-v1,appointment-ai-confirmation-v1"
 
 USER node
 EXPOSE 3000

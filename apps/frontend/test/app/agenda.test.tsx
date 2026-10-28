@@ -50,6 +50,7 @@ function mockAgenda(overrides: Routes = {}, appointments: Array<Record<string, u
     'GET /therapists': { body: { data: [{ id: 'therapist-1', name: 'Dra. Marta', specialty: null }] } },
     'GET /therapists/:id/availability': { body: { data: [SLOT_14, SLOT_15] } },
     'GET /notifications/unread-count': { body: { count: 0 } },
+    'GET /appointments/whatsapp-requests': { body: { data: [] } },
     ...overrides,
   });
 }
@@ -310,6 +311,73 @@ describe('AgendaPage — desfecho da consulta (K2-b)', () => {
 
     await waitFor(() => expect(api.sent('POST', '/appointments/:id/no-show/excuse/revert')).toHaveLength(1));
     expect(await screen.findByRole('status')).toHaveTextContent(/abono revertido/i);
+  });
+});
+
+/**
+ * K11 (ADR-0069; D2, D6) — pedidos de cancelamento ou remarcação feitos pelo
+ * WhatsApp: os que esperam o paciente, os que pedem a equipe e os que a IA
+ * executou com a confirmação dele. Só informação: nenhuma ação daqui.
+ */
+describe('AgendaPage — pedidos pelo WhatsApp (K11)', () => {
+  const request = (id: string, status: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    status,
+    requestedAction: 'cancelar',
+    intent: 'pedido_cancelamento',
+    timing: 'no_prazo',
+    receivedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+    askedScheduledAt: SLOT_14.startsAt,
+    proposedScheduledAt: null,
+    lastAnswer: null,
+    appointment: { id: 'appt-1', patientId: 'patient-1', therapistId: 'therapist-1', scheduledAt: SLOT_14.startsAt, modality: 'presencial', state: 'Reservada' },
+    ...extra,
+  });
+
+  it('mostra cada pedido com paciente, terapeuta e o que ele espera — "IA, confirmado pelo paciente" no executado', async () => {
+    mockAgenda({
+      'GET /appointments/whatsapp-requests': {
+        body: {
+          data: [
+            request('r1', 'aguardando'),
+            request('r2', 'confirmado', { lastAnswer: 'confirma', appointment: { ...request('x', '').appointment, state: 'Cancelada' } }),
+            request('r3', 'nao_executado', { requestedAction: 'remarcar', intent: 'pedido_remarcacao', proposedScheduledAt: SLOT_15.startsAt, lastAnswer: 'confirma' }),
+            request('r4', 'encaminhado', { lastAnswer: 'ambigua' }),
+            request('r5', 'vencido'),
+          ],
+        },
+      },
+    });
+    renderWithQueryClient(<AgendaPage />);
+
+    const section = (await screen.findByRole('heading', { name: 'Pedidos pelo WhatsApp' })).closest('section') as HTMLElement;
+    const rows = within(section).getAllByTestId('pedido-whatsapp');
+    expect(rows.map((row) => within(row).getByText(/^(Aguardando|IA,|Precisa|Vencido)/).textContent)).toEqual([
+      'Aguardando confirmação do paciente',
+      'IA, confirmado pelo paciente',
+      'Precisa da equipe: confirmado, mas não executado',
+      'Precisa da equipe: resposta sem confirmação clara',
+      'Vencido: sem confirmação até o início',
+    ]);
+    expect(rows[0]).toHaveTextContent(/Ana Souza · Dra\. Marta/);
+    expect(rows[0]).toHaveTextContent(/^Cancelar a consulta de /);
+    expect(rows[2]).toHaveTextContent(/^Remarcar a consulta de .+ para /);
+    expect(section).not.toHaveTextContent(/patient-1|therapist-1|appt-1/);
+    expect(within(section).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('sem pedidos, a seção não aparece', async () => {
+    mockAgenda();
+    renderWithQueryClient(<AgendaPage />);
+    await screen.findByText(/Ana Souza/);
+    expect(screen.queryByRole('heading', { name: 'Pedidos pelo WhatsApp' })).not.toBeInTheDocument();
+  });
+
+  it('erro ao carregar os pedidos aparece sem esconder a agenda', async () => {
+    mockAgenda({ 'GET /appointments/whatsapp-requests': apiError(500, 'INTERNAL', 'falha') });
+    renderWithQueryClient(<AgendaPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/pedidos do WhatsApp/i);
+    expect(screen.getByText(/Ana Souza · Dra\. Marta/)).toBeInTheDocument();
   });
 });
 

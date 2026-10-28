@@ -68,6 +68,8 @@ const PROFILE_NAME = 'Perfil Do Zap Sem Valor';
 /** O que a "IA" responde em um turno: a intenção e a decisão sobre o Contact. */
 interface Script {
   intent: Pick<IntentResult, 'intent' | 'entities'>;
+  /** K11 — a classificação da resposta à pergunta pendente, quando há uma. */
+  confirmation?: IntentResult['confirmation'];
   decision: ContactIntentDecision;
   patientNameHint?: string;
   /** Fixo, ou calculado a partir do que o classificador recebeu (D-A: o que ele consegue ver). */
@@ -124,6 +126,7 @@ const scriptedAi: IAIProvider = {
       confidence: 0.95,
       entities: script.intent.entities,
       requiresEscalation: false,
+      ...(script.confirmation ? { confirmation: script.confirmation } : {}),
       usage: NO_USAGE,
     };
   },
@@ -178,11 +181,24 @@ async function waitUntilProcessed(wamid: string): Promise<void> {
 }
 
 /**
- * Um turno inteiro de conversa, pelo caminho real: webhook assinado → fila →
- * worker → resposta enfileirada para saída. O payload tem o formato da Meta,
- * inclusive o nome de perfil do remetente.
+ * K11 — um turno que o próprio backend responde (pedido de cancelamento ou
+ * remarcação, ou a resposta à pergunta pendente): a IA só interpreta, e o
+ * texto enviado é o montado pelo backend, sem generateResponse.
  */
-async function turn(from: string, body: string, script: Script, clinic: Clinic = clinicA): Promise<Turn> {
+async function backendTurn(from: string, body: string, script: Script, clinic: Clinic = clinicA): Promise<{ intentInput: ConversationInput; reply: string }> {
+  const before = responseContexts.length;
+  await deliver(from, body, script, clinic);
+  expect(responseContexts.length).toBe(before);
+  const conversation = await conversationOf(from, clinic);
+  const sent = await fixturePrisma.message.findFirstOrThrow({
+    where: { conversationId: conversation?.id, direction: 'saida' },
+    orderBy: { createdAt: 'desc' },
+  });
+  return { intentInput: intentInputs[intentInputs.length - 1], reply: sent.content };
+}
+
+/** A mensagem pelo caminho real: webhook assinado → fila → worker. O payload tem o formato da Meta, inclusive o nome de perfil do remetente. */
+async function deliver(from: string, body: string, script: Script, clinic: Clinic): Promise<void> {
   const wamid = `wamid.${randomUUID()}`;
   const rawBody = JSON.stringify({
     entry: [
@@ -199,8 +215,6 @@ async function turn(from: string, body: string, script: Script, clinic: Clinic =
       },
     ],
   });
-  const before = { intents: intentInputs.length, responses: responseContexts.length, classifications: classifierInputs.length };
-
   currentScript = script;
   try {
     const res = await api()
@@ -213,6 +227,16 @@ async function turn(from: string, body: string, script: Script, clinic: Clinic =
   } finally {
     currentScript = undefined;
   }
+}
+
+/**
+ * Um turno inteiro de conversa, pelo caminho real: webhook assinado → fila →
+ * worker → resposta enfileirada para saída. O payload tem o formato da Meta,
+ * inclusive o nome de perfil do remetente.
+ */
+async function turn(from: string, body: string, script: Script, clinic: Clinic = clinicA): Promise<Turn> {
+  const before = { intents: intentInputs.length, responses: responseContexts.length, classifications: classifierInputs.length };
+  await deliver(from, body, script, clinic);
 
   expect(responseContexts.length).toBe(before.responses + 1);
   const responseContext = responseContexts[responseContexts.length - 1];
@@ -316,6 +340,11 @@ async function cleanupClinic(clinic: Clinic | undefined): Promise<void> {
   if (!clinic) return;
   const tenantId = clinic.fixture.tenantId;
   await fixturePrisma.inboxEntry.deleteMany({ where: { tenantId } });
+  // K11 — os pedidos e as respostas pelo WhatsApp apontam para a conversa (e
+  // o desfecho da IA, para eles): saem antes dela.
+  await fixturePrisma.appointmentDecision.deleteMany({ where: { tenantId } });
+  await fixturePrisma.appointmentOutcomeRecord.deleteMany({ where: { tenantId } });
+  await fixturePrisma.appointmentNotice.deleteMany({ where: { tenantId } });
   const conversations = await fixturePrisma.conversation.findMany({ where: { tenantId }, select: { id: true } });
   await fixturePrisma.message.deleteMany({ where: { conversationId: { in: conversations.map((conversation) => conversation.id) } } });
   await fixturePrisma.conversation.deleteMany({ where: { tenantId } });
@@ -1038,9 +1067,10 @@ describe('[Contact] identidade no fluxo real do WhatsApp — ADR-0063 (AD-037, A
     let ownAppointmentId: string;
     let otherBillingTurn: Turn;
     let ownBillingTurn: Turn;
-    let cancelOther: Turn;
+    let cancelOther: { reply: string };
     let confirmOther: Turn;
-    let rescheduleOther: Turn;
+    let rescheduleOther: { reply: string };
+    let ownCancelQuestion: { reply: string };
     let sessionsBefore: number;
 
     beforeAll(async () => {
@@ -1053,18 +1083,27 @@ describe('[Contact] identidade no fluxo real do WhatsApp — ADR-0063 (AD-037, A
       sessionsBefore = await fixturePrisma.session.count({ where: { tenantId: clinicA.fixture.tenantId } });
 
       // A IA (enganada, ou induzida por quem escreve) entrega o identificador
-      // de registros de OUTRO paciente da mesma clínica.
-      const about = (intent: string, entities: Record<string, unknown>): Script => ({ intent: { intent, entities }, decision: 'IGNORAR' });
-      cancelOther = await turn(FROM, 'Cancela essa consulta.', about('cancelar_consulta', { appointmentId: otherAppointmentId }));
-      confirmOther = await turn(FROM, 'Confirma essa consulta.', about('confirmar_presenca', { appointmentId: otherAppointmentId }));
-      rescheduleOther = await turn(
+      // de registros de OUTRO paciente da mesma clínica. Com uma pergunta do
+      // K11 pendente, ela classifica as mensagens seguintes como não
+      // relacionadas, até o "sim" final.
+      const about = (intent: string, entities: Record<string, unknown>, confirmation?: Script['confirmation']): Script => ({
+        intent: { intent, entities },
+        confirmation,
+        decision: 'IGNORAR',
+      });
+      // K11 — cancelar e remarcar não usam identificador vindo da IA (D3): o
+      // backend procura entre as consultas do próprio paciente.
+      cancelOther = await backendTurn(FROM, 'Cancela essa consulta.', about('cancelar_consulta', { appointmentId: otherAppointmentId }));
+      confirmOther = await turn(FROM, 'Confirma essa consulta.', about('confirmar_presenca', { appointmentId: otherAppointmentId }, 'nao_relacionada'));
+      rescheduleOther = await backendTurn(
         FROM,
         'Remarca essa consulta.',
-        about('remarcar_consulta', { appointmentId: otherAppointmentId, newScheduledAt: movedSlot.toISOString() }),
+        about('remarcar_consulta', { appointmentId: otherAppointmentId, newScheduledAt: movedSlot.toISOString() }, 'nao_relacionada'),
       );
-      otherBillingTurn = await turn(FROM, 'Quanto é essa cobrança?', about('consultar_cobranca', { billingId: otherBilling.id }));
-      ownBillingTurn = await turn(FROM, 'E a minha cobrança?', about('consultar_cobranca', { billingId: ownBilling.id }));
-      await turn(FROM, 'Cancela a minha consulta.', about('cancelar_consulta', { appointmentId: ownAppointmentId }));
+      otherBillingTurn = await turn(FROM, 'Quanto é essa cobrança?', about('consultar_cobranca', { billingId: otherBilling.id }, 'nao_relacionada'));
+      ownBillingTurn = await turn(FROM, 'E a minha cobrança?', about('consultar_cobranca', { billingId: ownBilling.id }, 'nao_relacionada'));
+      ownCancelQuestion = await backendTurn(FROM, 'Cancela a minha consulta.', about('cancelar_consulta', { appointmentId: ownAppointmentId }, 'nao_relacionada'));
+      await backendTurn(FROM, 'Sim.', about('duvida_geral', {}, 'confirma'));
     }, 60_000);
 
     it('a consulta de outro paciente não é cancelada, confirmada nem remarcada', async () => {
@@ -1073,9 +1112,15 @@ describe('[Contact] identidade no fluxo real do WhatsApp — ADR-0063 (AD-037, A
       expect(appointment.state).toBe('Reservada');
       expect(appointment.scheduledAt).toEqual(otherSlot);
       expect(await fixturePrisma.session.count({ where: { tenantId: clinicA.fixture.tenantId } })).toBe(sessionsBefore);
-      for (const turnResult of [cancelOther, confirmOther, rescheduleOther]) {
-        expect(actionsIn(turnResult.instructions)).toEqual([]);
-      }
+      expect(actionsIn(confirmOther.instructions)).toEqual([]);
+      expect(await fixturePrisma.appointmentNotice.count({ where: { appointmentId: otherAppointmentId } })).toBe(0);
+      expect(await fixturePrisma.appointmentOutcomeRecord.count({ where: { appointmentId: otherAppointmentId } })).toBe(0);
+    });
+
+    it('K11 — o pedido sobre "essa consulta" vira a pergunta sobre a consulta do próprio paciente; nada muda no turno', () => {
+      expect(cancelOther.reply).toMatch(/^Para confirmar: você quer cancelar a consulta de /);
+      expect(rescheduleOther.reply).toMatch(/^Para qual dia e horário você quer remarcar a consulta de /);
+      expect(ownCancelQuestion.reply).toMatch(/^Para confirmar: você quer cancelar a consulta de /);
     });
 
     it('a cobrança de outro paciente não é informada; a do próprio paciente é', () => {
@@ -1085,9 +1130,11 @@ describe('[Contact] identidade no fluxo real do WhatsApp — ADR-0063 (AD-037, A
       expect(ownBillingTurn.instructions[0]).toMatch(BILLING_AMOUNT);
     });
 
-    it('a consulta do próprio paciente é cancelada normalmente', async () => {
+    it('a consulta do próprio paciente é cancelada depois da confirmação dele, com o desfecho da IA (K11)', async () => {
       const appointment = await fixturePrisma.appointment.findUniqueOrThrow({ where: { id: ownAppointmentId } });
       expect(appointment.state).toBe('Cancelada');
+      const outcome = await fixturePrisma.appointmentOutcomeRecord.findUniqueOrThrow({ where: { appointmentId: ownAppointmentId } });
+      expect([outcome.outcome, outcome.outcomeRecordedByActorType, outcome.outcomeRecordedByUserId]).toEqual(['Cancelada', 'ai_agent', null]);
     });
   });
 

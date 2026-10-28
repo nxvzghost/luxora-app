@@ -26,6 +26,7 @@ import { SlotNotAvailableError } from '@domain-services/availability/slot-not-av
 import {
   AppointmentActionOptions,
   AppointmentActionResult,
+  assertAiConfirmationStillValid,
   loadForTransition,
   requireHumanActor,
   withAppointmentRules,
@@ -129,7 +130,14 @@ export class RemarcarConsultaUseCase {
           throw new AppointmentRuleViolation('APPOINTMENT_ALREADY_RESCHEDULED', 'Esta consulta já foi remarcada; use a ocorrência nova.');
         }
         if (previous.hasStarted(now)) throw alreadyStarted();
+        // K11 — a IA remarca só o que o paciente confirmou: a consulta ainda é
+        // a perguntada, e o horário novo é o que constou na pergunta (D5).
+        const ai = byAi ? assertAiConfirmationStillValid(previous, options ?? {}, now) : null;
+        if (ai && ai.request.proposedScheduledAt?.getTime() !== newScheduledAt.getTime()) {
+          throw new AppointmentRuleViolation('APPOINTMENT_REQUEST_STALE', 'O horário novo não é o que o paciente confirmou.');
+        }
 
+        // D5 — a disponibilidade é conferida de novo agora, na confirmação.
         const disponivel = await this.verificarDisponibilidade.execute({
           therapistId: previous.therapistId,
           scheduledAt: newScheduledAt,
@@ -155,11 +163,14 @@ export class RemarcarConsultaUseCase {
         if (notice && userId) {
           outcome = AppointmentOutcomeRecord.closeByNotice(previous, notice, 'Remarcada', { userId, now, newAppointmentId: current.id });
           await this.outcomes.insert(outcome);
+        } else if (ai) {
+          outcome = AppointmentOutcomeRecord.closeByConfirmedRequest(previous, ai.request, ai.confirmation, 'Remarcada', { now, newAppointmentId: current.id });
+          await this.outcomes.insert(outcome);
         }
         await this.repo.save(current); // pode lançar SESSION_CONFLICT (índice único parcial)
 
         events.push(...previous.pullDomainEvents(), ...(outcome?.pullDomainEvents() ?? []), ...current.pullDomainEvents());
-        await this.auditService.recordAll(events);
+        await this.auditService.recordAll(events, byAi ? 'ai_agent' : undefined);
         return { previous, current, outcome };
       }),
     );
@@ -205,6 +216,8 @@ export class CancelarConsultaUseCase {
             : outcomeConflict(existing);
         }
         if (appointment.hasStarted(now) && appointment.state !== 'Cancelada') throw alreadyStarted();
+        // K11 — a IA cancela só o que o paciente confirmou, e a consulta ainda é a perguntada.
+        const ai = byAi ? assertAiConfirmationStillValid(appointment, options ?? {}, now) : null;
 
         const events: DomainEvent[] = [];
         let notice: AppointmentNotice | null = null;
@@ -221,10 +234,13 @@ export class CancelarConsultaUseCase {
         if (notice && userId) {
           outcome = AppointmentOutcomeRecord.closeByNotice(appointment, notice, 'Cancelada', { userId, now });
           await this.outcomes.insert(outcome);
+        } else if (ai) {
+          outcome = AppointmentOutcomeRecord.closeByConfirmedRequest(appointment, ai.request, ai.confirmation, 'Cancelada', { now });
+          await this.outcomes.insert(outcome);
         }
 
         events.push(...appointment.pullDomainEvents(), ...(outcome?.pullDomainEvents() ?? []));
-        await this.auditService.recordAll(events);
+        await this.auditService.recordAll(events, byAi ? 'ai_agent' : undefined);
         return { appointment, outcome, changed: true };
       }),
     );
@@ -260,7 +276,8 @@ export class ConfirmarConsultaUseCase {
 
         appointment.transitionTo('Confirmada');
         await this.repo.save(appointment);
-        await this.auditService.recordAll(appointment.pullDomainEvents());
+        // K11 — a ação da IA é auditada como `ai_agent` (ADR-0069, seção 2.10).
+        await this.auditService.recordAll(appointment.pullDomainEvents(), options?.actor === 'ai_agent' ? 'ai_agent' : undefined);
         return appointment;
       }),
     );

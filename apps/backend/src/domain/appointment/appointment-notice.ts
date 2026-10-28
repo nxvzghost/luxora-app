@@ -10,9 +10,11 @@ import type { Appointment } from './appointment.entity';
  * quem decide é o caso de uso que a usa para encerrar a consulta
  * (cancelamento ou remarcação) ou, nas fases seguintes, uma pessoa.
  *
- * Nesta fase só o painel grava comunicações, como parte do cancelamento e da
- * remarcação. O registro de cada mensagem do WhatsApp, com o carimbo da Meta
- * e a confirmação explícita do paciente (K11), é da fase 5.
+ * O painel grava a comunicação do cancelamento e da remarcação. Pelo WhatsApp
+ * (K11, D2), a IA grava o pedido de cancelamento ou remarcação e, em outra
+ * linha, a resposta do paciente à pergunta de confirmação; o estado do
+ * pedido é derivado delas (appointment-request.ts). O carimbo da Meta ainda
+ * não é lido (K13): a referência pelo WhatsApp é o recebimento no webhook.
  */
 export type NoticeTiming = 'no_prazo' | 'fora_do_prazo' | 'sem_limite_configurado' | 'depois_do_inicio';
 export type NoticeIntent = 'nao_comparecera' | 'atraso' | 'pedido_cancelamento' | 'pedido_remarcacao' | 'indefinida';
@@ -20,6 +22,12 @@ export type NoticeRequestedBy = 'paciente' | 'clinica' | 'profissional';
 export type NoticeChannel = 'whatsapp' | 'painel';
 export type NoticeReferenceSource = 'meta_timestamp' | 'recebimento_webhook' | 'registro_no_painel';
 export type NoticeReviewStatus = 'pendente' | 'revisada' | 'sem_revisao_necessaria';
+/** K11 — o que o paciente respondeu à pergunta de confirmação. Só `confirma` leva ao desfecho. */
+export type NoticeConfirmationAnswer = 'confirma' | 'recusa' | 'ambigua';
+/** K11 — o que o pedido feito pelo WhatsApp quer fazer com a consulta. */
+export type NoticeRequestedAction = 'cancelar' | 'remarcar';
+/** K11 — intenções que abrem um pedido; "não vou conseguir ir" antes do início é pedido de cancelamento (D7). */
+export type RequestIntent = 'pedido_cancelamento' | 'pedido_remarcacao' | 'nao_comparecera';
 
 export const NOTICE_REQUESTERS: readonly NoticeRequestedBy[] = ['paciente', 'clinica', 'profissional'];
 /** Limite do motivo livre: fora da auditoria e da IA (ADR-0069, seção 2.10). */
@@ -72,6 +80,19 @@ export interface AppointmentNoticeProps {
   recordedByActorType: 'user' | 'ai_agent' | 'system';
   reason?: string;
   reviewStatus: NoticeReviewStatus;
+  /** K11 — a mensagem do WhatsApp (identificador da Meta) e quando ela chegou ao webhook. */
+  messageId?: string;
+  receivedAt?: Date;
+  conversationId?: string;
+  /** K11 — pedido que aguarda a confirmação do paciente, com o retrato da consulta perguntada. */
+  awaitsConfirmation?: boolean;
+  requestedAction?: NoticeRequestedAction;
+  askedScheduledAt?: Date;
+  askedModality?: string;
+  proposedScheduledAt?: Date;
+  /** K11 — resposta a um pedido. */
+  confirmsNoticeId?: string;
+  confirmationAnswer?: NoticeConfirmationAnswer;
 }
 
 export class NoticeRecordedEvent extends DomainEvent {
@@ -80,17 +101,32 @@ export class NoticeRecordedEvent extends DomainEvent {
   declare readonly intent: NoticeIntent;
   declare readonly timing: NoticeTiming;
   declare readonly requestedBy: NoticeRequestedBy | null;
+  declare readonly requestedAction: NoticeRequestedAction | null;
+  declare readonly confirmsNoticeId: string | null;
+  declare readonly confirmationAnswer: NoticeConfirmationAnswer | null;
 
   constructor(notice: AppointmentNotice) {
-    // O motivo livre não entra na auditoria (seção 2.10).
+    // O motivo livre e o texto da mensagem não entram na auditoria (seção 2.10).
     super('ComunicacaoRegistrada', notice.id, notice.tenantId, {
       appointmentId: notice.appointmentId,
       channel: notice.channel,
       intent: notice.intent,
       timing: notice.timing,
       requestedBy: notice.requestedBy ?? null,
+      requestedAction: notice.requestedAction ?? null,
+      confirmsNoticeId: notice.confirmsNoticeId ?? null,
+      confirmationAnswer: notice.confirmationAnswer ?? null,
     });
   }
+}
+
+/** Mensagem do WhatsApp que vira comunicação (K11). */
+export interface WhatsAppMessageRef {
+  conversationId: string;
+  /** Identificador da Meta (WAMID): uma comunicação por mensagem (message_id único). */
+  messageId: string;
+  /** Quando o Vertex recebeu a mensagem no webhook: a referência da classificação (K13 ainda não lê o carimbo da Meta). */
+  receivedAt: Date;
 }
 
 export class AppointmentNotice {
@@ -136,6 +172,118 @@ export class AppointmentNotice {
       reason,
       // Registrada por quem age sobre a consulta, no mesmo ato: nada a rever.
       reviewStatus: 'sem_revisao_necessaria',
+    });
+    notice._pendingEvents.push(new NoticeRecordedEvent(notice));
+    return notice;
+  }
+
+  static reconstitute(props: AppointmentNoticeProps): AppointmentNotice {
+    return new AppointmentNotice(props);
+  }
+
+  /**
+   * K11 (D2, D3, D7) — o pedido de cancelamento ou remarcação feito pelo
+   * paciente no WhatsApp, antes do início. Não muda a consulta: fica
+   * aguardando a confirmação em outra mensagem. Guarda o retrato da consulta
+   * perguntada (horário e modalidade) para a confirmação conferir que ela
+   * não mudou, e, na remarcação, o horário novo. A antecedência é a desta
+   * primeira mensagem (decisão K11 da rodada 5).
+   */
+  static requestFromWhatsApp(params: {
+    id: string;
+    appointment: Appointment;
+    intent: RequestIntent;
+    proposedScheduledAt?: Date;
+    message: WhatsAppMessageRef;
+    now: Date;
+    cancellationLimitHours?: number | null;
+  }): AppointmentNotice {
+    const requestedAction: NoticeRequestedAction = params.intent === 'pedido_remarcacao' ? 'remarcar' : 'cancelar';
+    if ((requestedAction === 'remarcar') !== (params.proposedScheduledAt !== undefined)) {
+      throw new Error('Só o pedido de remarcação leva um horário novo, e ele sempre leva.');
+    }
+    const classification = classifyNoticeTiming(params.message.receivedAt, params.appointment.scheduledAt, params.cancellationLimitHours);
+    if (classification.timing === 'depois_do_inicio') {
+      throw new Error('Um pedido de cancelamento ou remarcação só é aberto antes do início previsto.');
+    }
+    const notice = new AppointmentNotice({
+      id: params.id,
+      tenantId: params.appointment.tenantId,
+      appointmentId: params.appointment.id,
+      patientId: params.appointment.patientId,
+      channel: 'whatsapp',
+      recordedAt: params.now,
+      referenceTime: params.message.receivedAt,
+      referenceSource: 'recebimento_webhook',
+      classification,
+      intent: params.intent,
+      intentSource: 'ia',
+      requestedBy: 'paciente',
+      recordedByActorType: 'ai_agent',
+      reviewStatus: 'sem_revisao_necessaria',
+      messageId: params.message.messageId,
+      receivedAt: params.message.receivedAt,
+      conversationId: params.message.conversationId,
+      awaitsConfirmation: true,
+      requestedAction,
+      askedScheduledAt: params.appointment.scheduledAt,
+      askedModality: params.appointment.modality,
+      proposedScheduledAt: params.proposedScheduledAt,
+    });
+    notice._pendingEvents.push(new NoticeRecordedEvent(notice));
+    return notice;
+  }
+
+  /**
+   * K11 (D2, D4) — a resposta do paciente à pergunta de confirmação: outra
+   * linha, ligada ao pedido, da mesma consulta e da mesma conversa. Registrar
+   * a resposta não executa nada; quem executa (só com `confirma`) é o caso
+   * de uso, que confere as demais condições. A classificação é a do momento
+   * da resposta: uma confirmação no início ou depois dele não vale.
+   * `needsReview` marca a resposta que a equipe tem de rever mesmo sendo
+   * `confirma` (a consulta mudou depois da pergunta).
+   */
+  static replyFromWhatsApp(params: {
+    id: string;
+    request: AppointmentNotice;
+    appointment: Appointment;
+    answer: NoticeConfirmationAnswer;
+    message: WhatsAppMessageRef;
+    now: Date;
+    cancellationLimitHours?: number | null;
+    needsReview?: boolean;
+  }): AppointmentNotice {
+    const { request, appointment, message } = params;
+    if (!request.awaitsConfirmation || request.appointmentId !== appointment.id || request.conversationId !== message.conversationId) {
+      throw new Error('A resposta é sempre a um pedido da mesma consulta e da mesma conversa.');
+    }
+    if (request.messageId === message.messageId) {
+      throw new Error('A confirmação vem em outra mensagem, nunca na do próprio pedido.');
+    }
+    const classification = classifyNoticeTiming(message.receivedAt, appointment.scheduledAt, params.cancellationLimitHours);
+    const settledByItself = params.answer === 'confirma' && classification.timing !== 'depois_do_inicio' && !params.needsReview;
+    const notice = new AppointmentNotice({
+      id: params.id,
+      tenantId: appointment.tenantId,
+      appointmentId: appointment.id,
+      patientId: appointment.patientId,
+      channel: 'whatsapp',
+      recordedAt: params.now,
+      referenceTime: message.receivedAt,
+      referenceSource: 'recebimento_webhook',
+      classification,
+      intent: request.intent,
+      intentSource: 'ia',
+      requestedBy: 'paciente',
+      recordedByActorType: 'ai_agent',
+      // Recusa, resposta ambígua ou confirmação tardia vão para a equipe.
+      reviewStatus: settledByItself ? 'sem_revisao_necessaria' : 'pendente',
+      messageId: message.messageId,
+      receivedAt: message.receivedAt,
+      conversationId: message.conversationId,
+      awaitsConfirmation: false,
+      confirmsNoticeId: request.id,
+      confirmationAnswer: params.answer,
     });
     notice._pendingEvents.push(new NoticeRecordedEvent(notice));
     return notice;
@@ -196,9 +344,53 @@ export class AppointmentNotice {
     return this.props.reviewStatus;
   }
 
+  get messageId(): string | undefined {
+    return this.props.messageId;
+  }
+  get receivedAt(): Date | undefined {
+    return this.props.receivedAt;
+  }
+  get conversationId(): string | undefined {
+    return this.props.conversationId;
+  }
+  get awaitsConfirmation(): boolean {
+    return this.props.awaitsConfirmation === true;
+  }
+  get requestedAction(): NoticeRequestedAction | undefined {
+    return this.props.requestedAction;
+  }
+  get askedScheduledAt(): Date | undefined {
+    return this.props.askedScheduledAt;
+  }
+  get askedModality(): string | undefined {
+    return this.props.askedModality;
+  }
+  get proposedScheduledAt(): Date | undefined {
+    return this.props.proposedScheduledAt;
+  }
+  get confirmsNoticeId(): string | undefined {
+    return this.props.confirmsNoticeId;
+  }
+  get confirmationAnswer(): NoticeConfirmationAnswer | undefined {
+    return this.props.confirmationAnswer;
+  }
+
   /** Antes do início previsto (no prazo, fora do prazo ou sem limite). */
   get isBeforeStart(): boolean {
     return this.timing !== 'depois_do_inicio';
+  }
+
+  /**
+   * K11 (D4) — a consulta ainda é a que foi perguntada: mesmo horário e mesma
+   * modalidade. Uma consulta mudada no intervalo não é confirmada pela
+   * resposta a uma pergunta sobre outra.
+   */
+  stillDescribes(appointment: Appointment): boolean {
+    return (
+      this.props.appointmentId === appointment.id &&
+      this.props.askedScheduledAt?.getTime() === appointment.scheduledAt.getTime() &&
+      this.props.askedModality === appointment.modality
+    );
   }
 
   pullDomainEvents(): DomainEvent[] {

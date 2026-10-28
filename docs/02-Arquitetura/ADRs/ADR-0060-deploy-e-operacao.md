@@ -90,8 +90,16 @@ O responsável pelo produto aprovou **uma única exceção** à regra de compati
 |---|---|---|
 | `billing-eligibility-v1` | K2-a, `c801b91` | Protocolo na cobrança; vínculo com o paciente e a clínica da cobrança e da sessão (chaves compostas); privilégios por coluna |
 | `appointment-outcome-v1` | K2-b, `ea9163c` | Desfecho em `appointment_outcome`, com a consulta congelada (FK do retrato e política RLS restritiva `appointment_frozen_after_outcome`); elegibilidade da sessão exigida no vínculo; 23 restrições, sem trigger nem função |
+| `appointment-ai-confirmation-v1` | K11, implementado localmente em 23/10/2026, **sem commit** | Desfecho da IA (`ai_agent`, sem usuário) só para cancelamento ou remarcação confirmados pelo paciente, ligado ao pedido e à resposta dele (ADR-0069, seção 10.1, D1 a D8); 7 restrições, sem trigger nem função |
 
-A imagem atual declara as duas capacidades. A `fb93885` declara só a primeira; versões anteriores ao K2-a não declaram nenhuma. Contra o banco migrado, todas elas são retorno degradado.
+A imagem publicada declara as duas primeiras capacidades; a do K11, quando publicada, declara as três. A `2b9147a` declara as duas do K2, a `fb93885` só a primeira, e versões anteriores ao K2-a nenhuma. Contra o banco migrado, todas elas são retorno degradado.
+
+**K11 — comportamento degradado verificado** (ensaio local com a imagem real da `2b9147a` contra o banco com o K11, `infra/tests/k11-compat-rehearsal.sh`, 79 de 79; ensaio de deploy com as checagens do K11, 124 de 124). A `2b9147a`:
+- continua cancelando e remarcando pelo painel, e o banco aceita o desfecho que ela grava (autoria de pessoa pelo padrão da coluna);
+- responde 500 ao confirmar ou cancelar a consulta encerrada pela IA, porque não lê o desfecho sem usuário, e não grava nada; a agenda dela não é afetada (consulta cancelada não é listada);
+- pelo WhatsApp, volta a cancelar e remarcar numa etapa só (o comportamento dela, não ensaiado: exigiria chamar a IA). É o motivo de o retorno ser degradado.
+
+As migrations do K11 não reescrevem as tabelas nem mudam desfechos e comunicações existentes (impressão digital e arquivos das tabelas iguais); o rollback manual é recusado sem `--allow-degraded` e justificativa; o backup anterior ao K11 restaurado não sobe aplicação até o `deploy.sh` reaplicar as migrations.
 
 **Comportamento degradado verificado.** Ensaio com a imagem real da `fb93885` contra o banco migrado (`infra/tests/k2b-compat-rehearsal.sh`, 104 de 104). A versão anterior:
 - sobe e confirma consulta sem desfecho; a sessão que ela cria nasce não elegível;

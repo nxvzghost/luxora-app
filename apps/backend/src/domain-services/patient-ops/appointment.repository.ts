@@ -17,6 +17,12 @@ export interface AppointmentRepository {
   findActiveByTherapistAndRange(therapistId: string, from: Date, to: Date): Promise<Appointment[]>;
   /** Módulo 15 — lista agendamentos do Tenant inteiro (todos os terapeutas) num intervalo, para a tela de Agenda. */
   findByTenantAndRange(from: Date, to: Date): Promise<Appointment[]>;
+  /**
+   * K11 (D3) — consultas ainda abertas (Reservada, Confirmada, Reagendada) de
+   * um paciente num intervalo, da mais próxima para a mais distante: é entre
+   * elas que o backend localiza a consulta de um pedido pelo WhatsApp.
+   */
+  findOpenByPatientAndRange(patientId: string, from: Date, to: Date): Promise<Appointment[]>;
   save(appointment: Appointment): Promise<void>;
   /**
    * Salva N Appointments em uma única operação atômica — tudo ou nada. Base

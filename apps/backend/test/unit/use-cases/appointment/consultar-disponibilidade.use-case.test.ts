@@ -33,6 +33,7 @@ function makeUseCase(
     save: vi.fn(),
     saveMany: vi.fn(),
     findByTenantAndRange: vi.fn(),
+    findOpenByPatientAndRange: vi.fn(),
     existsForRecurringBlockOccurrence: vi.fn(),
   };
   const availabilityRepo = { findByTherapistId: vi.fn().mockResolvedValue(calendar), save: vi.fn() };

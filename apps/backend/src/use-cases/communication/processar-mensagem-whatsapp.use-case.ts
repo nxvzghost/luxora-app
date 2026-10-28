@@ -97,6 +97,11 @@ export class ProcessarMensagemWhatsAppUseCase {
     // pelo telefone — o mais antigo, quando havia mais de um.
     const identity = await this.resolverIdentidade.execute(contact);
 
+    // K11 — quando a mensagem chegou ao webhook (gravada na parte síncrona,
+    // ReceberMensagemWhatsAppUseCase): é a referência do pedido e da resposta,
+    // nunca o horário de processamento na fila (ADR-0069, seção 2.3).
+    const received = await this.conversationRepo.findMessageByExternalId(input.externalId);
+
     const result = await this.processarMensagem.execute({
       tenantId: input.tenantId,
       patientId: identity.status === 'recognized' ? identity.patientId : undefined,
@@ -106,6 +111,9 @@ export class ProcessarMensagemWhatsAppUseCase {
       conversationHistory,
       message: input.message,
       correlationId: input.correlationId,
+      whatsApp: received
+        ? { conversationId: input.conversationId, messageId: input.externalId, receivedAt: received.createdAt }
+        : undefined,
     });
 
     conversation.addMessage({ id: randomUUID(), direction: 'saida', content: result.responseMessage });

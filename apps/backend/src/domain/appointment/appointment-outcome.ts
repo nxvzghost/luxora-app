@@ -1,6 +1,13 @@
 import { DomainEvent } from '../shared/domain-event';
 import type { Appointment, AppointmentState } from './appointment.entity';
-import { NOTICE_REASON_MAX_LENGTH, type AppointmentNotice, type NoticeRequestedBy, type NoticeTiming } from './appointment-notice';
+import {
+  NOTICE_REASON_MAX_LENGTH,
+  type AppointmentNotice,
+  type NoticeConfirmationAnswer,
+  type NoticeRequestedAction,
+  type NoticeRequestedBy,
+  type NoticeTiming,
+} from './appointment-notice';
 
 /**
  * Desfecho da consulta — K2-b (ADR-0069, seções 2.4 a 2.6; DP-22 a DP-26).
@@ -27,6 +34,7 @@ export type AppointmentRuleCode =
   | 'APPOINTMENT_NOT_STARTED'
   | 'APPOINTMENT_OUTCOME_CONFLICT'
   | 'APPOINTMENT_ALREADY_RESCHEDULED'
+  | 'APPOINTMENT_REQUEST_STALE'
   | 'NO_SHOW_DECISION_CLOSED'
   | 'REASON_REQUIRED';
 
@@ -55,12 +63,20 @@ export interface AppointmentDecisionRecord {
   decidedByUserId: string;
 }
 
+/**
+ * K11 (D1) — quem registrou o desfecho: uma pessoa (com o usuário) ou a IA,
+ * sem usuário, e só para cancelamento ou remarcação que o paciente confirmou
+ * em outra mensagem (o banco confere: appointment_outcome_actor_check).
+ */
+export type OutcomeRecorder = 'user' | 'ai_agent';
+
 export interface AppointmentOutcomeProps {
   appointmentId: string;
   tenantId: string;
   outcome: AppointmentOutcome;
   recordedAt: Date;
-  recordedByUserId: string;
+  recordedByActorType: OutcomeRecorder;
+  recordedByUserId?: string;
   stateAtOutcome: AppointmentState;
   scheduledAtAtOutcome: Date;
   modalityAtOutcome: string;
@@ -72,6 +88,11 @@ export interface AppointmentOutcomeProps {
   lateNoticeDecision?: LateNoticeDecision;
   lateNoticeDecisionAt?: Date;
   lateNoticeDecisionByUserId?: string;
+  /** K11 — só no desfecho da IA: a ação do pedido encerrado e a resposta que o confirmou. */
+  closingRequestedAction?: NoticeRequestedAction;
+  confirmationNoticeId?: string;
+  confirmationAnswer?: NoticeConfirmationAnswer;
+  confirmationNoticeTiming?: NoticeTiming;
 }
 
 abstract class OutcomeEvent extends DomainEvent {
@@ -131,6 +152,8 @@ function noticeSummary(record: AppointmentOutcomeRecord, notice: AppointmentNoti
     limitHoursApplied: notice.limitHoursApplied ?? null,
     requestedBy: notice.requestedBy ?? null,
     lateNoticeDecision: record.lateNoticeDecision ?? null,
+    recordedBy: record.recordedByActorType,
+    confirmationNoticeId: record.confirmationNoticeId ?? null,
   };
 }
 
@@ -194,6 +217,7 @@ export class AppointmentOutcomeRecord {
       ...AppointmentOutcomeRecord.snapshot(appointment),
       outcome: 'Realizada',
       recordedAt: by.now,
+      recordedByActorType: 'user',
       recordedByUserId: by.userId,
     });
   }
@@ -204,6 +228,7 @@ export class AppointmentOutcomeRecord {
       ...AppointmentOutcomeRecord.snapshot(appointment),
       outcome: 'Falta',
       recordedAt: by.now,
+      recordedByActorType: 'user',
       recordedByUserId: by.userId,
       noShowDecision: 'aguardando_decisao',
     });
@@ -234,6 +259,7 @@ export class AppointmentOutcomeRecord {
       ...AppointmentOutcomeRecord.snapshot(appointment),
       outcome,
       recordedAt: by.now,
+      recordedByActorType: 'user',
       recordedByUserId: by.userId,
       closingNoticeId: notice.id,
       closingNoticeTiming: notice.timing,
@@ -243,6 +269,56 @@ export class AppointmentOutcomeRecord {
       outcome === 'Cancelada'
         ? new AppointmentCancelledEvent(record, notice)
         : new AppointmentRescheduledEvent(record, notice, by.newAppointmentId ?? ''),
+    );
+    return record;
+  }
+
+  /**
+   * K11 (D1, D4) — cancelamento (T3) e remarcação (T5) pela IA, só com a
+   * confirmação explícita do paciente: o desfecho fecha o pedido feito pelo
+   * WhatsApp (que dá a antecedência, pela primeira mensagem) e guarda a
+   * resposta `confirma` desse pedido, recebida em outra mensagem antes do
+   * início. A consulta já foi levada a `Cancelada`, como no painel. Sem
+   * usuário: a autoria é `ai_agent`. A consequência de um pedido fora do
+   * prazo fica para decisão humana (D8), como no painel.
+   */
+  static closeByConfirmedRequest(
+    appointment: Appointment,
+    request: AppointmentNotice,
+    confirmation: AppointmentNotice,
+    outcome: 'Cancelada' | 'Remarcada',
+    by: { now: Date; newAppointmentId?: string },
+  ): AppointmentOutcomeRecord {
+    if (appointment.state !== 'Cancelada') {
+      throw new Error('O desfecho de cancelamento ou remarcação só é gravado depois de a consulta ficar Cancelada.');
+    }
+    const expectedAction: NoticeRequestedAction = outcome === 'Cancelada' ? 'cancelar' : 'remarcar';
+    if (!request.awaitsConfirmation || request.appointmentId !== appointment.id || request.requestedAction !== expectedAction) {
+      throw new Error('O desfecho da IA encerra um pedido da mesma consulta, com a ação que ele pediu.');
+    }
+    if (confirmation.confirmsNoticeId !== request.id || confirmation.confirmationAnswer !== 'confirma') {
+      throw new Error('O desfecho da IA exige a resposta `confirma` desse mesmo pedido.');
+    }
+    if (!request.isBeforeStart || !confirmation.isBeforeStart) {
+      throw new AppointmentRuleViolation('APPOINTMENT_ALREADY_STARTED', 'A consulta já começou: não pode mais ser cancelada nem remarcada.');
+    }
+    const record = new AppointmentOutcomeRecord({
+      ...AppointmentOutcomeRecord.snapshot(appointment),
+      outcome,
+      recordedAt: by.now,
+      recordedByActorType: 'ai_agent',
+      closingNoticeId: request.id,
+      closingNoticeTiming: request.timing,
+      lateNoticeDecision: lateNoticeDecisionFor(request.timing, request.requestedBy),
+      closingRequestedAction: expectedAction,
+      confirmationNoticeId: confirmation.id,
+      confirmationAnswer: 'confirma',
+      confirmationNoticeTiming: confirmation.timing,
+    });
+    record._pendingEvents.push(
+      outcome === 'Cancelada'
+        ? new AppointmentCancelledEvent(record, request)
+        : new AppointmentRescheduledEvent(record, request, by.newAppointmentId ?? ''),
     );
     return record;
   }
@@ -322,8 +398,24 @@ export class AppointmentOutcomeRecord {
   get recordedAt(): Date {
     return this.props.recordedAt;
   }
-  get recordedByUserId(): string {
+  get recordedByActorType(): OutcomeRecorder {
+    return this.props.recordedByActorType;
+  }
+  /** Ausente só no desfecho da IA (K11). */
+  get recordedByUserId(): string | undefined {
     return this.props.recordedByUserId;
+  }
+  get closingRequestedAction(): NoticeRequestedAction | undefined {
+    return this.props.closingRequestedAction;
+  }
+  get confirmationNoticeId(): string | undefined {
+    return this.props.confirmationNoticeId;
+  }
+  get confirmationAnswer(): NoticeConfirmationAnswer | undefined {
+    return this.props.confirmationAnswer;
+  }
+  get confirmationNoticeTiming(): NoticeTiming | undefined {
+    return this.props.confirmationNoticeTiming;
   }
   get stateAtOutcome(): AppointmentState {
     return this.props.stateAtOutcome;

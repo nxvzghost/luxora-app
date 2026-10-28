@@ -583,7 +583,12 @@ describe('[CRÍTICO — K2-b] guarda de CI: as proteções continuam no banco', 
   });
 
   it('o banco exige appointment-outcome-v1; o papel da aplicação tem só os privilégios previstos nas tabelas novas', async () => {
-    expect((await db.deploymentRequirement.findMany()).map((row) => row.capability).sort()).toEqual(['appointment-outcome-v1', 'billing-eligibility-v1']);
+    // K11 acrescentou appointment-ai-confirmation-v1 (ver k11-whatsapp-request-flow.test.ts).
+    expect((await db.deploymentRequirement.findMany()).map((row) => row.capability).sort()).toEqual([
+      'appointment-ai-confirmation-v1',
+      'appointment-outcome-v1',
+      'billing-eligibility-v1',
+    ]);
     const rows = await db.$queryRawUnsafe<Array<{ grant: string; owner: string }>>(
       `SELECT c.relname || '.' || a.attname || ':' || p.priv AS "grant", pg_get_userbyid(c.relowner) AS owner
          FROM pg_class c

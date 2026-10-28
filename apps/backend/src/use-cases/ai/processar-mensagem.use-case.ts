@@ -9,6 +9,7 @@ import {
   SolicitarAtendimentoHumanoUseCase,
 } from '@use-cases/contact/solicitar-atendimento-humano.use-case';
 import { MetricsService } from '@shared/metrics.service';
+import { PedidoDeConsultaPeloWhatsAppUseCase, PreparedTurn, WhatsAppTurn } from '@use-cases/appointment/pedido-pelo-whatsapp.use-case';
 
 const COST_CEILING_PER_CONVERSATION_BRL = 0.25; // RNF-021
 const COST_ALERT_THRESHOLD = 0.7; // alerta em 70% do teto, não bloqueio
@@ -44,6 +45,12 @@ export interface ProcessarMensagemInput {
   message: string;
   /** AD-016 — correlaciona todo o turno (3 chamadas de IA possíveis) com o restante dos logs do job/requisição de origem. */
   correlationId?: string;
+  /**
+   * K11 — a mensagem do WhatsApp deste turno: a conversa, o WAMID e quando
+   * chegou ao webhook. Sem eles (chamadas fora do WhatsApp) o pedido em duas
+   * etapas não roda, e a IA não cancela nem remarca nada.
+   */
+  whatsApp?: { conversationId: string; messageId: string; receivedAt: Date };
 }
 
 export interface ProcessarMensagemResult {
@@ -104,6 +111,15 @@ class AiInteractionAuditEvent extends DomainEvent {
  * ContactIntentClassifier + generateResponse) e se alguma ação foi de fato
  * executada — alertando (não bloqueando) acima de 70% do teto de
  * R$ 0,25/conversa (RNF-021).
+ *
+ * K11 (ADR-0069; D1 a D8) — cancelar e remarcar pelo WhatsApp passam por
+ * PedidoDeConsultaPeloWhatsAppUseCase, em duas etapas: o pedido e a pergunta
+ * de confirmação, depois a resposta em outra mensagem. Antes de
+ * interpretIntent ele dá à IA as consultas futuras do paciente identificado
+ * (sem identificadores) e a pergunta pendente; depois, se a mensagem for um
+ * pedido ou uma resposta, o turno é dele: o texto enviado é o que ele monta
+ * (sem generateResponse) e nada passa pelo IntentActionRouter. Só roda com a
+ * identidade resolvida — senão, a regra do ADR-0063 vale como antes.
  */
 @Injectable()
 export class ProcessarMensagemUseCase {
@@ -116,6 +132,7 @@ export class ProcessarMensagemUseCase {
     private readonly contactIntentActionRouter: ContactIntentActionRouter,
     private readonly metrics: MetricsService,
     private readonly solicitarAtendimentoHumano: SolicitarAtendimentoHumanoUseCase,
+    private readonly pedidoPeloWhatsApp: PedidoDeConsultaPeloWhatsAppUseCase,
   ) {}
 
   async execute(input: ProcessarMensagemInput): Promise<ProcessarMensagemResult> {
@@ -127,12 +144,19 @@ export class ProcessarMensagemUseCase {
     const handedToClinic = ambiguous || inactive;
     const knownPatientId = handedToClinic ? undefined : input.patientId;
 
+    // K11 — o pedido pendente da conversa e o contexto da IA, antes de interpretar a mensagem.
+    const turn: WhatsAppTurn | undefined = input.whatsApp
+      ? { tenantId: input.tenantId, ...input.whatsApp, patientId: knownPatientId, identityResolved: !!knownPatientId }
+      : undefined;
+    const prepared: PreparedTurn = turn ? await this.pedidoPeloWhatsApp.prepare(turn) : { pending: null };
+
     const intent = await this.aiProvider.interpretIntent({
       tenantId: input.tenantId,
       patientId: knownPatientId,
       conversationHistory: input.conversationHistory,
       message: input.message,
       correlationId: input.correlationId,
+      appointmentContext: prepared.context,
     });
 
     // Eixo de identidade (Contact) — independente do eixo de intenção
@@ -174,6 +198,23 @@ export class ProcessarMensagemUseCase {
       if (contactResult.escalateToHuman) {
         handoffReason = contactResult.handoffReason ?? 'human_review';
         patientNotice = contactResult.patientNotice ?? CLINIC_WILL_CONTINUE;
+      }
+    }
+
+    // K11 — pedido de cancelamento ou remarcação, ou resposta à pergunta
+    // pendente: o turno é do pedido em duas etapas, e o texto é o dele.
+    const identityResolved = !identityPending && !!resolvedPatientId;
+    if (turn && identityResolved && !handoffReason) {
+      const k11 = await this.pedidoPeloWhatsApp.handle({ ...turn, patientId: resolvedPatientId, identityResolved }, intent, prepared);
+      if (k11) {
+        return this.finishTurn(input, intent, {
+          responseMessage: k11.responseMessage,
+          actionTaken: k11.actionTaken || contactActionTaken,
+          requiresEscalation: intent.requiresEscalation,
+          cost: (intent.usage?.costEstimate ?? 0) + contactCost,
+          patientId: resolvedPatientId,
+          turnStart,
+        });
       }
     }
 
@@ -225,21 +266,42 @@ export class ProcessarMensagemUseCase {
       correlationId: input.correlationId,
     });
 
-    const totalCost = (intent.usage?.costEstimate ?? 0) + contactCost + response.usage.costEstimate;
-    this.checkCostCeiling(totalCost, input.tenantId, input.correlationId);
+    return this.finishTurn(input, intent, {
+      responseMessage: response.message,
+      actionTaken: actionResult.actionTaken || contactActionTaken,
+      requiresEscalation: intent.requiresEscalation || handoffReason !== undefined,
+      escalationReason: intent.escalationReason ?? (handoffReason ? `identidade: ${handoffReason}` : undefined),
+      cost: (intent.usage?.costEstimate ?? 0) + contactCost + response.usage.costEstimate,
+      patientId: resolvedPatientId,
+      turnStart,
+    });
+  }
 
-    const finalActionTaken = actionResult.actionTaken || contactActionTaken;
-    const requiresEscalation = intent.requiresEscalation || handoffReason !== undefined;
+  /** Auditoria (ator `ai_agent`), teto de custo e métricas do turno — iguais em todo caminho. */
+  private async finishTurn(
+    input: ProcessarMensagemInput,
+    intent: { intent: string },
+    turn: {
+      responseMessage: string;
+      actionTaken: boolean;
+      requiresEscalation: boolean;
+      escalationReason?: string;
+      cost: number;
+      patientId?: string;
+      turnStart: number;
+    },
+  ): Promise<ProcessarMensagemResult> {
+    this.checkCostCeiling(turn.cost, input.tenantId, input.correlationId);
 
     await this.auditService.recordAll(
       [
         new AiInteractionAuditEvent(
-          resolvedPatientId ?? 'desconhecido',
+          turn.patientId ?? 'desconhecido',
           input.tenantId,
           intent.intent,
-          totalCost,
-          requiresEscalation,
-          finalActionTaken,
+          turn.cost,
+          turn.requiresEscalation,
+          turn.actionTaken,
         ),
       ],
       'ai_agent',
@@ -248,18 +310,18 @@ export class ProcessarMensagemUseCase {
     // Fase 8.2 — observabilidade: custo e duração por CONVERSA (turno
     // completo, até 3 chamadas de IA já somadas em totalCost) — nunca
     // rotulado por tenantId/patientId (cardinalidade ilimitada).
-    this.metrics.observe('conversation_turn_cost_brl', totalCost);
-    this.metrics.observe('conversation_turn_duration_ms', Date.now() - turnStart);
+    this.metrics.observe('conversation_turn_cost_brl', turn.cost);
+    this.metrics.observe('conversation_turn_duration_ms', Date.now() - turn.turnStart);
     this.metrics.incrementCounter('conversation_turns_total', {
-      requires_escalation: requiresEscalation,
-      action_taken: finalActionTaken,
+      requires_escalation: turn.requiresEscalation,
+      action_taken: turn.actionTaken,
     });
 
     return {
-      responseMessage: response.message,
-      requiresEscalation,
-      escalationReason: intent.escalationReason ?? (handoffReason ? `identidade: ${handoffReason}` : undefined),
-      actionTaken: finalActionTaken,
+      responseMessage: turn.responseMessage,
+      requiresEscalation: turn.requiresEscalation,
+      escalationReason: turn.escalationReason,
+      actionTaken: turn.actionTaken,
     };
   }
 

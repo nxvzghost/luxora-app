@@ -3,10 +3,12 @@ import {
   IAIProvider,
   ConversationInput,
   ConversationContext,
+  ConfirmationClassification,
   IntentResult,
   AIResponse,
 } from '@domain-services/ai/ai-provider';
 import { buildSystemPrompt } from '@use-cases/ai/system-prompt.builder';
+import { buildIntentPrompt, CONFIRMATION_VALUES } from '@use-cases/ai/intent-prompt.builder';
 import { unwrapModelJson } from '@use-cases/ai/model-json-text';
 import { ClinicRepository, CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
 import { THERAPIST_REPOSITORY, TherapistRepository } from '@domain-services/platform/therapist.repository';
@@ -68,13 +70,7 @@ export class AnthropicAIProvider implements IAIProvider {
   ) {}
 
   async interpretIntent(input: ConversationInput): Promise<IntentResult> {
-    const systemPrompt = `Você identifica a intenção de mensagens de pacientes para uma clínica ou consultório.
-Responda APENAS com um JSON válido, sem texto adicional, no formato:
-{"intent": string, "confidence": number (0-1), "entities": object, "requiresEscalation": boolean, "escalationReason": string opcional}
-
-Intents possíveis: agendar_consulta, remarcar_consulta, cancelar_consulta, confirmar_presenca, consultar_cobranca, consultar_disponibilidade, enviar_comprovante, duvida_geral, outro.
-
-Critério de escalonamento: requiresEscalation=true quando a mensagem envolver algo emocionalmente delicado, ambíguo, ou qualquer situação que fuja do administrativo linear (agendar/cancelar/confirmar/consultar sem conflito).`;
+    const systemPrompt = buildIntentPrompt(input.appointmentContext);
 
     const start = Date.now();
     const { text, usage } = await this.callApiWithRetry(
@@ -104,6 +100,11 @@ Critério de escalonamento: requiresEscalation=true quando a mensagem envolver a
         entities: parsed.entities ?? {},
         requiresEscalation: parsed.requiresEscalation,
         escalationReason: parsed.escalationReason,
+        // K11 — fora dos quatro valores (ou sem pergunta pendente) não há
+        // classificação, e o campo nem aparece: o contrato de antes continua igual.
+        ...(input.appointmentContext?.pendingQuestion && CONFIRMATION_VALUES.includes(parsed.confirmation as ConfirmationClassification)
+          ? { confirmation: parsed.confirmation }
+          : {}),
         usage: usageMetrics,
       };
     } catch {

@@ -24,6 +24,7 @@ describe('ListarAgendamentosUseCase', () => {
       findSuccessorId: vi.fn(),
       findActiveByTherapistAndRange: vi.fn(),
       findByTenantAndRange: vi.fn().mockResolvedValue([]),
+      findOpenByPatientAndRange: vi.fn(),
       save: vi.fn(),
       saveMany: vi.fn(),
       existsForRecurringBlockOccurrence: vi.fn(),

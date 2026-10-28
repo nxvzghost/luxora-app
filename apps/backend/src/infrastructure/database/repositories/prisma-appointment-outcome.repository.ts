@@ -53,12 +53,18 @@ export class PrismaAppointmentOutcomeRepository implements AppointmentOutcomeRep
             tenantId: record.tenantId,
             outcome: record.outcome,
             outcomeRecordedAt: record.recordedAt,
+            outcomeRecordedByActorType: record.recordedByActorType,
             outcomeRecordedByUserId: record.recordedByUserId,
             stateAtOutcome: record.stateAtOutcome,
             scheduledAtAtOutcome: record.scheduledAtAtOutcome,
             modalityAtOutcome: record.modalityAtOutcome,
             closingNoticeId: record.closingNoticeId,
             closingNoticeTiming: record.closingNoticeTiming,
+            // K11 — só no desfecho da IA (o banco recusa no de pessoa).
+            closingRequestedAction: record.closingRequestedAction,
+            confirmationNoticeId: record.confirmationNoticeId,
+            confirmationAnswer: record.confirmationAnswer,
+            confirmationNoticeTiming: record.confirmationNoticeTiming,
             ...this.decisionColumns(record),
           },
         }),
@@ -119,7 +125,9 @@ export class PrismaAppointmentOutcomeRepository implements AppointmentOutcomeRep
       tenantId: record.tenantId,
       outcome: record.outcome,
       recordedAt: record.outcomeRecordedAt,
-      recordedByUserId: record.outcomeRecordedByUserId,
+      // `system` nunca registra desfecho (CHECK no banco).
+      recordedByActorType: record.outcomeRecordedByActorType === 'ai_agent' ? 'ai_agent' : 'user',
+      recordedByUserId: record.outcomeRecordedByUserId ?? undefined,
       stateAtOutcome: record.stateAtOutcome as AppointmentState,
       scheduledAtAtOutcome: record.scheduledAtAtOutcome,
       modalityAtOutcome: record.modalityAtOutcome,
@@ -131,6 +139,10 @@ export class PrismaAppointmentOutcomeRepository implements AppointmentOutcomeRep
       lateNoticeDecision: record.lateNoticeDecision ?? undefined,
       lateNoticeDecisionAt: record.lateNoticeDecisionAt ?? undefined,
       lateNoticeDecisionByUserId: record.lateNoticeDecisionByUserId ?? undefined,
+      closingRequestedAction: record.closingRequestedAction ?? undefined,
+      confirmationNoticeId: record.confirmationNoticeId ?? undefined,
+      confirmationAnswer: record.confirmationAnswer ?? undefined,
+      confirmationNoticeTiming: record.confirmationNoticeTiming ?? undefined,
     });
   }
 }

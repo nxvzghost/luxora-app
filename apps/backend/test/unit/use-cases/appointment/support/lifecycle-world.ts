@@ -1,9 +1,10 @@
 import { vi } from 'vitest';
 import { Appointment, AppointmentState } from '@domain/appointment/appointment.entity';
-import { AppointmentNotice } from '@domain/appointment/appointment-notice';
+import { AppointmentNotice, NoticeConfirmationAnswer, RequestIntent } from '@domain/appointment/appointment-notice';
 import { AppointmentDecisionRecord, AppointmentOutcomeRecord } from '@domain/appointment/appointment-outcome';
 import { Session } from '@domain/session/session.entity';
 import { DomainEvent } from '@domain/shared/domain-event';
+import { Notification } from '@domain/notification/notification.entity';
 import { AppointmentRepository } from '@domain-services/patient-ops/appointment.repository';
 import { AppointmentOutcomeRepository } from '@domain-services/patient-ops/appointment-outcome.repository';
 import { AppointmentNoticeRepository } from '@domain-services/patient-ops/appointment-notice.repository';
@@ -17,6 +18,9 @@ import { TenantContext } from '@shared/tenant-context';
  *     restritiva appointment_frozen_after_outcome);
  *   - save() de uma consulta com desfecho é recusado (chave do retrato);
  *   - um segundo desfecho para a mesma consulta é recusado (chave primária).
+ *   - K11: uma mensagem gera no máximo uma comunicação (message_id único), e
+ *     o desfecho da IA só entra ligado ao pedido e à resposta `confirma` dele,
+ *     antes do início (appointment_outcome_actor_check e chaves compostas).
  * As provas reais disso, no PostgreSQL 16, estão na Suíte Crítica.
  */
 export const TENANT_ID = '11111111-1111-1111-1111-111111111111';
@@ -35,6 +39,56 @@ export function appointmentIn(state: AppointmentState, overrides: Partial<{ id: 
     state,
     recurring: false,
   });
+}
+
+export const CONVERSATION_ID = 'conversa-1';
+export const NEW_SLOT = new Date('2026-08-10T09:00:00.000Z');
+
+/**
+ * K11 — o pedido feito pelo WhatsApp, já registrado (como o caso de uso do
+ * pedido grava): uma hora antes de BEFORE_START, por padrão.
+ */
+export function whatsAppRequest(
+  world: World,
+  appointment: Appointment,
+  options: { action?: 'cancelar' | 'remarcar'; intent?: RequestIntent; proposedScheduledAt?: Date; receivedAt?: Date; conversationId?: string } = {},
+): AppointmentNotice {
+  const action = options.action ?? 'cancelar';
+  const receivedAt = options.receivedAt ?? new Date(BEFORE_START.getTime() - 3_600_000);
+  const sequence = world.notices.length + 1;
+  const request = AppointmentNotice.requestFromWhatsApp({
+    id: `pedido-${sequence}`,
+    appointment,
+    intent: options.intent ?? (action === 'remarcar' ? 'pedido_remarcacao' : 'pedido_cancelamento'),
+    proposedScheduledAt: action === 'remarcar' ? (options.proposedScheduledAt ?? NEW_SLOT) : undefined,
+    message: { conversationId: options.conversationId ?? CONVERSATION_ID, messageId: `wamid.${sequence}`, receivedAt },
+    now: receivedAt,
+  });
+  request.pullDomainEvents();
+  world.notices.push(request);
+  return request;
+}
+
+/** K11 — a resposta do paciente ao pedido, em outra mensagem (cinco minutos depois, por padrão). */
+export function whatsAppReply(
+  world: World,
+  request: AppointmentNotice,
+  appointment: Appointment,
+  answer: NoticeConfirmationAnswer,
+  receivedAt: Date = new Date((request.receivedAt as Date).getTime() + 5 * 60_000),
+): AppointmentNotice {
+  const sequence = world.notices.length + 1;
+  const reply = AppointmentNotice.replyFromWhatsApp({
+    id: `resposta-${sequence}`,
+    request,
+    appointment,
+    answer,
+    message: { conversationId: request.conversationId as string, messageId: `wamid.${sequence}`, receivedAt },
+    now: receivedAt,
+  });
+  reply.pullDomainEvents();
+  world.notices.push(reply);
+  return reply;
 }
 
 export function legacySession(overrides: Partial<{ state: 'Realizada' | 'Faturada' | 'Recebida'; appointmentId: string }> = {}) {
@@ -64,9 +118,16 @@ export interface World {
   clinicRepo: { findByTenantId: ReturnType<typeof vi.fn> };
   motor: { execute: ReturnType<typeof vi.fn> };
   audit: { recordAll: ReturnType<typeof vi.fn> };
+  /** O ator de cada evento auditado (o segundo argumento de recordAll). */
+  auditedActors: Array<{ event: string; actor: string | undefined }>;
   unitOfWork: { run: <T>(work: () => Promise<T>) => Promise<T> };
   clock: { now: () => Date };
   tenantContext: TenantContext;
+  /** K11 — notificações do painel, nomes dos profissionais e fuso da clínica. */
+  notifications: Notification[];
+  notificationRepo: { hasUnread: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> };
+  therapistRepo: { findAllByTenant: ReturnType<typeof vi.fn> };
+  clinicTimeZone: { current: ReturnType<typeof vi.fn> };
 }
 
 export function createWorld(options: { userId?: string | null; cancellationHoursLimit?: number | null; available?: boolean } = {}): World {
@@ -76,6 +137,8 @@ export function createWorld(options: { userId?: string | null; cancellationHours
   const decisions: AppointmentDecisionRecord[] = [];
   const sessions = new Map<string, Session>();
   const audited: DomainEvent[] = [];
+  const auditedActors: Array<{ event: string; actor: string | undefined }> = [];
+  const notifications: Notification[] = [];
   const now = { value: BEFORE_START };
 
   const repo: AppointmentRepository = {
@@ -84,6 +147,11 @@ export function createWorld(options: { userId?: string | null; cancellationHours
     findSuccessorId: vi.fn(async (id: string) => [...appointments.values()].find((a) => a.rescheduledFromId === id)?.id ?? null),
     findActiveByTherapistAndRange: vi.fn(),
     findByTenantAndRange: vi.fn(),
+    findOpenByPatientAndRange: vi.fn(async (patientId: string, from: Date, to: Date) =>
+      [...appointments.values()]
+        .filter((a) => a.patientId === patientId && a.isOpen && a.scheduledAt >= from && a.scheduledAt <= to)
+        .sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime()),
+    ),
     save: vi.fn(async (appointment: Appointment) => {
       if (outcomes.has(appointment.id)) throw new Error('banco: consulta com desfecho (appointment_outcome_freeze_fkey)');
       appointments.set(appointment.id, appointment);
@@ -101,6 +169,8 @@ export function createWorld(options: { userId?: string | null; cancellationHours
       if (!appointment || appointment.state !== record.stateAtOutcome || appointment.scheduledAt.getTime() !== record.scheduledAtAtOutcome.getTime()) {
         throw new Error('banco: o retrato não confere com a consulta (appointment_outcome_freeze_fkey)');
       }
+      if (record.recordedByActorType === 'ai_agent') assertAiOutcomeAsTheDatabaseDoes(record, notices);
+      if (record.recordedByActorType === 'user' && !record.recordedByUserId) throw new Error('banco: appointment_outcome_actor_check');
       outcomes.set(record.appointmentId, record);
     }),
     saveDecision: vi.fn(async () => undefined),
@@ -108,10 +178,20 @@ export function createWorld(options: { userId?: string | null; cancellationHours
       decisions.push(decision);
     }),
   };
+  const byArrival = (a: AppointmentNotice, b: AppointmentNotice) =>
+    (a.receivedAt ?? a.recordedAt).getTime() - (b.receivedAt ?? b.recordedAt).getTime() || a.recordedAt.getTime() - b.recordedAt.getTime();
   const noticeRepo: AppointmentNoticeRepository = {
     insert: vi.fn(async (notice: AppointmentNotice) => {
+      if (notice.messageId && notices.some((n) => n.messageId === notice.messageId)) throw new Error('banco: appointment_notice_message_id_key');
       notices.push(notice);
     }),
+    findByMessageId: vi.fn(async (messageId: string) => notices.find((n) => n.messageId === messageId) ?? null),
+    findRequests: vi.fn(async (query: { since: Date; conversationId?: string }) =>
+      notices
+        .filter((n) => n.awaitsConfirmation && n.recordedAt >= query.since && (!query.conversationId || n.conversationId === query.conversationId))
+        .sort(byArrival)
+        .map((request) => ({ request, replies: notices.filter((n) => n.confirmsNoticeId === request.id).sort(byArrival) })),
+    ),
   };
   const sessionRepo: SessionRepository = {
     findById: vi.fn(async (id: string) => sessions.get(id) ?? null),
@@ -139,14 +219,52 @@ export function createWorld(options: { userId?: string | null; cancellationHours
     clinicRepo: { findByTenantId: vi.fn(async () => ({ cancellationHoursLimit: options.cancellationHoursLimit ?? undefined })) },
     motor: { execute: vi.fn().mockResolvedValue(options.available ?? true) },
     audit: {
-      recordAll: vi.fn(async (events: DomainEvent[]) => {
+      recordAll: vi.fn(async (events: DomainEvent[], actor?: string) => {
         audited.push(...events);
+        auditedActors.push(...events.map((event) => ({ event: event.eventName, actor })));
       }),
     },
+    auditedActors,
     unitOfWork: { run: (work) => work() },
     clock: { now: () => now.value },
     tenantContext,
+    notifications,
+    notificationRepo: {
+      hasUnread: vi.fn(async (type: string, entityId: string) => notifications.some((n) => n.type === type && n.entityId === entityId && !n.isRead)),
+      create: vi.fn(async (notification: Notification) => {
+        notifications.push(notification);
+      }),
+    },
+    therapistRepo: { findAllByTenant: vi.fn(async () => [{ id: 't1', name: 'Dra. Paula Souza' }]) },
+    clinicTimeZone: { current: vi.fn(async () => 'America/Sao_Paulo') },
   };
+}
+
+/**
+ * O que o banco confere no desfecho da IA (appointment_outcome_actor_check,
+ * appointment_outcome_request_fkey, appointment_outcome_confirmation_fkey):
+ * sem usuário, só cancelamento ou remarcação, ligado a um pedido da mesma
+ * consulta com a ação correspondente e a uma resposta `confirma` desse pedido
+ * recebida antes do início.
+ */
+function assertAiOutcomeAsTheDatabaseDoes(record: AppointmentOutcomeRecord, notices: AppointmentNotice[]): void {
+  const request = notices.find((n) => n.id === record.closingNoticeId);
+  const confirmation = notices.find((n) => n.id === record.confirmationNoticeId);
+  const action = record.outcome === 'Cancelada' ? 'cancelar' : record.outcome === 'Remarcada' ? 'remarcar' : null;
+  if (
+    record.recordedByUserId ||
+    !action ||
+    !request ||
+    request.appointmentId !== record.appointmentId ||
+    request.requestedAction !== action ||
+    !confirmation ||
+    confirmation.appointmentId !== record.appointmentId ||
+    confirmation.confirmsNoticeId !== request.id ||
+    confirmation.confirmationAnswer !== 'confirma' ||
+    confirmation.timing === 'depois_do_inicio'
+  ) {
+    throw new Error('banco: appointment_outcome_actor_check / appointment_outcome_confirmation_fkey');
+  }
 }
 
 export function withAppointment(world: World, appointment: Appointment): Appointment {

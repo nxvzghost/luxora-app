@@ -40,6 +40,7 @@ function makeUseCase(
     save: vi.fn(),
     saveMany: vi.fn(),
     findByTenantAndRange: vi.fn(),
+    findOpenByPatientAndRange: vi.fn(),
     existsForRecurringBlockOccurrence: vi.fn(),
   };
   const clinicHolidayRepo = { findByTenantAndRange: vi.fn().mockResolvedValue(holidays), save: vi.fn(), findById: vi.fn(), delete: vi.fn() };

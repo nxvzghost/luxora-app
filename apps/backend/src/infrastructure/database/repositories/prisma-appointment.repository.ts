@@ -1,7 +1,7 @@
 import { Injectable, ConflictException } from '@nestjs/common';
 import { Appointment as PrismaAppointment, Prisma, PrismaClient } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { Appointment, AppointmentState } from '@domain/appointment/appointment.entity';
+import { Appointment, AppointmentState, OPEN_APPOINTMENT_STATES } from '@domain/appointment/appointment.entity';
 import { AppointmentRepository } from '@domain-services/patient-ops/appointment.repository';
 
 const UNIQUE_CONSTRAINT_VIOLATION = 'P2002';
@@ -59,6 +59,20 @@ export class PrismaAppointmentRepository implements AppointmentRepository {
     const records = await this.prisma.forTenant((tx) =>
       tx.appointment.findMany({
         where: { scheduledAt: { gte: from, lte: to }, state: { not: 'Cancelada' } },
+        orderBy: { scheduledAt: 'asc' },
+      }),
+    );
+    return records.map((r) => this.toDomain(r));
+  }
+
+  async findOpenByPatientAndRange(patientId: string, from: Date, to: Date): Promise<Appointment[]> {
+    const records = await this.prisma.forTenant((tx) =>
+      tx.appointment.findMany({
+        where: {
+          patientId,
+          scheduledAt: { gte: from, lte: to },
+          state: { in: [...OPEN_APPOINTMENT_STATES] as PrismaAppointment['state'][] },
+        },
         orderBy: { scheduledAt: 'asc' },
       }),
     );

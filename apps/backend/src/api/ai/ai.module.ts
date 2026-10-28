@@ -41,6 +41,9 @@ import { PrismaAppointmentOutcomeRepository } from '@infrastructure/database/rep
 import { PrismaAppointmentNoticeRepository } from '@infrastructure/database/repositories/prisma-appointment-notice.repository';
 import { PrismaUnitOfWork } from '@infrastructure/database/prisma-unit-of-work';
 import { SystemClock } from '@infrastructure/clock/system-clock';
+import { PedidoDeConsultaPeloWhatsAppUseCase } from '@use-cases/appointment/pedido-pelo-whatsapp.use-case';
+import { NOTIFICATION_REPOSITORY } from '@domain-services/platform/notification.repository';
+import { PrismaNotificationRepository } from '@infrastructure/database/repositories/prisma-notification.repository';
 import { CommunicationModule } from '../communication/communication.module';
 import { AuditModule } from '../audit/audit.module';
 import { InboxModule } from '../platform/inbox.module';
@@ -102,6 +105,9 @@ import { ContactModule } from '../patient-ops/contact.module';
     { provide: APPOINTMENT_NOTICE_REPOSITORY, useClass: PrismaAppointmentNoticeRepository },
     { provide: UNIT_OF_WORK, useClass: PrismaUnitOfWork },
     { provide: CLOCK, useClass: SystemClock },
+    // K11 — cancelar e remarcar pelo WhatsApp em duas etapas, com aviso à equipe pelas notificações do painel.
+    PedidoDeConsultaPeloWhatsAppUseCase,
+    { provide: NOTIFICATION_REPOSITORY, useClass: PrismaNotificationRepository },
   ],
   exports: [ProcessarMensagemUseCase],
 })

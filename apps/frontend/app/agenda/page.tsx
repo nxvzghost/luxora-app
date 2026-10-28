@@ -17,12 +17,14 @@ import {
   type Modality,
   type OutcomeAction,
   type RequestedBy,
+  type WhatsAppRequestStatus,
   useAppointmentOutcomeAction,
   useAppointments,
   useCancelAppointment,
   useConfirmAppointment,
   useCreateAppointment,
   useRescheduleAppointment,
+  useWhatsAppRequests,
 } from '@/lib/api-client/appointments.hooks';
 
 const STATE_LABELS: Record<string, string> = {
@@ -191,6 +193,9 @@ export default function AgendaPage() {
       </div>
       <ClinicTimeZoneNote />
 
+      {/* Com a agenda fora do ar, uma mensagem de erro basta. */}
+      {!isError && <WhatsAppRequests patientName={patientName} therapistName={therapistName} formatDateTime={formatDateTime} />}
+
       {isLoading && <Loading />}
       {isError && <ErrorMessage>{describeApiError(error, 'Não foi possível carregar a agenda.')}</ErrorMessage>}
       {!isLoading && !isError && appointments.length === 0 && <EmptyState>Nenhuma consulta neste período.</EmptyState>}
@@ -341,6 +346,72 @@ export default function AgendaPage() {
         />
       )}
     </PageShell>
+  );
+}
+
+/** K11 — o que cada estado de um pedido pelo WhatsApp quer dizer para a equipe. */
+const REQUEST_STATUS_LABELS: Record<WhatsAppRequestStatus, string> = {
+  aguardando: 'Aguardando confirmação do paciente',
+  vencido: 'Vencido: sem confirmação até o início',
+  encaminhado: 'Precisa da equipe: resposta sem confirmação clara',
+  nao_executado: 'Precisa da equipe: confirmado, mas não executado',
+  confirmado: 'IA, confirmado pelo paciente',
+};
+
+/**
+ * K11 (ADR-0069; D2, D6) — pedidos de cancelamento ou remarcação feitos pelo
+ * WhatsApp: os que esperam a confirmação do paciente, os que precisam da
+ * equipe e, por alguns dias, os que a IA executou com a confirmação dele. A
+ * consulta só muda depois da confirmação explícita, em outra mensagem; nada
+ * aqui é ação: é para a equipe saber o que está pendente.
+ */
+function WhatsAppRequests(props: {
+  patientName: (id: string) => string;
+  therapistName: (id: string) => string;
+  formatDateTime: (iso: string) => string;
+}) {
+  const { data, isError, error } = useWhatsAppRequests();
+  const requests = data?.data ?? [];
+  if (isError) return <ErrorMessage>{describeApiError(error, 'Não foi possível carregar os pedidos do WhatsApp.')}</ErrorMessage>;
+  if (requests.length === 0) return null;
+  return (
+    <section style={{ ...cardStyle, marginBottom: '1rem' }} aria-labelledby="pedidos-whatsapp">
+      <h2 id="pedidos-whatsapp" style={sectionTitleStyle}>
+        Pedidos pelo WhatsApp
+      </h2>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        {requests.map((request) => {
+          const asked = request.askedScheduledAt ?? request.appointment.scheduledAt;
+          const done = request.status === 'confirmado';
+          return (
+            <li key={request.id} style={rowStyle} data-testid="pedido-whatsapp">
+              <div>
+                <p style={{ margin: 0, fontWeight: 600 }}>
+                  {request.requestedAction === 'remarcar' ? 'Remarcar' : 'Cancelar'} a consulta de {props.formatDateTime(asked)}
+                  {request.requestedAction === 'remarcar' && request.proposedScheduledAt && ` para ${props.formatDateTime(request.proposedScheduledAt)}`}
+                </p>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--sage)' }}>
+                  {props.patientName(request.appointment.patientId)} · {props.therapistName(request.appointment.therapistId)} · pedido em{' '}
+                  {props.formatDateTime(request.receivedAt)}
+                </p>
+              </div>
+              <span
+                style={{
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  padding: '0.25rem 0.625rem',
+                  borderRadius: '999px',
+                  background: done ? 'var(--success)' : 'var(--gold-soft)',
+                  color: done ? '#fff' : 'var(--forest-ink)',
+                }}
+              >
+                {REQUEST_STATUS_LABELS[request.status]}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

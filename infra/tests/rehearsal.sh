@@ -179,15 +179,20 @@ equal "histórico registra o rollback manual" "rollback" "$(last_history action)
 equal "os dados do banco continuam lá" "1" "$(marker)"
 
 # ------------------------------------- K2-a: capacidades e retorno degradado
-section "K2-a e K2-b: exigência de versão e retorno degradado"
+section "K2-a, K2-b e K11: exigência de versão e retorno degradado"
 K2A_CONSTRAINTS="'billing_eligibility_protocol_fkey','billing_legacy_or_protocol_check','billing_session_billing_patient_fkey','billing_session_session_patient_fkey','billing_session_legacy_or_patient_check'"
-# A lista da K2-b é a mesma que os scripts conferem (lib.sh), no formato do SQL.
+# As listas da K2-b e do K11 são as mesmas que os scripts conferem (lib.sh), no formato do SQL.
 K2B_CONSTRAINTS="$(bash -c ". '$SCRIPTS/lib.sh' >/dev/null 2>&1; printf \"'%s',\" \$K2B_CONSTRAINTS")"; K2B_CONSTRAINTS="${K2B_CONSTRAINTS%,}"
-equal "a imagem declara as capacidades billing-eligibility-v1 e appointment-outcome-v1" "billing-eligibility-v1,appointment-outcome-v1" "$(docker image inspect -f '{{ index .Config.Labels "luxora.capabilities" }}' "$IMAGE:$V1")"
-equal "o banco exige as duas" "appointment-outcome-v1,billing-eligibility-v1" "$(psql_admin "select string_agg(capability, ',' order by capability) from deployment_requirement")"
-equal "o ambiente registra a exigência ativa" "appointment-outcome-v1 billing-eligibility-v1" "$(cat "$LUXORA_STATE_DIR/requirement-active" 2>/dev/null)"
+K11_CONSTRAINTS="$(bash -c ". '$SCRIPTS/lib.sh' >/dev/null 2>&1; printf \"'%s',\" \$K11_CONSTRAINTS")"; K11_CONSTRAINTS="${K11_CONSTRAINTS%,}"
+equal "a imagem declara as capacidades billing-eligibility-v1, appointment-outcome-v1 e appointment-ai-confirmation-v1" \
+  "billing-eligibility-v1,appointment-outcome-v1,appointment-ai-confirmation-v1" "$(docker image inspect -f '{{ index .Config.Labels "luxora.capabilities" }}' "$IMAGE:$V1")"
+equal "o banco exige as três" "appointment-ai-confirmation-v1,appointment-outcome-v1,billing-eligibility-v1" "$(psql_admin "select string_agg(capability, ',' order by capability) from deployment_requirement")"
+equal "o ambiente registra a exigência ativa" "appointment-ai-confirmation-v1 appointment-outcome-v1 billing-eligibility-v1" "$(cat "$LUXORA_STATE_DIR/requirement-active" 2>/dev/null)"
 equal "as cinco restrições do K2-a existem e estão validadas" "5" "$(psql_admin "select count(*) from pg_constraint where conname in ($K2A_CONSTRAINTS) and convalidated")"
 equal "as 23 restrições da K2-b existem e estão validadas" "23" "$(psql_admin "select count(*) from pg_constraint where conname in ($K2B_CONSTRAINTS) and convalidated")"
+equal "as 7 restrições do K11 existem e estão validadas" "7" "$(psql_admin "select count(*) from pg_constraint where conname in ($K11_CONSTRAINTS) and convalidated")"
+equal "a role de runtime não reescreve a autoria nem a confirmação (K11)" "f|f|f" \
+  "$(psql_admin "select has_column_privilege('luxora_app', 'appointment_outcome', 'outcome_recorded_by_actor_type', 'UPDATE'), has_column_privilege('luxora_app', 'appointment_outcome', 'confirmation_notice_id', 'UPDATE'), has_column_privilege('luxora_app', 'appointment_notice', 'confirmation_answer', 'UPDATE')")"
 equal "a política de congelamento é RESTRICTIVE, de UPDATE, para a role de runtime" "f|w|luxora_app" \
   "$(psql_admin "select p.polpermissive, p.polcmd, r.rolname from pg_policy p join pg_roles r on r.oid = any(p.polroles) where p.polrelid = 'appointment'::regclass and p.polname = 'appointment_frozen_after_outcome'")"
 equal "a role de runtime não grava legacy_billing nem legacy_link e não muda o protocolo" "f|f|f" \
@@ -247,9 +252,17 @@ psql_admin "create policy appointment_frozen_after_outcome on appointment as res
 psql_admin "grant delete on appointment_outcome to luxora_app" >/dev/null
 k2_rollback_refused "privilégio de apagar desfecho devolvido à aplicação"
 psql_admin "revoke delete on appointment_outcome from luxora_app" >/dev/null
+# K11 — sem a restrição do ator, um desfecho da IA sem confirmação passaria.
+ACTOR_CHECK_DEF="$(psql_admin "select pg_get_constraintdef(oid) from pg_constraint where conname = 'appointment_outcome_actor_check'")"
+psql_admin "alter table appointment_outcome drop constraint appointment_outcome_actor_check" >/dev/null
+k2_rollback_refused "restrição do ator do desfecho (K11) removida"
+psql_admin "alter table appointment_outcome add constraint appointment_outcome_actor_check $ACTOR_CHECK_DEF" >/dev/null
+psql_admin "grant update (confirmation_notice_id) on appointment_outcome to luxora_app" >/dev/null
+k2_rollback_refused "privilégio de reescrever a confirmação (K11) devolvido à aplicação"
+psql_admin "revoke update (confirmation_notice_id) on appointment_outcome from luxora_app" >/dev/null
 psql_admin "delete from deployment_requirement" >/dev/null
 k2_rollback_refused "exigência sumida do banco (como num backup antigo restaurado sem migrations)"
-psql_admin "insert into deployment_requirement (capability, set_by_migration) values ('billing-eligibility-v1', '20261022120000_k2a_billing_eligibility'), ('appointment-outcome-v1', '20261023130014_k2b_appointment_outcome')" >/dev/null
+psql_admin "insert into deployment_requirement (capability, set_by_migration) values ('billing-eligibility-v1', '20261022120000_k2a_billing_eligibility'), ('appointment-outcome-v1', '20261023130014_k2b_appointment_outcome'), ('appointment-ai-confirmation-v1', '20261023220000_k11_ai_confirmed_requests')" >/dev/null
 bash "$SCRIPTS/rollback.sh" --env-file "$ENV_FILE" --to "$V2" > "$WORK/k2-rollback-v2.log" 2>&1
 equal "proteções de volta: rollback para uma versão com a capacidade passa (0)" "0|$V2" "$?|$(version)"
 bash "$SCRIPTS/deploy.sh" --env-file "$ENV_FILE" --version "$V1" > "$WORK/k2-deploy-v1-again.log" 2>&1
@@ -331,7 +344,7 @@ bash "$SCRIPTS/restore-drill.sh" --env-file "$ENV_FILE" > "$WORK/restore.log" 2>
 equal "restore-drill.sh termina com sucesso" "0" "$?"
 [ "$(last_history result)" = "success" ] || sed 's/^/    | /' "$WORK/restore.log" | tail -n 15
 equal "histórico registra o ensaio de restauração" "restore-drill" "$(last_history action)"
-check "o banco restaurado tem a exigência e as proteções do K2-a e da K2-b" grep -q 'exigência=appointment-outcome-v1,billing-eligibility-v1 proteções=ok' "$WORK/restore.log"
+check "o banco restaurado tem a exigência e as proteções do K2-a, da K2-b e do K11" grep -q 'exigência=appointment-ai-confirmation-v1,appointment-outcome-v1,billing-eligibility-v1 proteções=ok' "$WORK/restore.log"
 equal "o banco descartável foi apagado" "0" "$(psql_admin "select count(*) from pg_database where datname = 'luxora_restore_drill'")"
 equal "o banco em uso não foi tocado" "1" "$(marker)"
 

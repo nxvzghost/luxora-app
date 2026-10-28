@@ -127,6 +127,11 @@ K2A_CONSTRAINTS="billing_eligibility_protocol_fkey billing_legacy_or_protocol_ch
 # congelamento da consulta com desfecho, a elegibilidade do vínculo e da
 # sessão, e a coerência do desfecho, da comunicação e das decisões.
 K2B_CONSTRAINTS="appointment_outcome_freeze_fkey appointment_outcome_closing_notice_fkey appointment_notice_appointment_fkey appointment_decision_outcome_fkey appointment_rescheduled_from_fkey billing_session_session_eligibility_fkey session_billing_eligibility_check session_void_check billing_session_required_eligibility_check billing_session_legacy_or_eligibility_check appointment_outcome_state_check appointment_outcome_no_show_decision_check appointment_outcome_no_show_decided_check appointment_outcome_late_notice_decision_check appointment_outcome_late_notice_decided_check appointment_outcome_closing_notice_check appointment_outcome_closing_timing_check appointment_notice_actor_check appointment_notice_reference_check appointment_notice_timing_check appointment_notice_limit_check appointment_notice_review_check appointment_decision_reason_check"
+# Restrições (validadas) que acompanham appointment-ai-confirmation-v1 (K11):
+# o desfecho de autoria da IA só existe para cancelamento ou remarcação
+# ligados ao pedido e à resposta `confirma` dele, da mesma consulta e da mesma
+# conversa, recebida antes do início.
+K11_CONSTRAINTS="appointment_notice_request_check appointment_notice_reply_check appointment_notice_conversation_fkey appointment_notice_confirms_fkey appointment_outcome_actor_check appointment_outcome_request_fkey appointment_outcome_confirmation_fkey"
 
 db_query() { # sql [banco]
   compose exec -T postgres psql -U postgres -d "${2:-$DATABASE_NAME}" -v ON_ERROR_STOP=1 -tAq -c "$1"
@@ -234,6 +239,33 @@ db_missing_k2b_protections() { # [banco]
       select name from privileges where granted) missing" "${1:-}"
 }
 
+# Proteções do K11 (appointment-ai-confirmation-v1): as restrições validadas
+# e os privilégios que deixariam a aplicação reescrever a autoria do desfecho
+# ou a confirmação (o pedido e a resposta são só inseridos).
+db_missing_k11_protections() { # [banco]
+  local constraints
+  # shellcheck disable=SC2086  # lista separada por espaço
+  constraints="$(printf "'%s'," $K11_CONSTRAINTS)"
+  db_query "
+    with expected(name) as (select unnest(array[${constraints%,}])),
+    privileges(name, granted) as (values
+      ('privilegio:appointment_outcome.autoria', has_column_privilege('luxora_app', 'public.appointment_outcome', 'outcome_recorded_by_actor_type', 'UPDATE')
+                                                 or has_column_privilege('luxora_app', 'public.appointment_outcome', 'confirmation_notice_id', 'UPDATE')
+                                                 or has_column_privilege('luxora_app', 'public.appointment_outcome', 'confirmation_answer', 'UPDATE')
+                                                 or has_column_privilege('luxora_app', 'public.appointment_outcome', 'closing_requested_action', 'UPDATE')),
+      ('privilegio:appointment_notice.confirmacao', has_column_privilege('luxora_app', 'public.appointment_notice', 'confirms_notice_id', 'UPDATE')
+                                                    or has_column_privilege('luxora_app', 'public.appointment_notice', 'confirmation_answer', 'UPDATE')
+                                                    or has_column_privilege('luxora_app', 'public.appointment_notice', 'awaits_confirmation', 'UPDATE')
+                                                    or has_column_privilege('luxora_app', 'public.appointment_notice', 'requested_action', 'UPDATE')
+                                                    or has_column_privilege('luxora_app', 'public.appointment_notice', 'asked_scheduled_at', 'UPDATE')))
+    select coalesce(string_agg(name, ' ' order by name), '') from (
+      select e.name from expected e
+       where not exists (select 1 from pg_constraint c
+                          where c.connamespace = 'public'::regnamespace and c.conname = e.name and c.convalidated)
+      union all
+      select name from privileges where granted) missing" "${1:-}"
+}
+
 # Proteções que faltam para as capacidades exigidas (lista separada por espaço).
 db_missing_required_protections() { # "capacidades" [banco]
   local missing="" found
@@ -242,6 +274,9 @@ db_missing_required_protections() { # "capacidades" [banco]
   esac
   case " $1 " in
     *" appointment-outcome-v1 "*) found="$(db_missing_k2b_protections "${2:-}")" || return 1; missing="${missing:+$missing }$found" ;;
+  esac
+  case " $1 " in
+    *" appointment-ai-confirmation-v1 "*) found="$(db_missing_k11_protections "${2:-}")" || return 1; missing="${missing:+$missing }$found" ;;
   esac
   echo "${missing% }"
 }

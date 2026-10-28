@@ -133,8 +133,12 @@ model Conversation {
   createdAt   DateTime  @default(now()) @map("created_at")
 
   messages Message[]
+  // K11 — pedidos e respostas sobre consultas feitos nesta conversa.
+  appointmentNotices AppointmentNotice[]
 
   @@unique([tenantId, phoneNumber])
+  // K11 — alvo da chave composta das comunicações (a clínica na própria chave).
+  @@unique([id, tenantId], map: "conversation_id_tenant_id_key")
   @@map("conversation")
 }
 
@@ -631,6 +635,20 @@ enum NoticeReviewStatus {
   sem_revisao_necessaria
 }
 
+// K11 — a resposta do paciente à pergunta de confirmação, classificada pela IA
+// e conferida pelo backend. Só `confirma` leva ao desfecho.
+enum NoticeConfirmationAnswer {
+  confirma
+  recusa
+  ambigua
+}
+
+// K11 — o que o pedido feito pelo WhatsApp quer fazer com a consulta.
+enum NoticeRequestedAction {
+  cancelar
+  remarcar
+}
+
 enum AppointmentDecisionKind {
   cobranca_de_falta_confirmada
   falta_abonada
@@ -647,7 +665,10 @@ model AppointmentOutcomeRecord {
   tenantId                String              @map("tenant_id")
   outcome                 AppointmentOutcome
   outcomeRecordedAt       DateTime            @default(now()) @map("outcome_recorded_at")
-  outcomeRecordedByUserId String              @map("outcome_recorded_by_user_id")
+  // K11 (D1) — pessoa (`user`, com o usuário) ou IA (`ai_agent`, sem usuário,
+  // só cancelamento ou remarcação confirmados pelo paciente; CHECK no banco).
+  outcomeRecordedByUserId String?             @map("outcome_recorded_by_user_id")
+  outcomeRecordedByActorType ActorType        @default(user) @map("outcome_recorded_by_actor_type")
   stateAtOutcome          AppointmentState    @map("state_at_outcome")
   scheduledAtAtOutcome    DateTime            @map("scheduled_at_at_outcome")
   modalityAtOutcome       String              @map("modality_at_outcome")
@@ -659,9 +680,17 @@ model AppointmentOutcomeRecord {
   lateNoticeDecision      LateNoticeDecision? @map("late_notice_decision")
   lateNoticeDecisionAt    DateTime?           @map("late_notice_decision_at")
   lateNoticeDecisionByUserId String?          @map("late_notice_decision_by_user_id")
+  // K11 — só no desfecho da IA: a ação do pedido que ele encerra e a resposta
+  // `confirma` desse pedido, com a classificação de quando ela chegou.
+  closingRequestedAction  NoticeRequestedAction?    @map("closing_requested_action")
+  confirmationNoticeId    String?                   @map("confirmation_notice_id")
+  confirmationAnswer      NoticeConfirmationAnswer? @map("confirmation_answer")
+  confirmationNoticeTiming NoticeTiming?            @map("confirmation_notice_timing")
 
   appointment   Appointment        @relation("AppointmentOutcomeFreeze", fields: [appointmentId, tenantId, stateAtOutcome, scheduledAtAtOutcome, modalityAtOutcome], references: [id, tenantId, state, scheduledAt, modality], onDelete: NoAction, onUpdate: NoAction, map: "appointment_outcome_freeze_fkey")
-  closingNotice AppointmentNotice? @relation(fields: [closingNoticeId, appointmentId, closingNoticeTiming], references: [id, appointmentId, timing], onDelete: NoAction, onUpdate: NoAction, map: "appointment_outcome_closing_notice_fkey")
+  closingNotice AppointmentNotice? @relation("OutcomeClosingNotice", fields: [closingNoticeId, appointmentId, closingNoticeTiming], references: [id, appointmentId, timing], onDelete: NoAction, onUpdate: NoAction, map: "appointment_outcome_closing_notice_fkey")
+  requestNotice AppointmentNotice? @relation("OutcomeRequestNotice", fields: [closingNoticeId, appointmentId, closingRequestedAction], references: [id, appointmentId, requestedAction], onDelete: NoAction, onUpdate: NoAction, map: "appointment_outcome_request_fkey")
+  confirmationNotice AppointmentNotice? @relation("OutcomeConfirmationNotice", fields: [confirmationNoticeId, appointmentId, closingNoticeId, confirmationAnswer, confirmationNoticeTiming], references: [id, appointmentId, confirmsNoticeId, confirmationAnswer, timing], onDelete: NoAction, onUpdate: NoAction, map: "appointment_outcome_confirmation_fkey")
   decisions     AppointmentDecision[]
 
   @@unique([appointmentId, tenantId], map: "appointment_outcome_appointment_id_tenant_id_key")
@@ -669,9 +698,11 @@ model AppointmentOutcomeRecord {
 }
 
 // Comunicação do paciente sobre uma consulta, somente acréscimo: os horários
-// e a origem nunca são reescritos; só as colunas de revisão mudam. Nesta
-// fase só o painel grava (cancelamento e remarcação); a gravação de cada
-// mensagem do WhatsApp, com o carimbo da Meta, é da fase 5.
+// e a origem nunca são reescritos; só as colunas de revisão mudam. O painel
+// grava a comunicação do cancelamento e da remarcação; pelo WhatsApp (K11) a
+// IA grava o pedido de cancelamento ou remarcação e, em outra linha, a
+// resposta do paciente à pergunta de confirmação. O estado do pedido é
+// derivado dessas linhas. O carimbo da Meta continua não lido (K13).
 model AppointmentNotice {
   id                  String                @id @default(uuid())
   tenantId            String                @map("tenant_id")
@@ -702,12 +733,34 @@ model AppointmentNotice {
   reviewStatus        NoticeReviewStatus    @default(pendente) @map("review_status")
   reviewedByUserId    String?               @map("reviewed_by_user_id")
   reviewedAt          DateTime?             @map("reviewed_at")
+  // K11 — a conversa do WhatsApp da mensagem (mesma conversa no pedido e na resposta).
+  conversationId      String?               @map("conversation_id")
+  // K11 — pedido que aguarda confirmação: a ação pedida, o retrato da consulta
+  // perguntada (para conferir que ela não mudou) e, na remarcação, o horário novo.
+  awaitsConfirmation  Boolean               @default(false) @map("awaits_confirmation")
+  requestedAction     NoticeRequestedAction? @map("requested_action")
+  askedScheduledAt    DateTime?             @map("asked_scheduled_at")
+  askedModality       String?               @map("asked_modality")
+  proposedScheduledAt DateTime?             @map("proposed_scheduled_at")
+  // K11 — resposta a um pedido: o pedido que ela responde e o que o paciente respondeu.
+  confirmsNoticeId    String?               @map("confirms_notice_id")
+  confirmationAnswer  NoticeConfirmationAnswer? @map("confirmation_answer")
 
-  appointment Appointment                @relation(fields: [appointmentId, tenantId, patientId], references: [id, tenantId, patientId], onDelete: NoAction, onUpdate: NoAction, map: "appointment_notice_appointment_fkey")
-  closes      AppointmentOutcomeRecord[]
+  appointment  Appointment                @relation(fields: [appointmentId, tenantId, patientId], references: [id, tenantId, patientId], onDelete: NoAction, onUpdate: NoAction, map: "appointment_notice_appointment_fkey")
+  conversation Conversation?              @relation(fields: [conversationId, tenantId], references: [id, tenantId], onDelete: NoAction, onUpdate: NoAction, map: "appointment_notice_conversation_fkey")
+  confirms     AppointmentNotice?         @relation("NoticeConfirms", fields: [confirmsNoticeId, appointmentId, conversationId], references: [id, appointmentId, conversationId], onDelete: NoAction, onUpdate: NoAction, map: "appointment_notice_confirms_fkey")
+  replies      AppointmentNotice[]        @relation("NoticeConfirms")
+  closes       AppointmentOutcomeRecord[] @relation("OutcomeClosingNotice")
+  requestOf    AppointmentOutcomeRecord[] @relation("OutcomeRequestNotice")
+  confirmationOf AppointmentOutcomeRecord[] @relation("OutcomeConfirmationNotice")
 
   @@unique([id, appointmentId, timing], map: "appointment_notice_closing_key")
+  @@unique([id, appointmentId, requestedAction], map: "appointment_notice_request_key")
+  @@unique([id, appointmentId, conversationId], map: "appointment_notice_conversation_key")
+  @@unique([id, appointmentId, confirmsNoticeId, confirmationAnswer, timing], map: "appointment_notice_confirmation_key")
   @@index([tenantId, appointmentId])
+  @@index([conversationId])
+  @@index([confirmsNoticeId])
   @@map("appointment_notice")
 }
 

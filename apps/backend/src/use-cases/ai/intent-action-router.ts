@@ -2,11 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { IntentResult } from '@domain-services/ai/ai-provider';
 import { CLINIC_TIME_ZONE_READER, ClinicTimeZoneReader } from '@domain-services/platform/clinic-time-zone.reader';
 import { AgendarConsultaUseCase } from '@use-cases/appointment/agendar-consulta.use-case';
-import {
-  CancelarConsultaUseCase,
-  ConfirmarConsultaUseCase,
-  RemarcarConsultaUseCase,
-} from '@use-cases/appointment/gerenciar-consulta.use-case';
+import { ConfirmarConsultaUseCase } from '@use-cases/appointment/gerenciar-consulta.use-case';
 import { ConsultarCobrancaUseCase } from '@use-cases/billing/billing.use-cases';
 import { ConsultarDisponibilidadeUseCase } from '@use-cases/appointment/consultar-disponibilidade.use-case';
 
@@ -40,6 +36,7 @@ export interface IntentActionContext {
 const IDENTITY_DEPENDENT_INTENTS: ReadonlySet<string> = new Set([
   'agendar_consulta',
   'cancelar_consulta',
+  'nao_comparecer',
   'confirmar_presenca',
   'consultar_cobranca',
   'remarcar_consulta',
@@ -72,6 +69,11 @@ const IDENTITY_DEPENDENT_INTENTS: ReadonlySet<string> = new Set([
  * paciente da conversa. O identificador vem da IA; a conferência é do
  * backend. Antes, cancelar, confirmar, remarcar e consultar cobrança agiam
  * sobre qualquer registro da clínica cujo id chegasse nas entidades.
+ *
+ * K11 (ADR-0069; D1 a D8) — cancelar e remarcar NÃO passam mais por aqui:
+ * são pedidos em duas etapas (PedidoDeConsultaPeloWhatsAppUseCase), com a
+ * confirmação explícita do paciente em outra mensagem. Se uma dessas
+ * intenções chegar aqui (o turno não era do K11), nenhuma ação é executada.
  */
 @Injectable()
 export class IntentActionRouter {
@@ -79,10 +81,8 @@ export class IntentActionRouter {
 
   constructor(
     private readonly agendarConsulta: AgendarConsultaUseCase,
-    private readonly cancelarConsulta: CancelarConsultaUseCase,
     private readonly confirmarConsulta: ConfirmarConsultaUseCase,
     private readonly consultarCobranca: ConsultarCobrancaUseCase,
-    private readonly remarcarConsulta: RemarcarConsultaUseCase,
     private readonly consultarDisponibilidade: ConsultarDisponibilidadeUseCase,
     @Inject(CLINIC_TIME_ZONE_READER) private readonly clinicTimeZone: ClinicTimeZoneReader,
   ) {}
@@ -106,14 +106,10 @@ export class IntentActionRouter {
       switch (intent.intent) {
         case 'agendar_consulta':
           return await this.routeAgendarConsulta(intent, context);
-        case 'cancelar_consulta':
-          return await this.routeCancelarConsulta(intent, patientId);
         case 'confirmar_presenca':
           return await this.routeConfirmarConsulta(intent, patientId);
         case 'consultar_cobranca':
           return await this.routeConsultarCobranca(intent, patientId);
-        case 'remarcar_consulta':
-          return await this.routeRemarcarConsulta(intent, patientId);
         case 'consultar_disponibilidade':
           return await this.routeConsultarDisponibilidade(intent);
         default:
@@ -149,23 +145,13 @@ export class IntentActionRouter {
     };
   }
 
-  // Nas três rotas de consulta abaixo, `expectedPatientId` faz o próprio Caso
-  // de Uso recusar (como "não encontrado") a consulta que não é do paciente
-  // da conversa — antes de qualquer mudança de estado.
+  // Na rota de consulta abaixo, `expectedPatientId` faz o próprio Caso de Uso
+  // recusar (como "não encontrado") a consulta que não é do paciente da
+  // conversa — antes de qualquer mudança de estado.
   //
-  // K2-b (ADR-0069) — `actor: 'ai_agent'`: a IA confirma, cancela e remarca
-  // só antes do início previsto e só consulta sem desfecho (os casos de uso
-  // recusam o resto, e a recusa vira "nenhuma ação"). Ela não registra
-  // comunicação nem desfecho: isso depende da confirmação explícita do
-  // paciente (K11), que é da fase 5.
-  private async routeCancelarConsulta(intent: IntentResult, patientId: string): Promise<IntentActionResult> {
-    const { appointmentId } = intent.entities as { appointmentId?: string };
-    if (!appointmentId) return { actionTaken: false };
-
-    await this.cancelarConsulta.execute(appointmentId, {}, { expectedPatientId: patientId, actor: 'ai_agent' });
-    return { actionTaken: true, actionSummary: 'Consulta cancelada.' };
-  }
-
+  // K2-b (ADR-0069) — `actor: 'ai_agent'`: a IA confirma presença só antes do
+  // início previsto e só em consulta sem desfecho (o caso de uso recusa o
+  // resto, e a recusa vira "nenhuma ação"); a auditoria registra a IA.
   private async routeConfirmarConsulta(intent: IntentResult, patientId: string): Promise<IntentActionResult> {
     const { appointmentId } = intent.entities as { appointmentId?: string };
     if (!appointmentId) return { actionTaken: false };
@@ -184,22 +170,6 @@ export class IntentActionRouter {
     return {
       actionTaken: true,
       actionSummary: `Cobrança de R$ ${billing.amount.toFixed(2)}, status: ${billing.state}.`,
-    };
-  }
-
-  /** AD-010 — RemarcarConsultaUseCase já existia pronto, só não conectado aqui. */
-  private async routeRemarcarConsulta(intent: IntentResult, patientId: string): Promise<IntentActionResult> {
-    const { appointmentId, newScheduledAt } = intent.entities as { appointmentId?: string; newScheduledAt?: string };
-    if (!appointmentId || !newScheduledAt) return { actionTaken: false };
-
-    // K2-b — a remarcação cria uma ocorrência nova; o horário dito ao paciente é o dela.
-    const { current } = await this.remarcarConsulta.execute(appointmentId, new Date(newScheduledAt), {}, {
-      expectedPatientId: patientId,
-      actor: 'ai_agent',
-    });
-    return {
-      actionTaken: true,
-      actionSummary: `Consulta reagendada para ${await this.inClinicTime(current.scheduledAt)}.`,
     };
   }
 

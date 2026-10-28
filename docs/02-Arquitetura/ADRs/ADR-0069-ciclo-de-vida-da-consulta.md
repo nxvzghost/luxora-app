@@ -6,6 +6,7 @@
 - A especificação de domínio e o backlog que a originam também continuam não aprovados.
 - **Partes já implementadas e publicadas, cada uma por fase autorizada:** K2-a (`c801b91`) e K2-b (`ea9163c`). Ver o Histórico; o que não está lá não foi implementado.
 - **K2 encerrado tecnicamente em 23/10/2026** (seção 9.4): as três provas exigidas passaram. Isso não aprova o restante desta ADR nem autoriza produção ou qualquer ambiente com dados de clínica.
+- **K11 implementado localmente em 23/10/2026** (fase autorizada), com as decisões D1 a D8 (seção 10.1), **sem commit, push nem deploy**. O comportamento com o modelo real não foi validado (chamada paga, não autorizada). Isso não aprova esta ADR nem declara o produto pronto para produção.
 
 **Origem:** item MVP-01 de [`docs/MVP_BACKLOG.md`](../../MVP_BACKLOG.md) e orientação do responsável pelo produto para DP-01 a DP-04, registrada na [especificação funcional do domínio, seção 4.1](../../01-Domain/14-Especificacao-Funcional-do-Dominio.md).
 
@@ -380,7 +381,8 @@ Tudo é aditivo: nenhuma coluna removida, nenhum valor de enum renomeado. As res
 | `NoticeReferenceSource` | `meta_timestamp`, `recebimento_webhook`, `registro_no_painel` |
 | `NoticeClaimSource` | `telefone`, `presencial`, `outro_canal`, `alegacao_do_paciente` |
 | `NoticeReviewStatus` | `pendente`, `revisada`, `sem_revisao_necessaria` |
-| `NoticeConfirmationStatus` (novo, K11) | `aguardando_confirmacao`, `confirmada`, `expirada` |
+| `NoticeConfirmationAnswer` (novo, K11) | `confirma`, `recusa`, `ambigua`: a resposta do paciente à pergunta de confirmação |
+| `NoticeRequestedAction` (novo, K11) | `cancelar`, `remarcar`: o que o pedido feito pelo WhatsApp quer |
 | `NoticeRequestedBy` | `paciente`, `clinica`, `profissional` |
 | `NoShowDecision` | `aguardando_decisao`, `cobranca_confirmada` |
 | `LateNoticeDecision` | `aguardando_decisao`, `sem_cobranca`, `cobranca_confirmada` (DP-22: só por confirmação humana) |
@@ -392,6 +394,8 @@ Tudo é aditivo: nenhuma coluna removida, nenhum valor de enum renomeado. As res
 | `NoticeConsequencePolicy` | `nao_cobrar`, `decisao_humana` (padrão), `sugerir_cobranca` (DP-22); nenhum valor cobra sem confirmação humana |
 | `AbonoApprovers` | `admin` (padrão, DP-23), `admin_e_profissional_responsavel` (só depois da restrição do terapeuta às próprias consultas, implementada e verificada) |
 
+[EV, K11] O `NoticeConfirmationStatus` (`aguardando_confirmacao`, `confirmada`, `expirada`) desta proposta **não foi criado**. Pela D2, o estado do pedido é derivado das comunicações, da consulta e do desfecho, e nenhuma coluna é reescrita: `aguardando`, `confirmado`, `recusado`, `encaminhado`, `nao_executado`, `vencido`, `substituido` e `sem_efeito` (`domain/appointment/appointment-request.ts`).
+
 ### 3.2 Tabela nova `appointment_notice` (comunicações) [PROP]
 
 | Grupo | Campos |
@@ -402,7 +406,7 @@ Tudo é aditivo: nenhuma coluna removida, nenhum valor de enum renomeado. As res
 | Interpretação | `intent`, `intent_source` (`ia`, `pessoa`), `ambiguous` |
 | Contexto | `requested_by`, `arrived_after_outcome`, `outcome_at_arrival` |
 | Autoria | `recorded_by_user_id`, `recorded_by_actor_type` |
-| Confirmação (K11) | `confirmation_status`, `confirms_notice_id` (a comunicação de confirmação aponta para o pedido) |
+| Pedido e resposta (K11, implementado) | `conversation_id` (FK composta com a clínica). Pedido: `awaits_confirmation`, `requested_action`, `asked_scheduled_at` e `asked_modality` (o retrato da consulta perguntada), `proposed_scheduled_at` (só na remarcação). Resposta: `confirms_notice_id` (FK composta para o pedido da mesma consulta e da mesma conversa) e `confirmation_answer`. Sem coluna de estado (D2) |
 | Correção | `supersedes_notice_id`, `reason` (até 200) |
 | Revisão (únicas colunas atualizáveis) | `review_status`, `reviewed_by_user_id`, `reviewed_at` |
 
@@ -413,7 +417,8 @@ RLS como as demais tabelas.
 | Grupo | Campos |
 |---|---|
 | Identificação | `appointment_id` (chave primária e FK), `tenant_id` |
-| Desfecho | `outcome`, `outcome_recorded_at`, `outcome_recorded_by_user_id` |
+| Desfecho | `outcome`, `outcome_recorded_at`, `outcome_recorded_by_user_id` (nulo só no desfecho da IA), `outcome_recorded_by_actor_type` (`user` ou `ai_agent`; K11) |
+| Confirmação (K11) | `closing_requested_action`, `confirmation_notice_id`, `confirmation_answer`, `confirmation_notice_timing`: FKs compostas para o pedido (com a ação pedida) e para a resposta `confirma` dele, recebida antes do início (D1) |
 | Retrato (imutável) | `state_at_outcome`, `scheduled_at_at_outcome`, `modality_at_outcome`, referenciando `appointment (id, tenant_id, state, scheduled_at, modality)` |
 | Encerramento | `closing_notice_id`, `closing_notice_timing` |
 | Decisões | `no_show_decision` (+ `_at`, `_by`), `late_notice_decision` (+ `_at`, `_by`) |
@@ -528,11 +533,12 @@ Uma versão antiga que insira sem conhecer essas colunas recebe esses padrões.
 
 **F5 — Mensagem do paciente pelo WhatsApp (N1).**
 1. A IA identifica a intenção e a ambiguidade e grava a comunicação. O horário de referência vem da integração (seção 2.3); o de processamento nunca é usado.
-2. **Antes do início, com `pedido_cancelamento` ou `pedido_remarcacao` (K11):** a IA responde com a consulta exata (data, horário no fuso da clínica e profissional) e pede confirmação explícita. O pedido fica `aguardando_confirmacao`.
-   - Só uma confirmação explícita, em mensagem seguinte e antes do início agendado, executa T3 ou T5.
-   - Na remarcação, o horário novo também precisa ser confirmado.
+2. **Antes do início, com `pedido_cancelamento`, `pedido_remarcacao` ou `nao_comparecera` (K11; D7):** o backend localiza a consulta entre as do paciente (D3) e responde com a pergunta montada por ele, com data, horário no fuso da clínica e profissional. O pedido fica aguardando (estado derivado, D2).
+   - Só uma confirmação explícita, em mensagem seguinte, da mesma conversa, do mesmo paciente, com a consulta igual à perguntada e antes do início agendado, executa T3 ou T5 (D4).
+   - Na remarcação, o horário novo também é confirmado, e a disponibilidade é conferida de novo na confirmação (D5).
    - A antecedência conta a partir da primeira mensagem do pedido.
-   - Sem confirmação até o início, o pedido expira, nada é executado e a equipe é sinalizada.
+   - Sem confirmação até o início, o pedido vence: nada é executado e a equipe é avisada. O vencimento é conferido quando chega uma mensagem na conversa e quando a equipe lista as pendências, sem agendador (D6).
+   - [EV] Implementado em 23/10/2026: Histórico.
 3. **No início ou depois** (`depois_do_inicio`), ou com ambiguidade, ou com intenção `atraso`:
    - a consulta **não muda**;
    - a comunicação fica `pendente` de revisão;
@@ -747,6 +753,8 @@ Estilo das rotas existentes (inglês, `/api/v1`); erros `{ code, message, catego
 | `POST /appointments/:id/no-show/excuse/revert` | nova (DP-24a) | `reason` (obrigatório) | `admin` | Volta a `Falta` aguardando decisão |
 | `GET /appointments/pending-outcome`, `/pending-decisions` | novas | — | `admin` (e `therapist` na primeira) | Incluem comunicações pendentes de revisão |
 | `GET /appointments/:id/history` | nova | — | `admin`, `therapist` | Seção 5.4 |
+| `GET /appointments/whatsapp-requests` | nova (K11, implementada) | — | `admin`, `therapist` | Pedidos pelo WhatsApp que esperam o paciente (`aguardando`) ou pedem a equipe (`vencido`, `encaminhado`, `nao_executado`) e, por 7 dias, os executados (`confirmado`, "IA, confirmado pelo paciente"). Sem o texto das mensagens |
+| `GET /appointments` e respostas com desfecho | resposta (K11, implementada) | — | igual | `outcome.recordedBy`: `user` ou `ai_agent` |
 | `GET /sessions` | resposta | — | igual hoje | `kind`, `billingEligibility`, `voidedAt`, `legacyCategory`; `state=Realizada` devolve só elegíveis |
 | `POST /billings` | validação e atomicidade | — | `admin` | `SESSION_OF_ANOTHER_PATIENT`, `SESSION_ALREADY_BILLED` (sessão já cobrada, contrato mantido), `SESSION_NOT_BILLABLE`; restrições do banco como última barreira |
 | `PUT /clinic/policies` | corpo | `noShowPolicy`, `lateNoticePolicy`, `afterStartNoticePolicy`, `abonoApprovers` | `admin` | — |
@@ -1020,6 +1028,21 @@ Decisões de produto do responsável. Elas não aprovam a ADR, que continua em r
 
 Resolve o K11 (seção 11.2): a IA não decide sozinha, porque o cancelamento só acontece com a confirmação do paciente, o que é compatível com a regra 26.9.
 
+#### Decisões de implementação do K11, 23/10/2026 (D1 a D8) [REG]
+
+Decisões do responsável para implementar o K11, a partir da análise de 23/10/2026. Não aprovam esta ADR, que continua em revisão.
+
+| ID | Decisão | Como foi implementado [EV] |
+|---|---|---|
+| **D1** | Autoria: o desfecho fica com `ai_agent` e usuário nulo, sujeito a restrições no banco. A IA só registra cancelamento ou remarcação confirmados | `outcome_recorded_by_actor_type`; `outcome_recorded_by_user_id` deixa de ser `NOT NULL`. `appointment_outcome_actor_check`: pessoa exige o usuário e nada da confirmação; IA exige usuário nulo, `Cancelada` ou `Remarcada`, a ação correspondente, a resposta `confirma` e uma classificação antes do início. `appointment_outcome_request_fkey` e `appointment_outcome_confirmation_fkey` ligam o desfecho ao pedido e à resposta dele, da mesma consulta. Exigência `appointment-ai-confirmation-v1` |
+| **D2** | Pedido e resposta como comunicações distintas, ligadas e preservadas; o estado é derivado, sem sobrescrever | Duas linhas de `appointment_notice`, somente acréscimo; `appointment_notice_reply_check` (a resposta nunca é ela mesma um pedido) e `appointment_notice_confirms_fkey` (mesma consulta e mesma conversa). Estado derivado em `appointment-request.ts` |
+| **D3** | O backend localiza as consultas; a IA recebe só data, horário e profissional, nunca identificadores internos | `buildIntentPrompt` recebe as consultas futuras do paciente identificado sem ids; a IA devolve `appointmentDate`, `appointmentTime`, `professional`, `newDate`, `newTime`, validados no backend antes da busca. O roteador anterior não cancela nem remarca mais |
+| **D4** | A IA classifica a resposta; o backend valida: mensagem posterior, mesma conversa, mesmo paciente, pedido pendente, consulta inalterada, antes do início | `confirmation` em `IntentResult` (`confirma`, `recusa`, `ambigua`, `nao_relacionada`), aceita só com pergunta pendente; sem classificação válida, ou com escalonamento, vale como `ambigua`. O caso de uso confere tudo de novo com a consulta travada (`assertAiConfirmationStillValid`) |
+| **D5** | Revalidar a disponibilidade na confirmação; com o horário ocupado, não alterar | `VerificarDisponibilidade` no pedido e de novo em `RemarcarConsultaUseCase`; `SLOT_NOT_AVAILABLE` ou `SESSION_CONFLICT` vão para a equipe |
+| **D6** | Conferir os pedidos pendentes quando chega uma mensagem e quando a equipe consulta as pendências, sem agendador | `PedidoDeConsultaPeloWhatsAppUseCase.prepare` e `ListarPedidosPeloWhatsAppUseCase` |
+| **D7** | "Não vou conseguir ir" antes do início é pedido de cancelamento, com a confirmação em outra mensagem | Intenção `nao_comparecer` → `nao_comparecera`, ação `cancelar`; depois do início, nenhum pedido e aviso à equipe |
+| **D8** | Não mencionar cobrança; a consequência financeira fica com a decisão humana, pendente | Nenhum texto ao paciente ou à equipe fala em cobrança (teste dedicado). O pedido fora do prazo abre `late_notice_decision = aguardando_decisao`, como no painel |
+
 
 ### 10.2 Situação das partes depois das decisões de produto
 
@@ -1042,12 +1065,12 @@ Resolve o K11 (seção 11.2): a IA não decide sozinha, porque o cancelamento s�
 | DP-23 | Quem aprova o abono | **Decidido** (rodada 5) |
 | DP-24 | Abono reversível? Falta identificada na mensagem? | **Decidido** (rodada 5) |
 | DP-25 | Cancelamento da clínica | **Decidido** (rodada 5) |
-| IA antes do início (K11) | Confirmação explícita do paciente antes de cancelar ou remarcar | **Decidido** (rodada 5). Pendentes: a integração da confirmação em duas etapas com o registro do desfecho (fase 5; Histórico, 23/10/2026, achado 6) e o comportamento com o modelo real |
+| IA antes do início (K11) | Confirmação explícita do paciente antes de cancelar ou remarcar | **Decidido** (rodada 5) e **implementado localmente** em 23/10/2026 (D1 a D8; Histórico), sem commit. Pendentes: o comportamento com o modelo real (chamada paga), a revisão própria desta ADR e a consequência financeira do pedido fora do prazo (D8, decisão humana) |
 | K2 | Exceção à ADR-0060 aprovada em 21/10 no escopo restrito; provas concluídas em 23/10/2026 (seção 9.4) | **Encerrado tecnicamente**; não autoriza produção |
 | Carimbo da Meta | Semântica exata e tolerâncias de validade | A confirmar na implementação (documentação da Meta) |
 | Terapeuta | Restrição às próprias consultas | Proposta, a validar |
 | Agendamento no passado (achado 9) | Registro retroativo permitido ou recusado? | Não decidido |
-| Origem do `appointmentId` na IA | — | Não conferido |
+| Origem do `appointmentId` na IA | — | Cancelar e remarcar: resolvido pela D3 (o backend localiza a consulta; o id vindo da IA é ignorado). Confirmar presença: continua como antes, com a conferência de dono (ADR-0063) |
 | Intenções `atraso` e `indefinida` | Comportamento com o modelo real | Não validado (chamada paga) |
 
 ### 10.4 Critérios de aceite deste desenho (para a revisão)
@@ -1102,9 +1125,9 @@ Os critérios do MVP-01 no backlog, mais os da seção 8, em especial os cinco a
 - **K8 — Comunicação depois de desfecho:** resolvido pela DP-26 rodada 2 (evento adicional, sem sobrescrever).
 - **K9 — Horário à mão:** substituído pelo modelo recebido / registrado / alegado.
 - **K10 — Agendamento no passado:** aberto (seção 10.3).
-- **K11 — IA antes do início:** resolvido pela decisão da rodada 5: confirmação explícita do paciente antes de cancelar ou remarcar (seção 10.1). Ficam pendentes:
-  - integrar essa confirmação em duas etapas ao registro do desfecho, que hoje exige uma pessoa (`outcome_recorded_by_user_id`; fase 5; Histórico, 23/10/2026, achado 6);
-  - validar o comportamento com o modelo real.
+- **K11 — IA antes do início:** resolvido pela decisão da rodada 5: confirmação explícita do paciente antes de cancelar ou remarcar (seção 10.1). A integração da confirmação em duas etapas ao registro do desfecho (achado 6) foi implementada em 23/10/2026 com o desfecho de autoria `ai_agent` (D1) e as restrições do banco (Histórico). Ficam pendentes:
+  - validar o comportamento com o modelo real (chamada paga);
+  - a ordem entre pedido e resposta (resposta posterior) é regra do caso de uso, não do banco: sem trigger, uma restrição não compara duas linhas.
 - **K12 — Exceção à ADR-0060:** **aprovada em 21/10/2026 no escopo restrito** (seção 9.4): versões antigas sem criar cobrança nem vínculo, e sem alterar consulta com desfecho, depois da migration do K2. A agenda segue a alternativa (b); nenhuma outra incompatibilidade foi aprovada.
 - **K13 — Carimbo da Meta:** hoje não é lido. Até a fase 5, o horário de referência pelo WhatsApp é o recebimento no webhook.
 - **K14 — Limites das restrições:** cobrança com zero vínculos e SQL de administrador não são barrados pelo banco (seção 3.7).
@@ -1186,6 +1209,19 @@ Os critérios do MVP-01 no backlog, mais os da seção 8, em especial os cinco a
     - decisões A-14 (ADR-0068);
     - classificação das sessões legadas (fase 7). O histórico delas não pode ser inferido automaticamente; nenhuma sessão legada é elegível sem desfecho registrado por pessoa (DP-27);
     - o restante do MVP-01 listado em "Fora desta fase", na entrada anterior.
+- **23/10/2026 — K11 implementado localmente (fase autorizada, com as decisões D1 a D8 da seção 10.1; sem commit, push nem deploy).** A ADR continua **em revisão**; esta entrada registra o que foi construído e provado, não aprova o restante nem declara o produto pronto para produção.
+  - Migration `20261023220000_k11_ai_confirmed_requests`: enums `NoticeConfirmationAnswer` e `NoticeRequestedAction`; colunas do pedido e da resposta em `appointment_notice` e da autoria e da confirmação em `appointment_outcome` (`outcome_recorded_by_user_id` deixa de ser `NOT NULL`; `outcome_recorded_by_actor_type NOT NULL DEFAULT 'user'`); 4 chaves compostas e 3 CHECKs; a exigência `appointment-ai-confirmation-v1`. Sem trigger e sem função. As 7 restrições nascem validadas, também sobre os desfechos existentes.
+  - Aplicação: `PedidoDeConsultaPeloWhatsAppUseCase` (antes de `interpretIntent`, o pedido pendente da conversa e o contexto da IA sem identificadores; depois, a resposta ou um pedido novo, com o texto montado pelo backend); `ListarPedidosPeloWhatsAppUseCase` e `GET /appointments/whatsapp-requests`; `CancelarConsultaUseCase` e `RemarcarConsultaUseCase` só aceitam a IA com o pedido e a confirmação, conferidos de novo com a consulta travada, e gravam o desfecho `ai_agent`; o `IntentActionRouter` não cancela nem remarca mais; a seção "Pedidos pelo WhatsApp" na Agenda.
+  - **Achados da implementação [EV]:**
+    1. **NULL num CHECK e chave composta em MATCH SIMPLE:** um `CHECK` aceita a linha cujo resultado é NULL, e a chave composta não confere a linha com qualquer coluna nula. Sem cuidado, um desfecho da IA sem a ação do pedido ou sem a resposta classificada passaria pelas duas. As verificações do pedido e do autor ficam dentro de `COALESCE(…, false)`; quatro casos do teste de restrições provam a recusa.
+    2. **`REFERENCES` em `appointment_notice`:** a K2-b tirou do papel da aplicação todo privilégio de tabela nela, e criar chave estrangeira para ela exige `REFERENCES`. Onde ele é o dono (CI, local), a migration o devolve só para criar as chaves e o retira em seguida; com o administrador, nada disso roda.
+    3. **A agenda não lista consulta cancelada**, e todo desfecho da IA é de consulta cancelada: a `2b9147a` não esbarra nele ao listar. Ela responde 500 só ao confirmar ou cancelar a consulta encerrada pela IA, sem gravar nada (ensaio de compatibilidade).
+    4. **Reprocessamento pelo worker:** se a Fase 1 falha depois de o K11 agir (a resposta de saída não é gravada, por exemplo), o BullMQ roda o turno de novo; a resposta já registrada para aquela mensagem vale, e não há segundo desfecho nem segunda resposta (teste crítico com a falha simulada e a reentrega da Meta).
+    5. **A ordem entre pedido e resposta** (resposta posterior) é regra do caso de uso: sem trigger, uma restrição não compara duas linhas. O banco garante linhas distintas, mensagens distintas (`message_id` único), mesma consulta e mesma conversa.
+    6. **Consulta mudada ou identidade alterada entre a pergunta e a resposta:** a mensagem seguinte ainda é lida diante da pergunta feita, para não virar outra ação (um "sim" lido como confirmação de presença, por exemplo); a resposta fica registrada para revisão e a equipe é avisada. Com outro paciente identificado no número, o turno não executa nada, por nenhum caminho.
+    7. **Testes que afirmavam o comportamento anterior** ("pela IA: cancela antes do início, sem comunicação nem desfecho (K11 é da fase 5)" e "a consulta do próprio paciente é cancelada normalmente", num turno) foram reescritos para afirmar o K11: sem confirmação, recusa; com ela, o desfecho da IA. As guardas de capacidade do K2-a e da K2-b passaram a esperar as três exigências.
+  - **Provas (locais, sem CI):** unitários do backend 1544 de 1544; integração 75 de 75; suíte crítica inteira no PostgreSQL 16.14 com 747 aprovados (1 pulado e 1 pendente anteriores ao K11), entre eles as 7 restrições com controle e violação pelo nome e o fluxo real pelo webhook com IA roteirizada (27 testes: duas etapas, mesmo turno, recusa, ambígua, outro contato, identidade alterada, confirmação tardia, consulta mudada, horário ocupado, idempotência, depois do início, D7, pendências, guarda); frontend 305 de 305; E2E 37 de 37; lint e typecheck limpos; 27 de 27 mutações detectadas (22 no código, 5 no banco); ensaio de deploy com as checagens do K11, 124 de 124; ensaio de compatibilidade com a imagem real da `2b9147a`, 79 de 79.
+  - **Continuam abertos:** o comportamento com o modelo real (chamada paga, não autorizada); a revisão própria desta ADR; a consequência financeira do pedido fora do prazo (D8, decisão humana); commit, push, CI e deploy; homologação, CD e a entrada real da Meta; o carimbo da Meta (K13); confirmar presença pelo WhatsApp continua pelo roteador anterior, com a conferência de dono; em retorno degradado para a `2b9147a`, o WhatsApp volta a cancelar e remarcar numa etapa só.
 
 ## Considerações finais
 

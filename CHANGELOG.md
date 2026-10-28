@@ -4,6 +4,18 @@ Registro das mudanças reais aplicadas ao código, na ordem em que foram executa
 
 ## [Não lançado]
 
+### K11 — cancelamento e remarcação pelo WhatsApp com confirmação explícita (2026-10-23)
+
+Fase autorizada pelo responsável, com as decisões D1 a D8 ([ADR-0069](./docs/02-Arquitetura/ADRs/ADR-0069-ciclo-de-vida-da-consulta.md), seção 10.1). A ADR continua em revisão. Implementado localmente: sem commit, push nem deploy. O comportamento com o modelo real não foi validado (chamada paga, não autorizada).
+
+- **Duas etapas:** o pedido de cancelamento, de remarcação ou "não vou conseguir ir" (D7), antes do início, é registrado como comunicação da IA aguardando confirmação, e a resposta ao paciente é a pergunta montada pelo backend com data, horário e profissional. A consulta não muda. Só uma resposta `confirma`, em outra mensagem, da mesma conversa e do mesmo paciente, com a consulta igual à perguntada e antes do início, executa o cancelamento ou a remarcação (D4), com a disponibilidade conferida de novo (D5).
+- **Autoria (D1):** o desfecho da IA fica com `outcome_recorded_by_actor_type = 'ai_agent'` e sem usuário, ligado ao pedido e à confirmação por chaves compostas; `appointment_outcome_actor_check` só aceita isso para cancelamento ou remarcação confirmados antes do início, e continua exigindo o usuário no desfecho de pessoa.
+- **Pedido e resposta preservados (D2):** duas linhas de `appointment_notice`, somente acréscimo, ligadas (mesma consulta, mesma conversa); o estado do pedido é derivado, sem coluna reescrita.
+- **A IA não vê identificadores (D3):** recebe as consultas futuras do paciente por data, dia, horário, profissional e modalidade, e a pergunta pendente; devolve o que o paciente disse e a classificação da resposta. O backend localiza a consulta. O roteador de intenções não cancela nem remarca mais.
+- **Equipe:** recusa, resposta ambígua, confirmação tardia, consulta mudada, horário ocupado, pedido depois do início e identidade alterada não executam nada e geram aviso no painel; o vencimento é conferido quando chega mensagem e quando a equipe lista as pendências, sem agendador (D6). Nova rota `GET /appointments/whatsapp-requests` (`admin`, `therapist`) e a seção "Pedidos pelo WhatsApp" na Agenda, com a autoria "IA, confirmado pelo paciente". `outcome.recordedBy` nas respostas.
+- **Sem cobrança nos textos (D8):** a consequência do pedido fora do prazo fica aguardando decisão humana, como no painel.
+- **Operação:** capacidade `appointment-ai-confirmation-v1` na imagem e no banco, com 7 restrições novas conferidas por `deploy.sh`, `rollback.sh` e `restore-drill.sh`. A `2b9147a` vira retorno degradado: lê o autor do desfecho como obrigatório e, pelo WhatsApp, cancela numa etapa só. Ensaio com a imagem anterior de verdade: `infra/tests/k11-compat-rehearsal.sh`.
+
 ### K2-b — desfecho da consulta e elegibilidade definitiva das sessões (2026-10-23)
 
 Fase autorizada pelo responsável: K2-b integrada ao núcleo do MVP-01 ([ADR-0069](./docs/02-Arquitetura/ADRs/ADR-0069-ciclo-de-vida-da-consulta.md), seções 2.4 a 2.9, 3.7 e 9.4; exceção restrita à ADR-0060). A ADR continua em revisão. Commit local, sem push nem deploy.

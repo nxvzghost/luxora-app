@@ -109,6 +109,45 @@ describe('AnthropicAIProvider — ADR-0055 (AD-018), Fase 8.1 (hardening)', () =
     });
   });
 
+  describe('K11 — consultas do paciente e classificação da resposta à pergunta pendente', () => {
+    const appointmentContext = {
+      today: '2026-08-01 (sábado)',
+      upcoming: [{ date: '2026-08-03', weekday: 'segunda-feira', time: '06:00', professional: 'Dra. Paula Souza', modality: 'presencial' }],
+      pendingQuestion: 'Para confirmar: você quer cancelar a consulta de segunda-feira, 03/08, às 06:00, com Dra. Paula Souza?',
+    };
+    const modelSaying = (confirmation: unknown) =>
+      okTextResponse(JSON.stringify({ intent: 'confirmar_presenca', confidence: 0.9, entities: {}, requiresEscalation: false, confirmation }));
+
+    it('a instrução leva as consultas (sem identificadores) e a pergunta pendente; a classificação válida volta no resultado', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(modelSaying('confirma'));
+      vi.stubGlobal('fetch', fetchMock);
+      const { provider } = makeProvider();
+      const result = await provider.interpretIntent(baseIntentInput({ message: 'sim', appointmentContext }));
+
+      const system = JSON.parse(fetchMock.mock.calls[0][1].body).system as string;
+      expect(system).toContain('2026-08-03 (segunda-feira) às 06:00, com Dra. Paula Souza, presencial');
+      expect(system).toContain(appointmentContext.pendingQuestion);
+      expect(system).toContain('nao_comparecer');
+      expect(result.confirmation).toBe('confirma');
+    });
+
+    it('valor fora dos quatro: sem classificação (o backend trata como ambígua)', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(modelSaying('talvez')));
+      const { provider } = makeProvider();
+      const result = await provider.interpretIntent(baseIntentInput({ message: 'sim', appointmentContext }));
+      expect('confirmation' in result).toBe(false);
+    });
+
+    it('sem pergunta pendente, a classificação do modelo é ignorada', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(modelSaying('confirma'));
+      vi.stubGlobal('fetch', fetchMock);
+      const { provider } = makeProvider();
+      const result = await provider.interpretIntent(baseIntentInput({ message: 'sim', appointmentContext: { ...appointmentContext, pendingQuestion: undefined } }));
+      expect('confirmation' in result).toBe(false);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).system).not.toContain('Em "confirmation"');
+    });
+  });
+
   describe('L16 (A-14) — textos fixos sem especialidade presumida', () => {
     it('interpretIntent() e generateResponse() enviam instruções neutras, com intents e critério de escalonamento preservados', async () => {
       const fetchMock = vi.fn().mockResolvedValueOnce(okIntentResponse()).mockResolvedValueOnce(okGenerateResponse());

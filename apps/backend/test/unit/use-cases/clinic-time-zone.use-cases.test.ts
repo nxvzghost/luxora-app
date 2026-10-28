@@ -106,10 +106,6 @@ describe('"amanhã" e os horários do resumo de agenda são os da clínica', () 
 describe('o que a secretária escreve ao paciente está na hora da clínica', () => {
   function routerIn(timeZone: string) {
     const agendarConsulta = { execute: vi.fn().mockResolvedValue({ scheduledAt: new Date('2026-08-03T12:00:00Z') }) };
-    // K2-b — a remarcação devolve a ocorrência anterior e a nova (o horário anunciado é o da nova).
-    const remarcarConsulta = {
-      execute: vi.fn().mockResolvedValue({ previous: { scheduledAt: new Date('2026-08-03T12:00:00Z') }, current: { scheduledAt: new Date('2026-08-04T17:30:00Z') } }),
-    };
     const consultarDisponibilidade = {
       execute: vi.fn().mockResolvedValue([
         { startsAt: new Date('2026-08-03T12:00:00Z'), endsAt: new Date('2026-08-03T13:00:00Z') },
@@ -117,15 +113,10 @@ describe('o que a secretária escreve ao paciente está na hora da clínica', ()
       ]),
     };
     const unused = { execute: vi.fn() };
-    return new IntentActionRouter(
-      agendarConsulta as never,
-      unused as never,
-      unused as never,
-      unused as never,
-      remarcarConsulta as never,
-      consultarDisponibilidade as never,
-      clinicIn(timeZone),
-    );
+    // K11 — remarcar não passa mais pelo roteador: a pergunta e o resultado da
+    // remarcação pelo WhatsApp, também na hora da clínica, estão em
+    // pedido-pelo-whatsapp.use-case.test.ts.
+    return new IntentActionRouter(agendarConsulta as never, unused as never, unused as never, consultarDisponibilidade as never, clinicIn(timeZone));
   }
   const context = { tenantId: TENANT_ID, patientId: 'p1' };
   const intent = (name: string, entities: Record<string, unknown>) => ({ intent: name, confidence: 0.9, entities, requiresEscalation: false }) as never;
@@ -142,11 +133,8 @@ describe('o que a secretária escreve ao paciente está na hora da clínica', ()
     expect(result.actionSummary).toBe('Consulta agendada para 03/08/2026, 08:00:00.');
   });
 
-  it('remarcação e horários livres seguem a mesma regra', async () => {
+  it('horários livres seguem a mesma regra', async () => {
     const router = routerIn('America/Sao_Paulo');
-
-    const rescheduled = await router.route(intent('remarcar_consulta', { appointmentId: 'a1', newScheduledAt: '2026-08-04T17:30:00Z' }), context);
-    expect(rescheduled.actionSummary).toBe('Consulta reagendada para 04/08/2026, 14:30:00.');
 
     const available = await router.route(intent('consultar_disponibilidade', { therapistId: 't1' }), context);
     expect(available.actionSummary).toBe('Horários disponíveis: 03/08/2026, 09:00:00, 03/08/2026, 10:00:00.');
@@ -155,7 +143,7 @@ describe('o que a secretária escreve ao paciente está na hora da clínica', ()
   it('o dia anunciado também é o da clínica: 22:00 de domingo em São Paulo, já segunda em UTC', async () => {
     const agendar = { execute: vi.fn().mockResolvedValue({ scheduledAt: new Date('2026-08-03T01:00:00Z') }) };
     const unused = { execute: vi.fn() };
-    const router = new IntentActionRouter(agendar as never, unused as never, unused as never, unused as never, unused as never, unused as never, clinicIn('America/Sao_Paulo'));
+    const router = new IntentActionRouter(agendar as never, unused as never, unused as never, unused as never, clinicIn('America/Sao_Paulo'));
 
     const result = await router.route(intent('agendar_consulta', { therapistId: 't1', scheduledAt: '2026-08-03T01:00:00Z' }), context);
 

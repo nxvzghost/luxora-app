@@ -21,6 +21,8 @@ import {
   createWorld,
   errorOf,
   legacySession,
+  whatsAppReply,
+  whatsAppRequest,
   withAppointment,
 } from './support/lifecycle-world';
 
@@ -40,6 +42,7 @@ function repoMock(overrides: Partial<AppointmentRepository> = {}): AppointmentRe
     save: vi.fn().mockResolvedValue(undefined),
     saveMany: vi.fn(),
     findByTenantAndRange: vi.fn(),
+    findOpenByPatientAndRange: vi.fn(),
     existsForRecurringBlockOccurrence: vi.fn(),
     ...overrides,
   };
@@ -217,12 +220,81 @@ describe('CancelarConsultaUseCase (T3)', () => {
     expect(await errorOf(cancelar(world).execute('a1', { requestedBy: 'paciente' }))).toEqual({ status: 409, code });
   });
 
-  it('pela IA (actor ai_agent): cancela antes do início, sem comunicação nem desfecho (K11 é da fase 5)', async () => {
+  it('pela IA sem a confirmação do paciente (K11, D1): 403 PATIENT_CONFIRMATION_REQUIRED, nada muda', async () => {
     const world = createWorld({ userId: null });
-    withAppointment(world, appointmentIn('Confirmada'));
-    const result = await cancelar(world).execute('a1', {}, { expectedPatientId: 'p1', actor: 'ai_agent' });
+    const appointment = withAppointment(world, appointmentIn('Confirmada'));
+    expect(await errorOf(cancelar(world).execute('a1', {}, { expectedPatientId: 'p1', actor: 'ai_agent' }))).toEqual({
+      status: 403,
+      code: 'PATIENT_CONFIRMATION_REQUIRED',
+    });
+    expect(appointment.state).toBe('Confirmada');
+    expect(world.outcomes.size).toBe(0);
+    expect(world.repo.save).not.toHaveBeenCalled();
+  });
+
+  it('pela IA com o pedido e a confirmação do paciente: cancela, e o desfecho é da IA, ligado aos dois (K11, D1)', async () => {
+    const world = createWorld({ userId: null });
+    const appointment = withAppointment(world, appointmentIn('Confirmada'));
+    const request = whatsAppRequest(world, appointment);
+    const confirmation = whatsAppReply(world, request, appointment, 'confirma');
+    const result = await cancelar(world).execute('a1', {}, { expectedPatientId: 'p1', actor: 'ai_agent', aiConfirmation: { request, confirmation } });
+
     expect(result.appointment.state).toBe('Cancelada');
-    expect(world.notices).toHaveLength(0);
+    const outcome = world.outcomes.get('a1') as AppointmentOutcomeRecord;
+    expect([outcome.outcome, outcome.recordedByActorType, outcome.recordedByUserId]).toEqual(['Cancelada', 'ai_agent', undefined]);
+    expect([outcome.closingNoticeId, outcome.closingRequestedAction, outcome.confirmationNoticeId, outcome.confirmationAnswer]).toEqual([
+      request.id,
+      'cancelar',
+      confirmation.id,
+      'confirma',
+    ]);
+    // Nenhuma comunicação nova: o pedido e a resposta já estavam registrados.
+    expect(world.notices).toHaveLength(2);
+    // Autoria da auditoria: tudo o que a execução gravou é da IA.
+    expect(world.auditedActors.map((a) => a.event)).toContain('ConsultaCancelada');
+    expect(new Set(world.auditedActors.map((a) => a.actor))).toEqual(new Set(['ai_agent']));
+  });
+
+  it.each([
+    ['a resposta é recusa', 'recusa', 403, 'PATIENT_CONFIRMATION_REQUIRED'],
+    ['a resposta é ambígua', 'ambigua', 403, 'PATIENT_CONFIRMATION_REQUIRED'],
+  ] as const)('pela IA quando %s: %s, nada muda', async (_label, answer, status, code) => {
+    const world = createWorld({ userId: null });
+    const appointment = withAppointment(world, appointmentIn('Confirmada'));
+    const request = whatsAppRequest(world, appointment);
+    const confirmation = whatsAppReply(world, request, appointment, answer);
+    expect(
+      await errorOf(cancelar(world).execute('a1', {}, { expectedPatientId: 'p1', actor: 'ai_agent', aiConfirmation: { request, confirmation } })),
+    ).toEqual({ status, code });
+    expect(appointment.state).toBe('Confirmada');
+    expect(world.outcomes.size).toBe(0);
+  });
+
+  it('pela IA com a consulta mudada depois da pergunta (D4): 409 APPOINTMENT_REQUEST_STALE, nada muda', async () => {
+    const world = createWorld({ userId: null });
+    const asked = appointmentIn('Confirmada');
+    const request = whatsAppRequest(world, asked);
+    const confirmation = whatsAppReply(world, request, asked, 'confirma');
+    // A equipe mudou o horário no intervalo (mesmo id, outro horário).
+    const moved = withAppointment(world, appointmentIn('Confirmada', { scheduledAt: new Date(START.getTime() + 3_600_000) }));
+    expect(
+      await errorOf(cancelar(world).execute('a1', {}, { expectedPatientId: 'p1', actor: 'ai_agent', aiConfirmation: { request, confirmation } })),
+    ).toEqual({ status: 409, code: 'APPOINTMENT_REQUEST_STALE' });
+    expect(moved.state).toBe('Confirmada');
+    expect(world.outcomes.size).toBe(0);
+  });
+
+  it('pela IA com a confirmação de outro pedido: 403, nada muda', async () => {
+    const world = createWorld({ userId: null });
+    const appointment = withAppointment(world, appointmentIn('Confirmada'));
+    const first = whatsAppRequest(world, appointment);
+    const second = whatsAppRequest(world, appointment);
+    const confirmationOfFirst = whatsAppReply(world, first, appointment, 'confirma');
+    expect(
+      await errorOf(
+        cancelar(world).execute('a1', {}, { expectedPatientId: 'p1', actor: 'ai_agent', aiConfirmation: { request: second, confirmation: confirmationOfFirst } }),
+      ),
+    ).toEqual({ status: 403, code: 'PATIENT_CONFIRMATION_REQUIRED' });
     expect(world.outcomes.size).toBe(0);
   });
 
@@ -327,17 +399,61 @@ describe('RemarcarConsultaUseCase (T5) — nova ocorrência ligada, histórico p
     expect(again.current.rescheduledFromId).toBe(current.id);
   });
 
-  it('pela IA: nova ocorrência ligada, sem comunicação nem desfecho; remarcar de novo a anterior é recusado', async () => {
+  it('pela IA sem a confirmação do paciente (K11, D1): 403, sem consultar o Motor nem mudar nada', async () => {
     const world = createWorld({ userId: null });
-    withAppointment(world, appointmentIn('Reservada'));
-    const { current, outcome } = await remarcar(world).execute('a1', NEW_TIME, {}, { expectedPatientId: 'p1', actor: 'ai_agent' });
-    expect(outcome).toBeNull();
-    expect(current.rescheduledFromId).toBe('a1');
-    expect(world.notices).toHaveLength(0);
+    const appointment = withAppointment(world, appointmentIn('Reservada'));
     expect(await errorOf(remarcar(world).execute('a1', NEW_TIME, {}, { expectedPatientId: 'p1', actor: 'ai_agent' }))).toEqual({
-      status: 409,
-      code: 'APPOINTMENT_ALREADY_RESCHEDULED',
+      status: 403,
+      code: 'PATIENT_CONFIRMATION_REQUIRED',
     });
+    expect(world.motor.execute).not.toHaveBeenCalled();
+    expect([appointment.state, appointment.scheduledAt]).toEqual(['Reservada', START]);
+    expect(world.outcomes.size).toBe(0);
+  });
+
+  it('pela IA com a confirmação: nova ocorrência ligada, desfecho da IA; remarcar de novo a anterior é recusado', async () => {
+    const world = createWorld({ userId: null });
+    const appointment = withAppointment(world, appointmentIn('Reservada'));
+    const request = whatsAppRequest(world, appointment, { action: 'remarcar', proposedScheduledAt: NEW_TIME });
+    const confirmation = whatsAppReply(world, request, appointment, 'confirma');
+    const options = { expectedPatientId: 'p1', actor: 'ai_agent' as const, aiConfirmation: { request, confirmation } };
+    const { current, outcome } = await remarcar(world).execute('a1', NEW_TIME, {}, options);
+
+    expect([current.rescheduledFromId, current.scheduledAt, current.state]).toEqual(['a1', NEW_TIME, 'Reservada']);
+    expect([outcome?.outcome, outcome?.recordedByActorType, outcome?.closingNoticeId, outcome?.confirmationNoticeId]).toEqual([
+      'Remarcada',
+      'ai_agent',
+      request.id,
+      confirmation.id,
+    ]);
+    // D5 — a disponibilidade foi conferida de novo, na confirmação.
+    expect(world.motor.execute).toHaveBeenCalledTimes(1);
+    expect(await errorOf(remarcar(world).execute('a1', NEW_TIME, {}, options))).toEqual({ status: 409, code: 'APPOINTMENT_ALREADY_RESCHEDULED' });
+  });
+
+  it('pela IA para um horário diferente do confirmado: 409 APPOINTMENT_REQUEST_STALE, nada muda', async () => {
+    const world = createWorld({ userId: null });
+    const appointment = withAppointment(world, appointmentIn('Reservada'));
+    const request = whatsAppRequest(world, appointment, { action: 'remarcar', proposedScheduledAt: NEW_TIME });
+    const confirmation = whatsAppReply(world, request, appointment, 'confirma');
+    const other = new Date(NEW_TIME.getTime() + 3_600_000);
+    expect(
+      await errorOf(remarcar(world).execute('a1', other, {}, { expectedPatientId: 'p1', actor: 'ai_agent', aiConfirmation: { request, confirmation } })),
+    ).toEqual({ status: 409, code: 'APPOINTMENT_REQUEST_STALE' });
+    expect(world.outcomes.size).toBe(0);
+    expect(appointment.state).toBe('Reservada');
+  });
+
+  it('pela IA com o horário ocupado na confirmação (D5): SLOT_NOT_AVAILABLE, nada muda', async () => {
+    const world = createWorld({ userId: null, available: false });
+    const appointment = withAppointment(world, appointmentIn('Reservada'));
+    const request = whatsAppRequest(world, appointment, { action: 'remarcar', proposedScheduledAt: NEW_TIME });
+    const confirmation = whatsAppReply(world, request, appointment, 'confirma');
+    await expect(
+      remarcar(world).execute('a1', NEW_TIME, {}, { expectedPatientId: 'p1', actor: 'ai_agent', aiConfirmation: { request, confirmation } }),
+    ).rejects.toThrow(SlotNotAvailableError);
+    expect([appointment.state, appointment.scheduledAt]).toEqual(['Reservada', START]);
+    expect(world.outcomes.size).toBe(0);
   });
 
   it('a sessão legada da ocorrência anterior continua lá e inelegível (nenhum desfecho é inventado)', async () => {
@@ -485,10 +601,12 @@ describe('Consulta de quem? — conferência de dono para quem age em nome de um
     expect(wrongOwner).toBe(notFound);
   });
 
-  it('do próprio paciente: age normalmente', async () => {
+  it('do próprio paciente, com a confirmação dele: age normalmente', async () => {
     const world = createWorld({ userId: null });
     const appointment = withAppointment(world, appointmentIn('Reservada'));
-    await cancelar(world).execute('a1', {}, ai('p1'));
+    const request = whatsAppRequest(world, appointment);
+    const confirmation = whatsAppReply(world, request, appointment, 'confirma');
+    await cancelar(world).execute('a1', {}, { ...ai('p1'), aiConfirmation: { request, confirmation } });
     expect(appointment.state).toBe('Cancelada');
   });
 

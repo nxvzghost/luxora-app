@@ -18,6 +18,7 @@ import {
 } from '@use-cases/appointment/desfecho-consulta.use-case';
 import { CriarAgendamentoRecorrenteUseCase } from '@use-cases/appointment/criar-agendamento-recorrente.use-case';
 import { ListarAgendamentosUseCase } from '@use-cases/appointment/listar-agendamentos.use-case';
+import { ListarPedidosPeloWhatsAppUseCase } from '@use-cases/appointment/listar-pedidos-pelo-whatsapp.use-case';
 import { APPOINTMENT_OUTCOME_REPOSITORY } from '@domain-services/patient-ops/appointment-outcome.repository';
 import { APPOINTMENT_NOTICE_REPOSITORY } from '@domain-services/patient-ops/appointment-notice.repository';
 import { CLINIC_REPOSITORY } from '@domain-services/platform/clinic.repository';
@@ -75,6 +76,8 @@ import { PrismaClinicSubscriptionRepository } from '@infrastructure/database/rep
     ConfirmarCobrancaDeFaltaUseCase,
     AbonarFaltaUseCase,
     ReverterAbonoUseCase,
+    // K11 — pendências dos pedidos pelo WhatsApp.
+    ListarPedidosPeloWhatsAppUseCase,
     { provide: APPOINTMENT_OUTCOME_REPOSITORY, useClass: PrismaAppointmentOutcomeRepository },
     { provide: APPOINTMENT_NOTICE_REPOSITORY, useClass: PrismaAppointmentNoticeRepository },
     { provide: CLINIC_REPOSITORY, useClass: PrismaClinicRepository },
