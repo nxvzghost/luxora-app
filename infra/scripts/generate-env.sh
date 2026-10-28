@@ -63,6 +63,20 @@ ASAAS_BASE_URL=https://api-sandbox.asaas.com/v3
 
 OTEL_EXPORTER_OTLP_ENDPOINT=
 LOG_LEVEL=log
+
+# --- backup externo cifrado (infra/scripts/external-backup.sh). Tudo vazio = desligado.
+# Qualquer armazenamento compativel com S3 com enderecamento por caminho: <endpoint>/<bucket>/<chave>.
+# Endpoint em https://. Credencial de envio: so escrita (e BACKUP_VERIFY_AFTER_UPLOAD=0) ou escrita + leitura.
+BACKUP_S3_ENDPOINT=
+BACKUP_S3_REGION=
+BACKUP_S3_BUCKET=
+BACKUP_S3_PREFIX=luxora
+BACKUP_S3_ACCESS_KEY_ID=
+BACKUP_S3_SECRET_ACCESS_KEY=
+# Caminho de um arquivo (permissao 600, 24+ caracteres) com a chave de cifragem. NAO e a chave em si.
+# Guarde uma copia dessa chave FORA do servidor: sem ela, os backups externos nao abrem.
+BACKUP_ENCRYPTION_PASSPHRASE_FILE=
+BACKUP_VERIFY_AFTER_UPLOAD=1
 EOF
 chmod 600 "$TARGET"
 echo "arquivo gerado: $TARGET (permissão 600, $(grep -cE '^[A-Z_]+=' "$TARGET") variáveis). Nenhum valor foi exibido."

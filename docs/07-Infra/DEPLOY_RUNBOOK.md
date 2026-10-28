@@ -98,7 +98,7 @@ bash infra/scripts/restore-drill.sh --env-file /etc/luxora/staging.env [--backup
 
 Restaura num banco descartável do mesmo servidor, confere e apaga. Nunca restaura por cima do banco em uso. Reprova se as tabelas voltarem sem a RLS forçada ou sem o histórico de migrations, ou se o backup exigir uma capacidade (a do K2-a, `billing-eligibility-v1`, a da K2-b, `appointment-outcome-v1`, ou a do K11, `appointment-ai-confirmation-v1`) sem as restrições, a política e os privilégios que a acompanham. Um backup anterior à exigência do ambiente passa, com aviso: restaurado de verdade, ele pede `deploy.sh` antes de subir a aplicação (procedimento em [MIGRATION_RUNBOOK.md](MIGRATION_RUNBOOK.md), "Procedimento de restauração de backup").
 
-Os backups do deploy ficam no disco do próprio host: servem para desfazer um deploy, **não** são a política de backup do ambiente. Cópia fora do host e retenção continuam pendentes (dependem do provedor).
+Os backups do deploy ficam no disco do próprio host: servem para desfazer um deploy, **não** são a política de backup do ambiente. Cópia fora do host e retenção continuam pendentes (dependem do provedor); a preparação técnica da cópia externa cifrada está em "Backup externo cifrado", abaixo.
 
 ## Proxy HTTPS (Caddy)
 
@@ -122,6 +122,51 @@ Pontos de atenção:
 - Não há log de acesso no proxy, de propósito: a verificação do webhook da Meta leva o token na query string.
 - A API usa `trust proxy = 1`: o Caddy é o único salto na frente dela.
 - Mudou o `Caddyfile`? O próximo `deploy.sh` recarrega a configuração; fora de um deploy: `docker compose -p luxora-<ambiente> --env-file <arquivo> -f infra/staging/docker-compose.yml exec caddy caddy reload --config /etc/caddy/Caddyfile`.
+
+## Backup externo cifrado
+
+`infra/scripts/external-backup.sh` copia o banco para um armazenamento externo compatível com S3, cifrado, e recupera a cópia para o `restore-drill.sh` existente. **Estado: implementado e testado só com um armazenamento falso local; nunca falou com um armazenamento real, não está agendado e a retenção não foi decidida (J-4).** Não apaga nem rotaciona nada.
+
+```bash
+bash infra/scripts/external-backup.sh check --env-file /etc/luxora/staging.env   # só confere a configuração; sem rede nem banco
+bash infra/scripts/external-backup.sh push  --env-file /etc/luxora/staging.env   # dump, cifragem e envio
+bash infra/scripts/external-backup.sh pull  --env-file <env de leitura> --object <chave> --drill   # baixa, decifra e roda o restore-drill.sh
+bash infra/scripts/external-backup.sh pull  --env-file <env de leitura> --object <chave> --output /caminho/novo.dump [--sha256 <hex>]
+```
+
+**`push`**, em ordem, parando no primeiro erro (código 3, com a causa na mensagem):
+
+1. `pg_dump -Fc` direto para o `gpg`: o dump nunca existe em claro no disco. Nome do objeto: `<prefixo>/<APP_ENV>/<banco>/<AAAAMMDDTHHMMSSZ>-<8 hex aleatórios>.dump.gpg`, único a cada execução.
+2. A cópia cifrada é decifrada em fluxo e lida por `pg_restore --list`. Se não decifra ou o dump é inválido, nada é enviado.
+3. Envio por `curl --aws-sigv4` (PUT), com o hash do conteúdo assinado. A chave de acesso vai por stdin, nunca na linha de comando.
+4. Conferência do tamanho do objeto (HEAD). Com credencial só de escrita use `BACKUP_VERIFY_AFTER_UPLOAD=0`: o envio aceito pelo armazenamento vale, mas o tamanho não é conferido. Se o envio deu certo e a conferência falhou, o objeto **não é apagado**; a mensagem diz qual é.
+
+Cada execução grava uma linha no `history.jsonl` (`external-backup` / `external-restore`, com o sha256 da cópia cifrada) e `last-external-backup` no estado. Os temporários ficam em `luxora-deploy-state/tmp` (permissão 700) e são sobrescritos e removidos ao terminar, inclusive em erro ou interrupção.
+
+**`pull`** baixa o objeto, confere o `--sha256` se informado, decifra para um arquivo temporário protegido e confere o dump. Com `--drill`, passa o arquivo ao `restore-drill.sh` (restauração num banco descartável, com a conferência da RLS e das proteções do K2/K11) e apaga o arquivo em claro ao terminar; o código de saída é o do ensaio. Com `--output`, entrega o dump **em claro** num arquivo novo (permissão 600; não sobrescreve), e apagá-lo depois é de quem pediu. Um objeto adulterado ou a chave errada falham na decifragem e nada é entregue. Para restaurar de verdade (não só ensaiar) siga o procedimento de [MIGRATION_RUNBOOK.md](MIGRATION_RUNBOOK.md), "Restauração no ambiente real".
+
+Variáveis no arquivo de ambiente (modelo em `infra/staging/.env.staging.example`; vazias = desligado). Para recuperar de outra máquina, use um arquivo de ambiente com credencial de leitura:
+
+| Variável | O que é |
+|---|---|
+| `BACKUP_S3_ENDPOINT` | `https://` do armazenamento (endereçamento por caminho: `<endpoint>/<bucket>/<chave>`). `http://` só com `BACKUP_S3_ALLOW_INSECURE_HTTP=1`, para teste local |
+| `BACKUP_S3_REGION`, `BACKUP_S3_BUCKET` | região da assinatura e bucket |
+| `BACKUP_S3_PREFIX` | prefixo das chaves (padrão `luxora`) |
+| `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` | credencial; segredo, só no arquivo de ambiente (permissão 600, fora do Git) |
+| `BACKUP_ENCRYPTION_PASSPHRASE_FILE` | caminho do arquivo com a chave de cifragem (permissão 600 ou 400, 24+ caracteres) |
+| `BACKUP_VERIFY_AFTER_UPLOAD` | `1` (padrão) confere o tamanho depois do envio; `0` para credencial só de escrita |
+
+Dependências no host: bash, docker com o plugin compose, `curl` 7.75 ou mais novo, `gpg` e `sha256sum`. Nada é instalado por estes scripts; no servidor, confirme que `gpg` existe.
+
+**Teste local:** `bash infra/tests/external-backup-test.sh` roda tudo contra um `docker` simulado e um armazenamento S3 falso em `127.0.0.1` (precisa de `node`), com dados fictícios e sem rede externa. Não roda no CI. Ele prova o fluxo, a cifragem, a ausência de arquivo em claro e o tratamento de falhas; **não prova** que um armazenamento real aceita a assinatura nem que o `pg_dump`/`pg_restore` reais funcionam por esse caminho.
+
+Pendente do VPS e de decisões:
+
+- **Armazenamento:** provedor, bucket, região, credenciais (preferir uma só de escrita para o `push` e outra de leitura para a recuperação) e se ele aceita endereçamento por caminho e o cabeçalho `x-amz-content-sha256`. O primeiro envio real é o primeiro teste de compatibilidade.
+- **Chave de cifragem:** gerar, guardar uma cópia **fora do servidor** (e fora do próprio armazenamento dos backups) e decidir quem a detém. Sem ela, os backups não abrem; com ela no servidor e nada fora, perder o servidor perde tudo.
+- **Retenção e exclusão:** nada é apagado; o prazo depende do J-4 e a regra de ciclo de vida pode ficar no próprio armazenamento.
+- **Agendamento e alerta de falha:** não existem. O código de saída 3 e o `history.jsonl` são o que um agendador e o monitor vão ler.
+- **Cadência do teste de restauração** a partir da cópia externa (`pull --drill`).
 
 ## Sondas de saúde
 
