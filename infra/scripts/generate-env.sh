@@ -40,6 +40,13 @@ FRONTEND_URL=http://localhost:13001
 BACKEND_PORT=13000
 FRONTEND_PORT=13001
 
+# --- proxy HTTPS (Caddy). Vazios = o proxy não sobe e a API e o painel ficam só no loopback.
+# Nome de host, SEM https:// e SEM caminho. Os dois precisam ter DNS apontando para o servidor.
+# PUBLIC_PANEL_HOST deve ser o mesmo host de FRONTEND_URL; o api_url do CD é https://<PUBLIC_API_HOST>/api/v1.
+# Exemplos: api-staging.exemplo.com.br e painel-staging.exemplo.com.br
+PUBLIC_API_HOST=
+PUBLIC_PANEL_HOST=
+
 JWT_SECRET=$(secret 32)
 WHATSAPP_TOKEN_ENCRYPTION_KEY=$(secret 32)
 WHATSAPP_APP_SECRET=$(secret)

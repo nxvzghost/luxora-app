@@ -168,4 +168,18 @@ if [ -n "$FRONTEND_VERSION" ]; then
   state_set current-frontend-version "$FRONTEND_VERSION"
 fi
 
+# Proxy HTTPS (Caddy): só quando o ambiente informa os dois endereços públicos.
+# Não depende da versão da aplicação (acha backend e frontend pelo nome do serviço)
+# e o certificado depende do DNS: uma falha aqui não desfaz um deploy que deu certo.
+if [ -n "$(env_get PUBLIC_API_HOST)" ] && [ -n "$(env_get PUBLIC_PANEL_HOST)" ]; then
+  log "proxy HTTPS (Caddy)"
+  if compose --profile proxy up -d --no-deps caddy >/dev/null; then
+    # Recarrega o Caddyfile do checkout atual (o arquivo é montado, e o compose não percebe a mudança).
+    compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 \
+      || log "AVISO: o Caddy não recarregou a configuração; confira os logs do serviço caddy"
+  else
+    log "AVISO: o proxy HTTPS não subiu; a aplicação segue no ar no loopback do host"
+  fi
+fi
+
 log "6/6 deploy concluído: $VERSION no ar em $APP_ENVIRONMENT (anterior: ${PREVIOUS:-nenhuma})"

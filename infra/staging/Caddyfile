@@ -1,0 +1,40 @@
+# Luxora — proxy HTTPS da homologação (Caddy). Tarefa A-12.
+#
+# Servido pelo serviço "caddy" de docker-compose.yml (perfil "proxy"), que só
+# sobe quando PUBLIC_API_HOST e PUBLIC_PANEL_HOST estão no arquivo de ambiente
+# (infra/scripts/deploy.sh). Passo a passo: docs/07-Infra/DEPLOY_RUNBOOK.md,
+# seção "Proxy HTTPS (Caddy)".
+#
+# Os endereços vêm de variáveis de ambiente, nunca deste arquivo: nome de host
+# SEM "https://" e SEM caminho. Um endereço com nome de domínio faz o Caddy
+# pedir e renovar sozinho o certificado (Let's Encrypt), o que exige o DNS já
+# apontando para este servidor e as portas 80 e 443 abertas.
+#
+# As portas 3000 (API) e 3001 (painel) são as internas dos contêineres e só
+# existem na rede do compose; no host continuam publicadas apenas no loopback.
+#
+# Sem log de acesso, de propósito: a URL de verificação do webhook da Meta
+# leva o token na query string, e o log do proxy a guardaria em texto puro.
+
+{$PUBLIC_API_HOST} {
+	header -Server
+
+	# /metrics fica fora do prefixo /api/v1 (protegido por token, uso interno).
+	# Quem coleta métricas usa o loopback do host, nunca a internet.
+	@metrics path /metrics /metrics/*
+	handle @metrics {
+		respond 404
+	}
+
+	handle {
+		encode zstd gzip
+		reverse_proxy backend:3000
+	}
+}
+
+{$PUBLIC_PANEL_HOST} {
+	header -Server
+
+	encode zstd gzip
+	reverse_proxy frontend:3001
+}

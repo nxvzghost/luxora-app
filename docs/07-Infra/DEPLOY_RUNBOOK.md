@@ -100,6 +100,29 @@ Restaura num banco descartável do mesmo servidor, confere e apaga. Nunca restau
 
 Os backups do deploy ficam no disco do próprio host: servem para desfazer um deploy, **não** são a política de backup do ambiente. Cópia fora do host e retenção continuam pendentes (dependem do provedor).
 
+## Proxy HTTPS (Caddy)
+
+O serviço `caddy` do compose (perfil `proxy`, config em `infra/staging/Caddyfile`) é a única peça com portas públicas (80 e 443). A API e o painel continuam publicados só no loopback do host e o Caddy os alcança pelo nome do serviço (`backend:3000`, `frontend:3001`). O `deploy.sh` sobe o proxy no fim do deploy, e **só** se o arquivo de ambiente tiver `PUBLIC_API_HOST` e `PUBLIC_PANEL_HOST`; sem eles nada muda. Uma falha do proxy (por exemplo, DNS ainda não propagado) vira aviso e não desfaz o deploy.
+
+**Estado: configurado, não testado.** Nenhuma imagem do Caddy foi baixada nem o proxy foi iniciado; o HTTPS só vale depois de testado no servidor real.
+
+| O que fornecer ao contratar o VPS | Onde |
+|---|---|
+| Nome de host da API (ex.: `api-staging.<domínio>`) | `PUBLIC_API_HOST` no arquivo de ambiente |
+| Nome de host do painel | `PUBLIC_PANEL_HOST` (e a origem em `FRONTEND_URL`, `https://` + o mesmo host) |
+| DNS: registros A (e AAAA, se houver IPv6) dos dois hosts para o IP do servidor, propagados **antes** do primeiro deploy com proxy | no provedor de DNS |
+| Firewall do servidor: 22, 80 e 443 | no provedor ou no host |
+| `api_url` do CD | `https://<PUBLIC_API_HOST>/api/v1` |
+
+Pontos de atenção:
+
+- O Caddy pede e renova o certificado (Let's Encrypt) sozinho. Sem DNS apontando para o servidor, a emissão falha e tenta de novo; os logs saem de `docker compose -p luxora-<ambiente> logs caddy`. Sem e-mail ACME configurado, os avisos de expiração não chegam a ninguém (a renovação é automática).
+- Certificados e configuração ficam nos volumes `caddy_data` e `caddy_config`. Não apague esses volumes: pedir tudo de novo pode bater no limite de emissões do Let's Encrypt.
+- `/metrics` responde 404 pelo proxy; para coletar métricas use o loopback do host (`BACKEND_PORT`).
+- Não há log de acesso no proxy, de propósito: a verificação do webhook da Meta leva o token na query string.
+- A API usa `trust proxy = 1`: o Caddy é o único salto na frente dela.
+- Mudou o `Caddyfile`? O próximo `deploy.sh` recarrega a configuração; fora de um deploy: `docker compose -p luxora-<ambiente> --env-file <arquivo> -f infra/staging/docker-compose.yml exec caddy caddy reload --config /etc/caddy/Caddyfile`.
+
 ## Sondas de saúde
 
 | Rota | Pergunta | Consulta | Uso |
