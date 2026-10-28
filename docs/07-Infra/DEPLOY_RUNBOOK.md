@@ -160,13 +160,66 @@ Dependências no host: bash, docker com o plugin compose, `curl` 7.75 ou mais no
 
 **Teste local:** `bash infra/tests/external-backup-test.sh` roda tudo contra um `docker` simulado e um armazenamento S3 falso em `127.0.0.1` (precisa de `node`), com dados fictícios e sem rede externa. Não roda no CI. Ele prova o fluxo, a cifragem, a ausência de arquivo em claro e o tratamento de falhas; **não prova** que um armazenamento real aceita a assinatura nem que o `pg_dump`/`pg_restore` reais funcionam por esse caminho.
 
+### Configuração esperada com o Cloudflare R2
+
+O R2 é candidato, não decisão: nenhuma conta, bucket ou credencial foi criado. A configuração abaixo vem da leitura da documentação pública da Cloudflare (28/10/2026) e da leitura do script; **nada foi enviado a um R2 de verdade**.
+
+| Variável | Valor esperado | Base |
+|---|---|---|
+| `BACKUP_S3_ENDPOINT` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, sem o bucket | Documentação da API S3 do R2 |
+| `BACKUP_S3_REGION` | `auto` (o R2 também aceita vazio e `us-east-1` como apelidos; o script exige um valor não vazio) | Idem; passa na validação do script (`[a-z0-9-]`) |
+| `BACKUP_S3_BUCKET` | o bucket criado para a homologação | O script monta `<endpoint>/<bucket>/<chave>`, o endereçamento por caminho que o R2 aceita |
+| `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` | o id do token e o segredo derivado dele | O segredo **só aparece uma vez**, na criação do token |
+| `BACKUP_VERIFY_AFTER_UPLOAD` | `1` | A credencial de envio também lê (abaixo), então a conferência do tamanho fica ligada |
+
+**Credenciais.** O R2 não tem permissão só de escrita: os níveis são Admin Read & Write, Admin Read only, Object Read & Write e Object Read only. Por isso:
+
+- **Envio do backup (`external-backup.sh push`, no servidor):** token **Object Read & Write restrito ao bucket da homologação**. Ele também lê e lista os objetos desse bucket; quem tiver o arquivo de ambiente do servidor consegue baixar as cópias, que continuam cifradas.
+- **Recuperação (`pull`, fora do servidor):** token **Object Read only** restrito ao mesmo bucket, guardado fora do servidor, num arquivo de ambiente de leitura usado só para recuperar.
+- Nenhum token Admin no servidor.
+
+**O que a documentação confirma:** o endereço da API, a região `auto`, o endereçamento por caminho, as operações usadas pelo script (`PutObject`, `HeadObject`, `GetObject`), o envio assinado de uma vez, sem partes (o modo usado pelo script; o envio em partes de alguns SDKs não é suportado), o limite de cerca de 5 GiB por requisição e os níveis de permissão dos tokens.
+
+**O que só um teste real prova:**
+
+- Se a assinatura do `curl --aws-sigv4`, com o `x-amz-content-sha256` que o script envia, é aceita pelo R2. O teste local confere o formato da autorização e o hash do corpo, mas **não recalcula a assinatura**.
+- A versão do `curl` no servidor (7.75 ou mais nova).
+- `pg_dump` e `pg_restore` reais por esse caminho e a restauração a partir da cópia externa (`pull --drill`).
+- Se a conta exige forma de pagamento para ativar o R2, mesmo dentro da cota gratuita.
+- O tamanho do dump cifrado: acima de cerca de 5 GiB o envio de uma vez falha, e o script não faz envio em partes.
+
+Um envio (`external-backup.sh push`) seguido de uma recuperação (`external-backup.sh pull --object <chave> --drill`), no servidor, cobre os três primeiros itens.
+
 Pendente do VPS e de decisões:
 
-- **Armazenamento:** provedor, bucket, região, credenciais (preferir uma só de escrita para o `push` e outra de leitura para a recuperação) e se ele aceita endereçamento por caminho e o cabeçalho `x-amz-content-sha256`. O primeiro envio real é o primeiro teste de compatibilidade.
+- **Armazenamento:** provedor (o R2 é candidato), bucket e credenciais. No R2 a credencial de envio também lê (acima); em outro provedor, preferir uma só de escrita para o envio (`external-backup.sh push`). O primeiro envio real é o primeiro teste de compatibilidade.
 - **Chave de cifragem:** gerar, guardar uma cópia **fora do servidor** (e fora do próprio armazenamento dos backups) e decidir quem a detém. Sem ela, os backups não abrem; com ela no servidor e nada fora, perder o servidor perde tudo.
 - **Retenção e exclusão:** nada é apagado; o prazo depende do J-4 e a regra de ciclo de vida pode ficar no próprio armazenamento.
-- **Agendamento e alerta de falha:** não existem. O código de saída 3 e o `history.jsonl` são o que um agendador e o monitor vão ler.
+- **Agendamento e alerta de falha:** não existem. O procedimento previsto está em "Backup automático e alerta de falha", abaixo.
 - **Cadência do teste de restauração** a partir da cópia externa (`pull --drill`).
+
+## Backup automático e alerta de falha
+
+**Estado: só procedimento previsto. Nada foi implementado**: não há cron, agendador, script de alerta nem monitor configurado. Implementar exige autorização própria, depois de o servidor existir e de o primeiro envio manual do backup (`external-backup.sh push`) ter passado.
+
+**Como o script sinaliza o resultado.** O `external-backup.sh` sai com `0` quando o backup foi enviado e conferido, e com `3` em toda falha que ele mesmo detecta (configuração, ferramenta ausente, dump inválido, envio recusado, conferência do tamanho), com a causa na mensagem. Qualquer código diferente de `0` deve ser tratado como falha. Cada execução bem-sucedida grava uma linha `external-backup` no `history.jsonl` e atualiza `last-external-backup` em `luxora-deploy-state/` (ao lado do arquivo de ambiente).
+
+**Agendamento previsto:**
+
+1. Um envio diário do backup (`external-backup.sh push`; não confundir com `git push`), como o usuário `deploy`, num horário de pouco uso, com o arquivo de ambiente da homologação.
+2. Saída e erros num log próprio, fora do repositório, com rotação.
+3. O horário, o log e a forma de agendar (cron do usuário `deploy` ou um timer do systemd) ficam decididos na implementação.
+
+**Alerta de falha previsto:** o alerta deve disparar em dois casos, porque um agendamento que parou de rodar não gera código de saída nenhum:
+
+- **A execução falhou** (código diferente de `0`): avisar no mesmo instante, com a mensagem de erro.
+- **A execução não aconteceu:** avisar se o último backup bem-sucedido (`last-external-backup` / `history.jsonl`) tiver mais de cerca de 26 horas.
+
+Um jeito que cobre os dois: quando o envio do backup termina com `0`, o agendamento avisa um monitor externo de "sinal de vida" (heartbeat), e o monitor alerta quando o aviso não chega no prazo. **A confirmar antes de implementar:** se o plano gratuito do serviço escolhido (o UptimeRobot é candidato) oferece esse tipo de monitor; se não oferecer, decidir entre um plano pago, outro serviço ou um envio de e-mail pelo próprio servidor.
+
+**Como provar que funciona:** forçar uma falha (por exemplo, um `BACKUP_S3_BUCKET` inexistente num arquivo de ambiente de teste) e registrar a hora da falha e a hora em que o alerta chegou; depois, ficar um ciclo sem executar e confirmar o alerta de ausência.
+
+**Restauração periódica:** além do backup diário, uma recuperação (`external-backup.sh pull --object <chave> --drill`) a partir da cópia externa, com cadência ainda a decidir. É ele que prova que os backups abrem.
 
 ## Sondas de saúde
 
@@ -200,6 +253,32 @@ O compose de homologação traz um coletor OpenTelemetry opcional (`--profile ob
 **Métricas.** `GET /metrics` (Prometheus), com `X-Metrics-Token`. Já existia (AD-016).
 
 **Limites que continuam:** `TenantID` e `UserID` não saem automaticamente nos logs; chamadas feitas com `fetch` (Meta, Anthropic, Asaas) e as queries do Prisma não geram span (ADR-0051); não há alerta nem painel configurado.
+
+## Monitoramento externo (UptimeRobot)
+
+**Estado: só procedimento previsto.** Nenhuma conta foi criada e nenhum monitor existe. O UptimeRobot é candidato; o plano gratuito, segundo a página de preços consultada em 28/10/2026, tem 50 monitores, checagem a cada 5 minutos, alerta por e-mail e permite uso comercial. A conta é criada por quem for responsável pela homologação; nunca com credencial guardada no repositório.
+
+**Monitores previstos**, para quando o primeiro deploy no servidor tiver o Caddy e o HTTPS conferidos (o que ainda não aconteceu):
+
+| Monitor | Endereço | Considera fora do ar quando |
+|---|---|---|
+| API pronta | `https://<PUBLIC_API_HOST>/api/v1/health/ready` | A resposta não é 2xx. A readiness responde 503 quando o Postgres ou o Redis caem, e 503 `shutting_down` durante o encerramento |
+| Painel | `https://<PUBLIC_PANEL_HOST>/login` | A resposta não é 2xx |
+
+- Usar a readiness, e não o `/api/v1/health`: o liveness continua 200 com o banco fora, e o monitor deixaria de ver a queda que importa.
+- Os dois endereços já são públicos pelo Caddy. A readiness não expõe host, usuário nem mensagem de erro.
+- Contato de alerta: um e-mail de quem responde pela homologação, cadastrado e confirmado no próprio serviço.
+- Um deploy normal pode gerar um alerta curto (há uma pausa na troca de versão; ver "Limite conhecido: há uma pausa na troca"). Com checagem a cada 5 minutos, isso é raro; não ajustar o monitor para esconder quedas.
+
+**Como comprovar que os alertas chegam** (fora de horário de uso, com autorização):
+
+1. Parar a API: `docker compose -p luxora-staging --env-file /etc/luxora/staging.env -f infra/staging/docker-compose.yml stop backend`.
+2. Anotar a hora; esperar o e-mail de "fora do ar" do monitor da API e anotar a hora da chegada.
+3. Subir de novo: o mesmo comando com `start backend`. Esperar o e-mail de volta e anotar a hora.
+4. Repetir com o painel (`stop frontend` / `start frontend`).
+5. Guardar no registro da homologação: horários, monitores e o tempo até cada aviso. Nunca guardar token, senha ou dado de paciente.
+
+**Concluído quando:** os dois monitores aparecem ativos no serviço e os quatro avisos (queda e volta da API e do painel) foram recebidos e registrados.
 
 ## CI/CD
 
@@ -253,5 +332,6 @@ Usa um projeto compose próprio, com volumes próprios, e apaga tudo ao final. O
 
 - [ADR-0060](../02-Arquitetura/ADRs/ADR-0060-deploy-e-operacao.md) — as decisões.
 - [MIGRATION_RUNBOOK.md](MIGRATION_RUNBOOK.md) — migrations, backup e restauração.
+- [PREPARACAO_SERVIDOR_HOMOLOGACAO.md](PREPARACAO_SERVIDOR_HOMOLOGACAO.md) — checklist do servidor de homologação, para quando ele existir.
 - [AUTOMACOES_AGENDADOR.md](AUTOMACOES_AGENDADOR.md) — como o agendador deverá chamar as automações, e o que falta.
 - [13-Deploy.md](../02-Arquitetura/13-Deploy.md) e [00-Provedor-e-Custos.md](00-Provedor-e-Custos.md).
