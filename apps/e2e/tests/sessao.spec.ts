@@ -179,8 +179,19 @@ test.describe('Sessão', () => {
         await route.continue({ headers });
       });
       await signIn(page, clinic.admin);
+      // A tela de Pacientes faz as próprias buscas depois de aberta, e elas têm de ter
+      // respondido antes de o usuário ser desativado: com a revogação imediata
+      // (ADR-0067), uma ainda a caminho volta 401 e a própria página encerra a sessão
+      // no meio do clique em "Agenda" (CI 40628166134). Registradas antes do clique,
+      // para não perder as respostas.
+      const patientsScreenLoaded = Promise.all(
+        ['/contacts/pending', '/contacts/linked'].map((path) =>
+          page.waitForResponse((response) => new URL(response.url()).pathname.endsWith(path) && response.ok()),
+        ),
+      );
       await openMenu(page, 'Pacientes');
       await expect.poll(() => held.length).toBe(1);
+      await patientsScreenLoaded;
 
       await deactivateUser(clinic.admin.id);
       sessionEnded = true;
