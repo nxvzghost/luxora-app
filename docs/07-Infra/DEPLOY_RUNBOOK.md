@@ -158,7 +158,7 @@ Variáveis no arquivo de ambiente (modelo em `infra/staging/.env.staging.example
 
 Dependências no host: bash, docker com o plugin compose, `curl` 7.75 ou mais novo, `gpg` e `sha256sum`. Nada é instalado por estes scripts; no servidor, confirme que `gpg` existe.
 
-**Teste local:** `bash infra/tests/external-backup-test.sh` roda tudo contra um `docker` simulado e um armazenamento S3 falso em `127.0.0.1` (precisa de `node`), com dados fictícios e sem rede externa. Não roda no CI. Ele prova o fluxo, a cifragem, a ausência de arquivo em claro e o tratamento de falhas; **não prova** que um armazenamento real aceita a assinatura nem que o `pg_dump`/`pg_restore` reais funcionam por esse caminho.
+**Teste local:** `bash infra/tests/external-backup-test.sh` roda tudo contra um `docker` simulado e um armazenamento S3 falso em `127.0.0.1` (precisa de `node`), com dados fictícios e sem rede externa. Roda também no CI, no passo "Backup externo (armazenamento e docker simulados)" do job `deploy-rehearsal`. Ele prova o fluxo, a cifragem, a ausência de arquivo em claro e o tratamento de falhas; **não prova** que um armazenamento real aceita a assinatura nem que o `pg_dump`/`pg_restore` reais funcionam por esse caminho.
 
 ### Configuração esperada com o Cloudflare R2
 

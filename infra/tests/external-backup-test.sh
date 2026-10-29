@@ -6,7 +6,8 @@
 # Isolado: docker SIMULADO (um script no PATH que finge pg_dump e pg_restore --list),
 # armazenamento S3 FALSO em 127.0.0.1 (infra/tests/support/mock-s3.js, precisa de
 # node), dados e segredos fictícios, tudo num diretório temporário apagado ao final.
-# Não usa banco, contêiner, rede externa nem credencial real. Não roda no CI.
+# Não usa banco, contêiner, rede externa nem credencial real. Roda no CI, no job
+# deploy-rehearsal, antes do build das imagens.
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
