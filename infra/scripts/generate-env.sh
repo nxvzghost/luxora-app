@@ -34,6 +34,10 @@ APP_ENV=$APP_ENV
 POSTGRES_DB=luxora_$APP_ENV
 POSTGRES_ADMIN_PASSWORD=$(secret)
 POSTGRES_APP_PASSWORD=$(secret)
+# Role luxora_backup (somente leitura): usada só pelo pg_dump do backup, no host, por 127.0.0.1.
+# Senha própria; uma cópia vai para o arquivo de senhas do usuário de backup, nunca para a aplicação.
+POSTGRES_BACKUP_PASSWORD=$(secret)
+POSTGRES_BACKUP_PORT=15432
 
 # Preencha com o endereço público do painel (origem aceita pelo CORS da API).
 FRONTEND_URL=http://localhost:13001
