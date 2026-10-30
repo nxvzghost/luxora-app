@@ -8,7 +8,9 @@
 #
 # check  Confere a configuração e as ferramentas. Não acessa a rede nem o banco.
 # push   pg_dump -> cifragem -> envio, com nome único. O dump NUNCA existe em claro
-#        no disco: vai do pg_dump direto para o gpg. A cópia cifrada é decifrada de
+#        no disco: vai do pg_dump direto para o gpg. O pg_dump e o pg_restore rodam NO
+#        HOST (clientes PostgreSQL), conectados ao banco por BACKUP_PG_* com um papel
+#        de backup: push e check não usam Docker. A cópia cifrada é decifrada de
 #        novo, em fluxo, para conferir que o dump é válido, antes do envio. Depois do
 #        envio confere o tamanho do objeto (desligável: BACKUP_VERIFY_AFTER_UPLOAD=0,
 #        para credencial só de escrita).
@@ -20,8 +22,20 @@
 #
 # Não apaga nem rotaciona nada no armazenamento e não agenda nada: a retenção
 # depende da decisão J-4. Sem provedor, bucket, endpoint ou credencial fixos:
-# tudo vem do arquivo de ambiente (BACKUP_*). Dependências no host: bash, docker
-# (com o plugin compose), curl 7.75 ou mais novo (--aws-sigv4), gpg e sha256sum.
+# tudo vem do arquivo de ambiente (BACKUP_*). Dependências no host: bash, curl 7.75
+# ou mais novo (--aws-sigv4), gpg e sha256sum; para push e check, também pg_dump e
+# pg_restore (clientes PostgreSQL, da mesma versão principal do servidor); só o pull
+# precisa de docker (com o plugin compose), pelo restore-drill.sh.
+#
+# Conexão do push (arquivo de ambiente; nada disso vai para a linha de comando):
+#   BACKUP_PG_HOST, BACKUP_PG_PORT, BACKUP_PG_USER   endereço e papel de backup
+#   BACKUP_PG_PASSFILE     caminho de um arquivo no formato pgpass do libpq
+#                          (host:porta:banco:usuário:senha), permissão 600 ou 400 e
+#                          dono = quem executa o backup. A senha só existe nele.
+#   BACKUP_PG_SSLMODE      opcional (padrão prefer): disable, allow, prefer, require,
+#                          verify-ca ou verify-full
+# O banco vem de POSTGRES_DB. Variáveis PG* herdadas do ambiente do processo (como
+# PGPASSWORD) são descartadas: só vale o que está no arquivo de ambiente.
 # Cifragem: gpg simétrico, AES-256, com checagem de integridade; a chave é lida de
 # um arquivo (BACKUP_ENCRYPTION_PASSPHRASE_FILE), nunca da linha de comando.
 
@@ -103,15 +117,61 @@ load_config() {
   [ "$(wc -c < "$PASS_FILE")" -ge 24 ] || die "a chave de cifragem é curta demais (mínimo de 24 caracteres)" 3
 }
 
-require_tools() {
+require_tools() { # push|pull — pg_dump e pg_restore só para o push; docker só para o pull
   local tool
-  for tool in curl gpg sha256sum mktemp stat docker; do
+  for tool in curl gpg sha256sum mktemp stat; do
     command -v "$tool" >/dev/null 2>&1 || die "ferramenta ausente no host: $tool" 3
   done
+  case "${1:-}" in
+    push) for tool in pg_dump pg_restore; do
+            command -v "$tool" >/dev/null 2>&1 || die "ferramenta ausente no host: $tool (cliente PostgreSQL)" 3
+          done ;;
+    pull) command -v docker >/dev/null 2>&1 || die "ferramenta ausente no host: docker" 3 ;;
+    *) die "require_tools: comando desconhecido" 3 ;;
+  esac
   local major minor
   read -r major minor < <(curl --version | sed -n '1s/^curl \([0-9]*\)\.\([0-9]*\).*/\1 \2/p')
   { [ "${major:-0}" -gt 7 ] || { [ "${major:-0}" -eq 7 ] && [ "${minor:-0}" -ge 75 ]; }; } \
     || die "curl 7.75 ou mais novo é necessário (--aws-sigv4); encontrado: ${major:-?}.${minor:-?}" 3
+}
+
+# ---- conexão com o PostgreSQL (push e check) ---------------------------------------------
+
+load_pg_config() {
+  # Só vale o arquivo de ambiente: nada de senha ou destino herdado do processo.
+  unset PGPASSWORD PGSERVICE PGSERVICEFILE PGHOST PGHOSTADDR PGPORT PGUSER PGDATABASE PGOPTIONS PGSSLMODE PGPASSFILE
+  local missing="" name
+  for name in BACKUP_PG_HOST BACKUP_PG_PORT BACKUP_PG_USER BACKUP_PG_PASSFILE; do
+    [ -n "$(env_get "$name")" ] || missing="$missing $name"
+  done
+  [ -z "$missing" ] || die "variáveis ausentes no arquivo de ambiente:$missing" 3
+  PG_HOST="$(env_get BACKUP_PG_HOST)"
+  PG_PORT="$(env_get BACKUP_PG_PORT)"
+  PG_USER="$(env_get BACKUP_PG_USER)"
+  PG_PASSFILE="$(env_get BACKUP_PG_PASSFILE)"
+  PG_SSLMODE="$(env_get BACKUP_PG_SSLMODE prefer)"
+
+  # Valores restritos: nada que vire opção do pg_dump ou string de conexão.
+  [[ "$PG_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,252}$ ]] || die "BACKUP_PG_HOST inválido" 3
+  { [[ "$PG_PORT" =~ ^[0-9]{1,5}$ ]] && [ "$PG_PORT" -ge 1 ] && [ "$PG_PORT" -le 65535 ]; } || die "BACKUP_PG_PORT inválida (1 a 65535)" 3
+  [[ "$PG_USER" =~ ^[A-Za-z_][A-Za-z0-9_]{0,62}$ ]] || die "BACKUP_PG_USER inválido (letras, números e sublinhado)" 3
+  [[ "$DATABASE_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]{0,62}$ ]] || die "POSTGRES_DB inválido para o backup (letras, números e sublinhado)" 3
+  case "$PG_SSLMODE" in disable|allow|prefer|require|verify-ca|verify-full) ;; *) die "BACKUP_PG_SSLMODE inválido" 3 ;; esac
+
+  [ ! -L "$PG_PASSFILE" ] || die "o arquivo de senhas do PostgreSQL não pode ser um link simbólico: $PG_PASSFILE" 3
+  [ -f "$PG_PASSFILE" ] && [ -r "$PG_PASSFILE" ] || die "arquivo de senhas do PostgreSQL (BACKUP_PG_PASSFILE) não encontrado ou ilegível: $PG_PASSFILE" 3
+  local mode owner
+  mode="$(stat -c %a "$PG_PASSFILE")"; owner="$(stat -c %u "$PG_PASSFILE")"
+  case "$mode" in 400|600) ;; *) die "o arquivo de senhas do PostgreSQL tem permissão $mode — use 600 ou 400" 3 ;; esac
+  [ "$owner" = "$(id -u)" ] || die "o arquivo de senhas do PostgreSQL não pertence ao usuário que executa o backup" 3
+  [ -s "$PG_PASSFILE" ] || die "o arquivo de senhas do PostgreSQL está vazio" 3
+}
+
+# O dump em formato custom sai no stdout. A senha vem só do PGPASSFILE (libpq); --no-password
+# impede qualquer pergunta e nada de segredo aparece na linha de comando ou no ambiente.
+pg_dump_stream() {
+  PGPASSFILE="$PG_PASSFILE" PGSSLMODE="$PG_SSLMODE" PGCONNECT_TIMEOUT=20 \
+    pg_dump --host "$PG_HOST" --port "$PG_PORT" --username "$PG_USER" --dbname "$DATABASE_NAME" --no-password -Fc
 }
 
 # ---- armazenamento S3 ------------------------------------------------------------
@@ -169,27 +229,30 @@ valid_object_key() { [[ "$1" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] && [[ "$
 # ---- comandos ---------------------------------------------------------------------
 
 cmd_check() {
-  load_config; require_tools
+  load_config; load_pg_config; require_tools push
   log "configuração do backup externo conferida (sem acesso à rede nem ao banco)"
   log "  destino: ${S3_ENDPOINT#*://}/$S3_BUCKET/$S3_PREFIX/$APP_ENVIRONMENT/$DATABASE_NAME/  região: $S3_REGION"
   log "  chave de cifragem: arquivo com permissão adequada; verificação após o envio: $VERIFY_AFTER_UPLOAD"
+  local client=""; client="$(pg_dump --version 2>/dev/null | head -n 1)" || true
+  log "  origem do dump: $PG_USER@$PG_HOST:$PG_PORT/$DATABASE_NAME (sslmode=$PG_SSLMODE); senha: arquivo pgpass com permissão adequada e dono correto"
+  log "  cliente: ${client:-pg_dump (versão não identificada)}; check e push não usam Docker"
 }
 
 cmd_push() {
-  load_config; require_tools; prepare_workspace
+  load_config; load_pg_config; require_tools push; prepare_workspace
   local stamp key enc size sha
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   key="$S3_PREFIX/$APP_ENVIRONMENT/$DATABASE_NAME/$stamp-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n').dump.gpg"
   enc="$TMP/backup.dump.gpg"
 
-  log "1/4 dump e cifragem (o dump não é gravado em claro)"
-  if ! compose exec -T postgres pg_dump -U postgres -Fc "$DATABASE_NAME" | encrypt_stream "$enc" || [ ! -s "$enc" ]; then
+  log "1/4 dump (pg_dump no host, $PG_USER@$PG_HOST:$PG_PORT) e cifragem (o dump não é gravado em claro)"
+  if ! pg_dump_stream | encrypt_stream "$enc" || [ ! -s "$enc" ]; then
     record_history external-backup "$key" failed-dump "pg_dump ou cifragem falhou"
     die "o dump ou a cifragem falhou — nada foi enviado" 3
   fi
 
   log "2/4 conferência da cópia cifrada (decifra em fluxo e lê o dump)"
-  if ! gpg_run --decrypt "$enc" | compose exec -T postgres pg_restore --list >/dev/null; then
+  if ! gpg_run --decrypt "$enc" | pg_restore --list >/dev/null; then
     record_history external-backup "$key" failed-verify-local "a cópia cifrada não decifra ou o dump é inválido"
     die "a cópia cifrada não decifra ou o dump é inválido — nada foi enviado" 3
   fi
@@ -227,7 +290,7 @@ cmd_pull() {
     [ ! -e "$OUTPUT" ] || die "$OUTPUT já existe — não sobrescrevo" 3
     [ -d "$(dirname "$OUTPUT")" ] || die "o diretório de $OUTPUT não existe" 3
   fi
-  load_config; require_tools; prepare_workspace
+  load_config; require_tools pull; prepare_workspace
 
   local obj="$TMP/objeto.gpg" plain
   plain="$TMP/$(basename "$OBJECT" .gpg)"
