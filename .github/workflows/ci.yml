@@ -209,6 +209,11 @@ jobs:
       # 127.0.0.1 (node), com dados fictícios. Sem rede externa nem credencial.
       - name: Backup externo (armazenamento e docker simulados)
         run: bash infra/tests/external-backup-test.sh
+      # Também antes do build: o verificador da idade do último backup externo, com
+      # marcadores fictícios em diretórios temporários e "agora" fixo. Só leitura;
+      # não usa docker, rede nem credencial e não envia alerta.
+      - name: Idade do backup externo (marcadores simulados)
+        run: bash infra/tests/external-backup-health-test.sh
       - name: Versão (commit curto)
         run: echo "VERSION=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
       - name: Build das imagens

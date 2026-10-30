@@ -217,6 +217,18 @@ Pendente do VPS e de decisões:
 
 Um jeito que cobre os dois: quando o envio do backup termina com `0`, o agendamento avisa um monitor externo de "sinal de vida" (heartbeat), e o monitor alerta quando o aviso não chega no prazo. **A confirmar antes de implementar:** se o plano gratuito do serviço escolhido (o UptimeRobot é candidato) oferece esse tipo de monitor; se não oferecer, decidir entre um plano pago, outro serviço ou um envio de e-mail pelo próprio servidor.
 
+**Verificador da idade do backup (`external-backup-health.sh`).** Existe, e responde só à pergunta "o último backup bem-sucedido está dentro do prazo?". **Ele não envia alerta nenhum**: apenas imprime uma linha e sai com um código; quem chama (um agendador, um monitor) decide o que fazer. Não depende de fornecedor, e o R2, o UptimeRobot e o canal de avisos continuam sem decisão. Só lê: não acessa rede, banco nem armazenamento, não grava nada e não cria diretório.
+
+```bash
+bash infra/scripts/external-backup-health.sh --env-file /etc/luxora/staging.env   # estado ao lado do arquivo de ambiente
+bash infra/scripts/external-backup-health.sh --state-dir <luxora-deploy-state>    # ou o diretório de estado direto
+```
+
+- **De onde vem a idade.** Do conteúdo de `last-external-backup`, que o `external-backup.sh` só grava **depois** de um envio bem-sucedido e que guarda a chave do objeto, terminada em `<AAAAMMDD>T<HHMMSS>Z-<hex>.dump.gpg`. O horário (UTC) é o do início do envio, gerado pelo próprio script. **Não** vem da data de modificação do arquivo, e o `history.jsonl` não é lido. A saída mostra o horário do backup, nunca a chave do objeto.
+- **Limite.** `BACKUP_MAX_AGE_HOURS`, inteiro de 1 a 8760, padrão 26 (do ambiente do processo ou, com `--env-file`, do arquivo de ambiente; o do processo vence). Vazio vale como não definido. Saudável é idade **estritamente menor** que o limite: com o padrão, 25h59m59s é saudável e 26h00m00s já é atraso.
+- **Códigos de saída** (fora de 0 a 3, usados por `deploy.sh` e `external-backup.sh`): `0` saudável; `10` ausente (nenhum backup bem-sucedido registrado); `11` atrasado; `12` marcador inválido (vazio, ilegível, malformado, data impossível ou no futuro além de 5 minutos); `13` configuração inválida (argumentos, limite fora da regra, `--state-dir` ou `--env-file` inexistentes). Qualquer código diferente de `0` deve ser tratado como problema.
+- **O que ele não prova.** Que o arquivo no armazenamento existe e abre (só o `pull --drill` prova), que o agendamento está ativo, nem que um alerta chegou a alguém. Um marcador copiado, restaurado ou editado à mão parece saudável. Enquanto o servidor não existir e o primeiro envio real não passar, ele só foi exercitado com marcadores fictícios (`infra/tests/external-backup-health-test.sh`, também no CI).
+
 **Como provar que funciona:** forçar uma falha (por exemplo, um `BACKUP_S3_BUCKET` inexistente num arquivo de ambiente de teste) e registrar a hora da falha e a hora em que o alerta chegou; depois, ficar um ciclo sem executar e confirmar o alerta de ausência.
 
 **Restauração periódica:** além do backup diário, uma recuperação (`external-backup.sh pull --object <chave> --drill`) a partir da cópia externa, com cadência ainda a decidir. É ele que prova que os backups abrem.
