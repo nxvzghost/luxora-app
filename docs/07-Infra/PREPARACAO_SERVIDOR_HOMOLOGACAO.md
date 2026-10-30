@@ -77,6 +77,19 @@ Pressupostos: Ubuntu 24.04 LTS, acesso inicial de administrador fornecido pelo p
 
 **Concluído quando:** os nomes aparecem nas configurações do repositório. O primeiro deploy pelo CD é uma etapa à parte, com autorização própria.
 
+## 9. Agendamento do backup (só depois de um envio real e de um `pull --drill` que passaram)
+
+**Preparado, não instalado nem validado em servidor.** Detalhes e comandos: DEPLOY_RUNBOOK, "Agendamento e alertas do backup".
+
+- [ ] `push` manual real passou, e um `pull --drill` do objeto enviado passou.
+- [ ] Unidades copiadas para `/etc/systemd/system/` (dono root, 644), `systemd-analyze verify` sem erro e `systemctl enable --now luxora-backup@staging.timer luxora-backup-health@staging.timer`.
+- [ ] Journal persistente (`/var/log/journal` existe ou `Storage=persistent`).
+- [ ] **Isolamento do usuário de serviço decidido (pendência):** o `deploy` está no grupo `docker`, equivalente a administrador do servidor; escolher entre usuário próprio, Docker sem root ou `pg_dump` por conexão de rede antes de instalar as unidades.
+- [ ] Canal de alerta decidido, **notificador** escrito e instalado (dono root, sem escrita para grupo ou outros) e `BACKUP_ALERT_NOTIFIER` no arquivo de ambiente. Sem isso, o log diz `ALERTA NÃO ENVIADO` e a conferência é manual.
+- [ ] Falha forçada e atraso forçado num ambiente de teste com pasta própria, com os horários da falha e do aviso registrados (roteiro no runbook).
+
+**Concluído quando:** `systemctl list-timers 'luxora-backup*'` mostra os dois timers com a próxima execução, o primeiro backup agendado apareceu no armazenamento e o aviso de uma falha forçada chegou ao canal.
+
 ## Depois do checklist
 
-Seguem, nesta ordem e cada um com autorização própria: DNS dos dois hosts, primeiro deploy pelo CD com o Caddy e o HTTPS conferidos, rollback real, backup externo real com `pull --drill`, agendamento do backup, monitoramento externo e alertas disparados de propósito (DEPLOY_RUNBOOK, seções correspondentes), e o roteiro da clínica piloto.
+Seguem, nesta ordem e cada um com autorização própria: DNS dos dois hosts, primeiro deploy pelo CD com o Caddy e o HTTPS conferidos, rollback real, backup externo real com `pull --drill`, agendamento do backup (item 9), monitoramento externo e alertas disparados de propósito (DEPLOY_RUNBOOK, seções correspondentes), e o roteiro da clínica piloto.

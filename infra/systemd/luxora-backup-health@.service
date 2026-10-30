@@ -1,0 +1,17 @@
+# Luxora — verificação da idade do último backup externo (A-12). luxora-backup-health@staging.service
+# usa /etc/luxora/staging.env. Só lê; avisa pelo notificador configurado, se houver.
+# PREPARADO, NÃO INSTALADO NEM VALIDADO EM SERVIDOR REAL.
+[Unit]
+Description=Luxora verificação da idade do backup externo (%i)
+Documentation=file:///srv/luxora-app/docs/07-Infra/DEPLOY_RUNBOOK.md
+
+[Service]
+Type=oneshot
+# Mesmo usuário do backup (precisa ler o arquivo de ambiente e o estado). Não usa docker.
+User=deploy
+Group=deploy
+UMask=0077
+ExecStart=/usr/bin/bash /srv/luxora-app/infra/scripts/backup-job.sh health --env-file /etc/luxora/%i.env
+TimeoutStartSec=5min
+NoNewPrivileges=yes
+PrivateTmp=yes

@@ -214,6 +214,11 @@ jobs:
       # não usa docker, rede nem credencial e não envia alerta.
       - name: Idade do backup externo (marcadores simulados)
         run: bash infra/tests/external-backup-health-test.sh
+      # Também antes do build: o executor dos timers do backup (backup-job.sh), as unidades
+      # do systemd (só lidas como arquivo) e a interface de alertas, com external-backup.sh e
+      # notificadores simulados. Não instala nada, não usa docker, rede nem credencial.
+      - name: Agendamento e alertas do backup (dependências simuladas)
+        run: bash infra/tests/backup-schedule-test.sh
       - name: Versão (commit curto)
         run: echo "VERSION=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
       - name: Build das imagens

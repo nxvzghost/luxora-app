@@ -1,0 +1,13 @@
+# Luxora — agenda da verificação da idade do backup (a cada hora). Ativa luxora-backup-health@<ambiente>.service.
+# PREPARADO, NÃO INSTALADO NEM VALIDADO EM SERVIDOR REAL.
+[Unit]
+Description=Luxora verificação horária da idade do backup externo (%i)
+
+[Timer]
+# Minuto 15 de cada hora, longe do horário do backup (03:30 UTC).
+OnCalendar=*-*-* *:15:00 UTC
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -195,20 +195,20 @@ Pendente do VPS e de decisões:
 - **Armazenamento:** provedor (o R2 é candidato), bucket e credenciais. No R2 a credencial de envio também lê (acima); em outro provedor, preferir uma só de escrita para o envio (`external-backup.sh push`). O primeiro envio real é o primeiro teste de compatibilidade.
 - **Chave de cifragem:** gerar, guardar uma cópia **fora do servidor** (e fora do próprio armazenamento dos backups) e decidir quem a detém. Sem ela, os backups não abrem; com ela no servidor e nada fora, perder o servidor perde tudo.
 - **Retenção e exclusão:** nada é apagado; o prazo depende do J-4 e a regra de ciclo de vida pode ficar no próprio armazenamento.
-- **Agendamento e alerta de falha:** não existem. O procedimento previsto está em "Backup automático e alerta de falha", abaixo.
+- **Agendamento e alerta de falha:** preparados (unidades do systemd, executor e interface de notificação), **não instalados nem validados em servidor**; sem canal de alerta escolhido. Ver "Agendamento e alertas do backup", abaixo.
 - **Cadência do teste de restauração** a partir da cópia externa (`pull --drill`).
 
 ## Backup automático e alerta de falha
 
-**Estado: só procedimento previsto. Nada foi implementado**: não há cron, agendador, script de alerta nem monitor configurado. Implementar exige autorização própria, depois de o servidor existir e de o primeiro envio manual do backup (`external-backup.sh push`) ter passado.
+**Estado: preparado, não instalado.** O agendamento (timers do systemd), o executor com trava e a interface de notificação existem no repositório e têm teste permanente com dependências simuladas, descritos em "Agendamento e alertas do backup", abaixo. **Nada está instalado em servidor, nenhum canal de alerta foi escolhido e nenhum monitor externo existe.** Instalar exige autorização própria, depois de o servidor existir e de o primeiro envio manual do backup (`external-backup.sh push`) ter passado.
 
 **Como o script sinaliza o resultado.** O `external-backup.sh` sai com `0` quando o backup foi enviado e conferido, e com `3` em toda falha que ele mesmo detecta (configuração, ferramenta ausente, dump inválido, envio recusado, conferência do tamanho), com a causa na mensagem. Qualquer código diferente de `0` deve ser tratado como falha. Cada execução bem-sucedida grava uma linha `external-backup` no `history.jsonl` e atualiza `last-external-backup` em `luxora-deploy-state/` (ao lado do arquivo de ambiente).
 
-**Agendamento previsto:**
+**Agendamento (resumo do que está preparado):**
 
 1. Um envio diário do backup (`external-backup.sh push`; não confundir com `git push`), como o usuário `deploy`, num horário de pouco uso, com o arquivo de ambiente da homologação.
 2. Saída e erros num log próprio, fora do repositório, com rotação.
-3. O horário, o log e a forma de agendar (cron do usuário `deploy` ou um timer do systemd) ficam decididos na implementação.
+3. Decidido na preparação: timer do systemd (não cron), às 03:30 UTC, com o log no journal (ver "Agendamento e alertas do backup").
 
 **Alerta de falha previsto:** o alerta deve disparar em dois casos, porque um agendamento que parou de rodar não gera código de saída nenhum:
 
@@ -232,6 +232,97 @@ bash infra/scripts/external-backup-health.sh --state-dir <luxora-deploy-state>  
 **Como provar que funciona:** forçar uma falha (por exemplo, um `BACKUP_S3_BUCKET` inexistente num arquivo de ambiente de teste) e registrar a hora da falha e a hora em que o alerta chegou; depois, ficar um ciclo sem executar e confirmar o alerta de ausência.
 
 **Restauração periódica:** além do backup diário, uma recuperação (`external-backup.sh pull --object <chave> --drill`) a partir da cópia externa, com cadência ainda a decidir. É ele que prova que os backups abrem.
+
+### Agendamento e alertas do backup
+
+**Estado: preparado, não instalado e não validado em servidor real.** Nenhuma unidade foi copiada para um servidor, nenhum timer rodou fora do teste, e o systemd nunca leu estes arquivos num host de verdade. O teste (`infra/tests/backup-schedule-test.sh`, também no CI, no passo "Agendamento e alertas do backup (dependências simuladas)" do `deploy-rehearsal`) usa um `external-backup.sh` simulado e notificadores falsos; prova a lógica do executor, a interface de alertas e o conteúdo das unidades, **não** o comportamento do systemd.
+
+| Arquivo | Para quê |
+|---|---|
+| `infra/scripts/backup-job.sh` | Executor dos timers: `backup` e `health`. Só chama `external-backup.sh` e `external-backup-health.sh` e decide o que fazer com o código de saída deles; não repete a lógica de nenhum dos dois |
+| `infra/systemd/luxora-backup@.service` e `.timer` | Backup diário. `luxora-backup@staging` usa `/etc/luxora/staging.env` |
+| `infra/systemd/luxora-backup-health@.service` e `.timer` | Verificação da idade a cada hora (`luxora-backup-health@staging`) |
+| `infra/tests/backup-schedule-test.sh` | Teste permanente das peças acima |
+
+**Backup diário (`backup-job.sh backup`).** O timer dispara às **03:30 UTC (00:30 em Brasília)**, uma vez por dia, com `Persistent=true`: se o servidor estava desligado no horário, a execução perdida roda assim que ele ligar (comportamento do systemd, ainda não visto em servidor real). A execução: (1) toma uma trava (`flock`) em `luxora-deploy-state/backup-job.lock`; se já existe outra em andamento, inclusive manual, sai com **75** sem fazer nada e sem alertar; (2) roda `external-backup.sh check`; se a configuração obrigatória estiver incompleta, **o `push` não roda**, sai com **20** e avisa `config_invalid`; (3) roda `external-backup.sh push`; sucesso sai com **0**, falha com **21** e avisa `backup_upload_failed`. Um sucesso depois de um problema avisa `recovered`.
+
+**Verificação horária (`backup-job.sh health`).** O timer dispara no minuto 15 de cada hora (UTC), `Persistent=true`, e roda `external-backup-health.sh`. Saídas: **0** saudável (idade estritamente menor que o limite, padrão 26 h), **10** backup ausente, **11** atrasado (26 h ou mais), **13** configuração inválida, **14** a própria verificação falhou ou não pôde concluir (inclui marcador inválido, depois de conferir uma segunda vez após `BACKUP_JOB_RECHECK_SECONDS`, padrão 2 s, porque o marcador é gravado sem troca atômica). Todos fora de 0 a 3, usados por `deploy.sh` e `external-backup.sh`.
+
+**Usuário e permissões.**
+
+- As unidades rodam como **`deploy`**, sem root: o mesmo dono do arquivo de ambiente (600) e do estado (`luxora-deploy-state/`, 700). Um usuário próprio só para o backup exigiria compartilhar o estado com o `deploy.sh` por grupo e foi deixado de fora; se for decidido depois, troque `User=` e `Group=` num drop-in e ajuste o dono do estado.
+- **O `deploy` está no grupo `docker`, que equivale a acesso de administrador ao servidor** (o `pg_dump` roda por `docker compose exec`). Não é isolamento forte; só evita rodar o executor como root. Docker sem root (rootless) ou um `pg_dump` por conexão de rede seriam alternativas, não avaliadas.
+- Endurecimento do systemd: só `NoNewPrivileges`, `PrivateTmp` e `UMask=0077`. `ProtectSystem=` e afins **não** foram usados porque o estado fica em `/etc/luxora` e o acesso ao socket do Docker não foi conferido num servidor; acrescentar depois de testar.
+- As unidades ficam em `/etc/systemd/system/`, dono root, 644. O notificador (abaixo) precisa ser de root ou do `deploy` e não pode ser gravável por grupo ou outros.
+- Caminhos fixos nas unidades: repositório em `/srv/luxora-app` e ambiente em `/etc/luxora/<instância>.env` (checklist, itens 6 e 7). Se forem outros, use `sudo systemctl edit luxora-backup@staging.service` e redefina `ExecStart=` (primeiro `ExecStart=` vazio, depois o novo).
+
+**Instalar no futuro** (só depois do checklist do servidor, de um `push` manual real que passou e do `pull --drill`; cada passo com autorização própria):
+
+```bash
+sudo install -m 644 infra/systemd/luxora-backup@.service infra/systemd/luxora-backup@.timer \
+  infra/systemd/luxora-backup-health@.service infra/systemd/luxora-backup-health@.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemd-analyze verify /etc/systemd/system/luxora-backup@.service /etc/systemd/system/luxora-backup-health@.service
+sudo systemctl enable --now luxora-backup@staging.timer luxora-backup-health@staging.timer
+systemctl list-timers 'luxora-backup*'
+```
+
+O journal precisa ser persistente para guardar os logs depois de reiniciar (`Storage=persistent` em `/etc/systemd/journald.conf`, ou a pasta `/var/log/journal` existir).
+
+**Onde ficam os logs e como consultar o estado.**
+
+```bash
+systemctl list-timers 'luxora-backup*'                         # próxima e última execução de cada timer
+systemctl status luxora-backup@staging.service                 # resultado da última execução
+systemctl show luxora-backup@staging.service -p Result -p ExecMainStatus   # Result e código de saída do executor
+journalctl -u luxora-backup@staging.service --since '2 days ago'          # log do backup, com os códigos
+journalctl -u luxora-backup-health@staging.service --since '1 day ago'    # log da verificação
+tail -n 20 /etc/luxora/luxora-deploy-state/alerts.jsonl        # cada alerta: tipo, e se foi entregue, não enviado ou não entregue
+cat /etc/luxora/luxora-deploy-state/backup-job/*.state         # estado atual (status, desde quando, último aviso)
+tail -n 5 /etc/luxora/luxora-deploy-state/history.jsonl        # histórico do backup (external-backup.sh)
+```
+
+Cada execução registra no log o `evento=inicio`, o resultado com os códigos (`codigo-do-push`, `codigo-do-verificador`, `codigo-de-saida`) e, se houver, o `evento=alerta` com `alerta=ENTREGUE`, `NAO-ENVIADO` ou `NAO-ENTREGUE`. Nenhum segredo vai para esses registros. Rotação: a do journal; `alerts.jsonl` e `history.jsonl` crescem devagar e não têm rotação ainda.
+
+**Alertas: interface independente de fornecedor.** Nenhum WhatsApp, e-mail, Telegram, UptimeRobot ou outro serviço está integrado. O executor entrega cada evento a um **notificador**, um programa que quem instalar escreve para o canal que for escolhido.
+
+| Evento (`kind`) | Quando | Gravidade |
+|---|---|---|
+| `backup_upload_failed` | o `push` saiu com erro (saída 21) | critical |
+| `backup_missing` | a verificação não achou nenhum backup bem-sucedido (10) | critical |
+| `backup_overdue` | o último backup tem 26 h ou mais, ou o limite configurado (11) | critical |
+| `config_invalid` | `check` recusou a configuração, ou a verificação recebeu configuração inválida (20, 13) | critical |
+| `check_failed` | a própria verificação falhou ou não concluiu (14); o estado do backup é desconhecido | warning |
+| `recovered` | o problema anterior acabou (o backup voltou a funcionar ou a verificação voltou a ficar saudável) | info |
+
+Configuração, no arquivo de ambiente (nenhuma é obrigatória; os modelos `.env.staging.example` e `generate-env.sh` não foram alterados):
+
+| Variável | O que é |
+|---|---|
+| `BACKUP_ALERT_NOTIFIER` | caminho **absoluto** do notificador. Vazio = sem canal |
+| `BACKUP_ALERT_REPEAT_HOURS` | intervalo mínimo para repetir o mesmo problema (1 a 720; padrão 12). Um problema diferente avisa na hora; um aviso que **não foi entregue** é tentado de novo a cada execução |
+| `BACKUP_ALERT_TIMEOUT_SECONDS` | tempo limite do notificador (1 a 300; padrão 30) |
+| `BACKUP_JOB_RECHECK_SECONDS` | espera antes de conferir de novo um marcador inválido (1 a 60; padrão 2) |
+| `BACKUP_MAX_AGE_HOURS` | limite de idade do verificador (já descrito acima) |
+
+Contrato do notificador:
+
+- É chamado **direto, sem shell e sem argumentos** (nunca um comando de texto): só é aceito se for caminho absoluto, arquivo comum executável, sem escrita para grupo ou outros, de dono root ou do usuário do serviço, em pasta com a mesma regra. Qualquer outra coisa é recusada e o alerta vira "não entregue".
+- Recebe o evento em **JSON no stdin** (`schema` `luxora.backup-alert/1`, com `kind`, `severity`, `origin`, `environment`, `host`, `occurred_at`, `exit_code`, `message` e `detail`) e as variáveis `LUXORA_ALERT_KIND`, `LUXORA_ALERT_SEVERITY`, `LUXORA_ALERT_ORIGIN` e `LUXORA_ALERT_ENVIRONMENT`, num **ambiente mínimo** (`env -i`): não herda nada do serviço. O notificador guarda as próprias credenciais num arquivo dele, com permissão restrita.
+- O evento só tem texto fixo, o código de saída e, no atraso, a idade e o limite. Nunca a chave do objeto, a saída dos scripts, segredos nem o arquivo de ambiente.
+- Sai com **0 somente depois que o canal confirmou o recebimento**. Qualquer outro código, ou passar do tempo limite, é "não entregue". A saída (stdout e stderr) dele é **descartada**, para que um token impresso não vá para o log; o notificador faz o próprio registro, sem segredos.
+
+**Sem canal configurado.** O log diz expressamente `alerta=NAO-ENVIADO` e `ALERTA NÃO ENVIADO: nenhum canal de notificação configurado`, e `alerts.jsonl` registra `"delivery":"not-sent"`. **Ninguém foi avisado.** Um alerta nunca aparece como entregue sem a confirmação do notificador. Enquanto não houver canal, a falta de aviso não significa que está tudo bem: confira à mão, no mínimo uma vez por dia útil, `systemctl list-timers 'luxora-backup*'`, `systemctl status luxora-backup@staging.service` e o fim de `alerts.jsonl`; o `backup-job.sh health` roda no mesmo comando se quiser a resposta na hora.
+
+**Testar uma falha e confirmar um alerta** (fora de horário de uso e com autorização; use um ambiente de teste **com pasta própria**, porque o estado fica ao lado do arquivo de ambiente e o de produção não pode ser tocado):
+
+1. Crie `/srv/teste-backup/teste.env` (cópia do ambiente com `BACKUP_S3_BUCKET` inexistente ou credencial errada, `BACKUP_ALERT_NOTIFIER` apontando para o notificador de teste, permissão 600). O estado de teste fica em `/srv/teste-backup/luxora-deploy-state/`.
+2. Como `deploy`: `bash infra/scripts/backup-job.sh backup --env-file /srv/teste-backup/teste.env`. Esperado: saída **21**, `alerta=ENTREGUE` no log e o evento `backup_upload_failed` no canal. Anote a hora da falha e a hora em que o aviso chegou.
+3. Atraso: grave em `luxora-deploy-state/last-external-backup` uma chave de objeto com mais de 26 h (por exemplo, `luxora/staging/db/<data de ontem às 00:00:00>Z-a1b2c3d4.dump.gpg`) e rode `backup-job.sh health --env-file ...`. Esperado: saída **11** e o aviso `backup_overdue`.
+4. Recuperação: corrija a configuração, rode o `backup` de novo (saída **0**) e depois o `health`. Esperado: o aviso `recovered`.
+5. Sem canal: repita o passo 2 com `BACKUP_ALERT_NOTIFIER` vazio. Esperado: `ALERTA NÃO ENVIADO` no log. Apague a pasta de teste no fim. **Registre horários e resultados; nunca token, senha nem dado de paciente.**
+
+**O que continua pendente.** Instalar e ver os timers dispararem (inclusive o `Persistent=true` depois de um reinício); o primeiro `push` real, o armazenamento real e a retenção (J-4); **escolher o canal de alerta e escrever o notificador** (nenhum existe); um monitor externo de "sinal de vida" para o caso de o próprio servidor ou o timer da verificação parar (nada hoje avisa que a verificação deixou de rodar, nem que o servidor caiu); **isolamento do usuário de serviço (pendência registrada para a instalação):** o `deploy` pertence ao grupo `docker`, com privilégios equivalentes a administrador, então estas unidades não isolam o backup do restante do servidor; antes de instalar, decidir entre um usuário próprio, Docker sem root (rootless) ou um `pg_dump` por conexão de rede, e só então endurecer o systemd (`ProtectSystem=` e afins); rotação de `alerts.jsonl`. A recuperação perdida (aviso `recovered` não entregue) não é repetida.
 
 ## Sondas de saúde
 
