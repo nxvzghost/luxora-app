@@ -2,7 +2,8 @@
 # usa /etc/luxora-backup/staging.env. Só lê; avisa pelo notificador configurado, se houver.
 # PREPARADO, NÃO INSTALADO NEM VALIDADO EM SERVIDOR REAL.
 # Mesma identidade, mesma configuração e mesmo diretório de estado do luxora-backup@.service
-# (leia o cabeçalho dele): o marcador do último backup é gravado lá e lido aqui.
+# (leia o cabeçalho dele): o marcador do último backup é gravado lá e lido aqui. Os scripts vêm de
+# /opt/luxora-backup/scripts (cópia de root:root; ver infra/scripts/install-backup-scripts.sh).
 [Unit]
 Description=Luxora verificação da idade do backup externo (%i)
 Documentation=file:///srv/luxora-app/docs/07-Infra/DEPLOY_RUNBOOK.md
@@ -16,7 +17,7 @@ UMask=0077
 Environment=LUXORA_STATE_DIR=%S/luxora-backup/%i
 StateDirectory=luxora-backup/%i
 StateDirectoryMode=0700
-ExecStart=/usr/bin/bash /srv/luxora-app/infra/scripts/backup-job.sh health --env-file /etc/luxora-backup/%i.env
+ExecStart=/usr/bin/bash /opt/luxora-backup/scripts/backup-job.sh health --env-file /etc/luxora-backup/%i.env
 TimeoutStartSec=5min
 NoNewPrivileges=yes
 PrivateTmp=yes
@@ -30,4 +31,4 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-InaccessiblePaths=/etc/luxora
+InaccessiblePaths=/etc/luxora /srv/luxora-app

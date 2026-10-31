@@ -10,6 +10,9 @@
 #   (o arquivo de senhas do PostgreSQL e o da chave de cifragem ficam na mesma pasta, do
 #   luxora-backup, 0400; o caminho de cada um vem do arquivo de ambiente)
 #   /var/lib/luxora-backup/<amb>/  estado e histórico, criado pelo systemd (StateDirectory), 0700
+#   /opt/luxora-backup/scripts/    os scripts que este serviço executa: cópia de root:root, sem escrita
+#   para ninguém mais, feita por infra/scripts/install-backup-scripts.sh. O checkout do deploy
+#   (/srv/luxora-app) fica inacessível ao serviço: ele não executa código que o deploy possa alterar.
 # O pg_dump é do host e conecta em 127.0.0.1 com a role luxora_backup (somente leitura); este
 # serviço não usa o Docker e não lê o arquivo de ambiente da aplicação (/etc/luxora).
 [Unit]
@@ -27,7 +30,7 @@ UMask=0077
 Environment=LUXORA_STATE_DIR=%S/luxora-backup/%i
 StateDirectory=luxora-backup/%i
 StateDirectoryMode=0700
-ExecStart=/usr/bin/bash /srv/luxora-app/infra/scripts/backup-job.sh backup --env-file /etc/luxora-backup/%i.env
+ExecStart=/usr/bin/bash /opt/luxora-backup/scripts/backup-job.sh backup --env-file /etc/luxora-backup/%i.env
 # O push é demorado; passou disso, o systemd o encerra e a unidade fica "failed".
 TimeoutStartSec=2h
 Nice=10
@@ -47,4 +50,4 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-InaccessiblePaths=/etc/luxora
+InaccessiblePaths=/etc/luxora /srv/luxora-app

@@ -1,12 +1,55 @@
 # 00 - Provedor de Infraestrutura e Orçamento
 
-## Status: Decisão fechada para as Fases 1 e 2. Checkpoint de reavaliação definido para a Fase 3.
+## Status (31/10/2026): escolha do provedor EM ABERTO — nada contratado, nenhuma cotação feita. A recomendação por Railway abaixo é histórica; ver a atualização logo a seguir. Checkpoint de reavaliação definido para a Fase 3.
 
 Este documento substitui a versão anterior (que apresentava apenas recomendação genérica sem provedor nomeado nem números). Os valores abaixo foram levantados a partir de preços de mercado praticados por Railway e Render em 2026, comparados com o desenho de infraestrutura já definido em `02-Arquitetura/13-Deploy.md`.
 
 ---
 
-# Decisão
+# Atualização de 31/10/2026 — estado técnico atual e escolha em aberto
+
+> **Nenhum provedor foi contratado e nenhuma cotação foi feita.** A "decisão" registrada abaixo (Railway) é de antes da infraestrutura de `infra/` ser construída; **a escolha do provedor está em aberto e é do responsável pela Luxora**. Esta seção só registra o que a infraestrutura pronta exige de um provedor e compara as alternativas com base nisso. **Não há aqui nenhum preço atual**: os valores das seções seguintes são estimativas antigas e não foram revalidados.
+
+## O que o repositório já assume de um provedor
+
+O que foi construído (E1 a E5 do backup, deploy, rollback, Caddy, CD por SSH) pressupõe **um servidor Linux com acesso de administrador**, não uma plataforma gerenciada:
+
+| Exigência técnica | Por quê |
+|---|---|
+| Ubuntu 24.04 LTS com `root`/`sudo` e SSH por chave | checklist de [PREPARACAO_SERVIDOR_HOMOLOGACAO.md](PREPARACAO_SERVIDOR_HOMOLOGACAO.md); o CD roda `deploy.sh` por SSH |
+| Docker Engine + plugin compose | a pilha (`infra/staging/docker-compose.yml`): backend, frontend, Postgres 16, Redis, Caddy |
+| Criar usuários Linux e pastas em `/etc`, `/opt`, `/var/lib` | usuário `deploy` e usuário `luxora-backup`, com permissões distintas ([BACKUP_ISOLADO.md](BACKUP_ISOLADO.md)) |
+| systemd | timers do backup diário e da verificação horária |
+| Porta do Postgres no loopback do host (`127.0.0.1:15432`) | o `pg_dump` roda no host, sem Docker, como `luxora-backup` |
+| IPv4 público, portas 22/80/443 e DNS de dois nomes | Caddy com Let's Encrypt; `PUBLIC_API_HOST` e `PUBLIC_PANEL_HOST` |
+| Saída HTTPS para um armazenamento S3 | backup externo cifrado (R2 é candidato; nada foi testado contra um armazenamento real) |
+
+**Dimensionamento não medido.** CPU, memória e disco necessários não foram medidos neste repositório (as imagens têm cerca de 0,5 GB a 1,5 GB; o consumo da pilha rodando não foi medido). Meça com `docker stats` no ensaio antes de escolher o plano. O banco gerenciado exigiria também decidir o `max_connections` (ver DEPLOY_RUNBOOK, "Pontos de atenção para dimensionar").
+
+## Comparação (técnica, sem preços)
+
+| Alternativa | Encaixe com o que existe | Observação |
+|---|---|---|
+| **Railway** (decisão antiga deste documento) | **Baixo.** Plataforma gerenciada: não há `root`, systemd, usuários Linux nem porta de loopback do host. O backup isolado desenhado (host + systemd + `luxora-backup`) **não se aplica**; seria preciso outro caminho (backup nativo do provedor ou `pg_dump` por rede a partir de um job) e outro desenho de segredos. O CD por SSH e o Caddy do compose não se usam | O mapeamento em DEPLOY_RUNBOOK ("Se o provedor for o Railway") nunca foi validado. Nenhuma conta foi criada |
+| **Render** (reserva deste documento) | **Baixo**, pelos mesmos motivos (plataforma gerenciada) | Idem |
+| **Vultr** (citado pelo responsável; não constava neste documento) | **Alto**, se o plano for uma VPS comum (Linux com `root`): o roteiro de `infra/` e do BACKUP_ISOLADO.md vale sem adaptação | Uma consulta de 31/10/2026 indicou, de forma indireta, região em São Paulo e cobrança por hora; **não conferi plano, valor, impostos nem condições**. Cotar na página oficial |
+| **Meteor Cloud** (citado pelo responsável; não constava neste documento) | **Não avaliável.** Uma busca de 31/10/2026 não encontrou informação verificável sobre esse provedor | Precisa da página oficial: tipo de produto (VPS com `root`?), regiões, planos, forma de pagamento, suporte |
+| VPS de outro provedor, com `root` e Ubuntu 24.04 | **Alto** (mesmo critério) | Qualquer um que cumpra a tabela de exigências acima |
+
+## Recomendação (técnica; a contratação é sua)
+
+1. **Para o que já foi construído, o caminho de menor risco e menor retrabalho é uma VPS Linux com acesso `root`**, não uma plataforma gerenciada. Dos três nomes pedidos, **só a Vultr pôde ser identificada como VPS** nesta verificação; a Meteor Cloud precisa ser avaliada pela página oficial antes de entrar na comparação. Isso é uma recomendação de **encaixe técnico**, não de custo.
+2. Manter o Railway/Render como opção só se você decidir abrir mão do desenho atual do backup e do CD por SSH: isso reabre trabalho (backup, segredos, deploy) que está pronto para o servidor próprio.
+3. Antes de contratar, **cotar** (página oficial, valor na moeda de cobrança, impostos, IOF/câmbio do cartão internacional): plano com a memória/CPU/disco medidos no ensaio, IPv4, tráfego incluído, snapshots do provedor (**não substituem** o backup externo cifrado), região, suporte e forma de pagamento.
+4. **Região e LGPD.** Os dados são de saúde (dados pessoais sensíveis). Hospedar ou guardar backup fora do Brasil exige conferir a base legal e as cláusulas aplicáveis; isso não é decidido aqui nem é aconselhamento jurídico. Região em São Paulo, se houver, simplifica a conversa.
+5. **Custos além do servidor** (todos sem valor confirmado): armazenamento S3 do backup (o R2 é candidato; a exigência de forma de pagamento para ativá-lo não foi verificada), domínio, canal de alerta e notificador, monitor externo (o UptimeRobot foi consultado em 28/10/2026, ver DEPLOY_RUNBOOK) e o tempo de operação.
+6. Conferir depois da contratação, no servidor real, o que só ele prova (lista em BACKUP_ISOLADO.md, "O que foi provado e o que depende da VPS").
+
+**Decisão de contratação:** pendente, sua. Nada foi comprado, reservado ou criado.
+
+---
+
+# Decisão (registro histórico — anterior à infraestrutura de `infra/`)
 
 **Provedor recomendado para as Fases 1 e 2: Railway.**
 

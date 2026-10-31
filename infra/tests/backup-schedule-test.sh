@@ -110,7 +110,7 @@ for u in luxora-backup@.service luxora-backup-health@.service; do
   ! grep -qiE 'docker|sudo|/var/run' "$WORK/unit-linhas.txt" && ok "$u não depende do Docker (sem dependência, grupo, socket nem sudo)" || ko "$u menciona docker, sudo ou socket"
   ! grep -qiE '^(After|Requires|Wants|BindsTo|PartOf)=.*docker' "$f" && ok "$u não exige docker.service" || ko "$u exige docker.service"
   ! grep -qE '/etc/luxora/|EnvironmentFile' "$WORK/unit-linhas.txt" && ok "$u não lê o ambiente da aplicação (/etc/luxora) nem usa EnvironmentFile" || ko "$u lê /etc/luxora ou EnvironmentFile"
-  grep -qx 'InaccessiblePaths=/etc/luxora' "$f" && ok "$u: o ambiente da aplicação (/etc/luxora) fica fora de alcance" || ko "$u: InaccessiblePaths"
+  grep -qx 'InaccessiblePaths=/etc/luxora /srv/luxora-app' "$f" && ok "$u: o ambiente da aplicação (/etc/luxora) e o checkout do deploy ficam fora de alcance" || ko "$u: InaccessiblePaths"
   grep -qx 'NoNewPrivileges=yes' "$f" && ok "$u sem novos privilégios" || ko "$u: NoNewPrivileges"
   grep -qx 'UMask=0077' "$f" && ok "$u com umask 0077" || ko "$u: UMask"
   grep -qx 'Environment=LUXORA_STATE_DIR=%S/luxora-backup/%i' "$f" && [ "$(grep -c '^Environment=' "$f")" -eq 1 ] \
@@ -124,9 +124,9 @@ for u in luxora-backup@.service luxora-backup-health@.service; do
   [ -z "$missing" ] && ok "$u: endurecimento (sistema de arquivos somente leitura exceto o estado, sem capacidades, famílias de rede restritas)" || ko "$u: faltam$missing"
   ! grep -qE '^\[Install\]' "$f" && ok "$u não se instala sozinha (só o timer)" || ko "$u tem [Install]"
 done
-grep -qE '^ExecStart=/usr/bin/bash /srv/luxora-app/infra/scripts/backup-job\.sh backup --env-file /etc/luxora-backup/%i\.env$' "$UNITS/luxora-backup@.service" \
+grep -qE '^ExecStart=/usr/bin/bash /opt/luxora-backup/scripts/backup-job\.sh backup --env-file /etc/luxora-backup/%i\.env$' "$UNITS/luxora-backup@.service" \
   && ok "o backup chama backup-job.sh backup com o arquivo de ambiente /etc/luxora-backup/<ambiente>.env" || ko "ExecStart do backup"
-grep -qE '^ExecStart=/usr/bin/bash /srv/luxora-app/infra/scripts/backup-job\.sh health --env-file /etc/luxora-backup/%i\.env$' "$UNITS/luxora-backup-health@.service" \
+grep -qE '^ExecStart=/usr/bin/bash /opt/luxora-backup/scripts/backup-job\.sh health --env-file /etc/luxora-backup/%i\.env$' "$UNITS/luxora-backup-health@.service" \
   && ok "a verificação chama backup-job.sh health com o arquivo de ambiente /etc/luxora-backup/<ambiente>.env" || ko "ExecStart da verificação"
 [ "$(grep -h '^StateDirectory=' "$UNITS/luxora-backup@.service" "$UNITS/luxora-backup-health@.service" | sort -u | wc -l)" -eq 1 ] \
   && ok "o backup e a verificação usam o MESMO diretório de estado (a verificação lê o marcador que o backup grava)" || ko "diretórios de estado diferentes"
@@ -451,6 +451,12 @@ if [ "$(id -u)" -eq 0 ] && id nobody >/dev/null 2>&1 && command -v setpriv >/dev
   expect_rc "arquivo de ambiente do backup com segredo da aplicação é recusado" 20
   has "diz qual chave" 'segredo-da-aplicacao:POSTGRES_APP_PASSWORD'
 else skip "execução como nobody: precisa de root, do usuário nobody, do setpriv e da seção anterior"; fi
+
+echo "== scripts do backup instalados em diretório de root (infra/tests/install-backup-scripts-test.sh)"
+bash "$HERE/install-backup-scripts-test.sh" > "$WORK/inst-out.txt" 2>&1; INST_RC=$?
+grep -E '^  (FALHA|pulou)' "$WORK/inst-out.txt" | sed 's/^/    /'
+INST_SUMMARY="$(grep -E '^install-backup-scripts:' "$WORK/inst-out.txt" | tail -n 1)"
+if [ "$INST_RC" -eq 0 ]; then ok "o instalador e as cópias em root:root passaram em todas as verificações (${INST_SUMMARY:-sem resumo})"; else cp "$WORK/inst-out.txt" "$WORK/out.txt"; ko "teste do instalador falhou (saída $INST_RC)"; fi
 
 echo "Resultado: $PASSED verificações ok, $FAILED falhas, $SKIPPED puladas"
 [ "$FAILED" -eq 0 ]

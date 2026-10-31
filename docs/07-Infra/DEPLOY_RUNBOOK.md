@@ -47,6 +47,7 @@ Duas credenciais de banco, com papéis diferentes:
 |---|---|---|
 | `POSTGRES_ADMIN_PASSWORD` | job de migrations, backup, restauração | DDL e manutenção. Nunca entra no container da aplicação |
 | `POSTGRES_APP_PASSWORD` | a aplicação (role `luxora_app`) | Runtime. Role sem superusuário: é o que faz a Row-Level Security valer |
+| `POSTGRES_BACKUP_PASSWORD` | o backup externo (role `luxora_backup`) | Somente leitura (`pg_read_all_data` + `BYPASSRLS`). Só o container do Postgres a recebe do compose; ao usuário `luxora-backup` ela chega apenas por um arquivo pgpass ([BACKUP_ISOLADO.md](BACKUP_ISOLADO.md)). `POSTGRES_BACKUP_PORT` (padrão 15432) é a porta publicada **só em `127.0.0.1`** |
 
 `NODE_ENV` é sempre `production` em homologação e produção; o que distingue os dois é `APP_ENV` (`staging` / `production`).
 
@@ -127,9 +128,13 @@ Pontos de atenção:
 
 `infra/scripts/external-backup.sh` copia o banco para um armazenamento externo compatível com S3, cifrado, e recupera a cópia para o `restore-drill.sh` existente. **Estado: implementado e testado só com um armazenamento falso local; nunca falou com um armazenamento real, não está agendado e a retenção não foi decidida (J-4).** Não apaga nem rotaciona nada.
 
+**O `check` e o `push` rodam NO HOST, como o usuário `luxora-backup`, sem Docker e sem o ambiente da aplicação** (arquivo de ambiente do backup em `/etc/luxora-backup/staging.env`; instalação e permissões em [BACKUP_ISOLADO.md](BACKUP_ISOLADO.md)). Só o `pull` (e o `restore-drill.sh`) usa Docker e roda como `deploy`, fora do timer.
+
 ```bash
-bash infra/scripts/external-backup.sh check --env-file /etc/luxora/staging.env   # só confere a configuração; sem rede nem banco
-bash infra/scripts/external-backup.sh push  --env-file /etc/luxora/staging.env   # dump, cifragem e envio
+# como luxora-backup (o systemd faz isto sozinho; à mão, para conferir):
+sudo -u luxora-backup env LUXORA_STATE_DIR=/var/lib/luxora-backup/staging bash /opt/luxora-backup/scripts/external-backup.sh check --env-file /etc/luxora-backup/staging.env   # só confere a configuração; sem rede nem banco
+sudo -u luxora-backup env LUXORA_STATE_DIR=/var/lib/luxora-backup/staging bash /opt/luxora-backup/scripts/external-backup.sh push  --env-file /etc/luxora-backup/staging.env   # dump, cifragem e envio (sem o endurecimento do systemd; para o primeiro envio prefira: sudo systemctl start luxora-backup@staging.service)
+# como deploy (Docker):
 bash infra/scripts/external-backup.sh pull  --env-file <env de leitura> --object <chave> --drill   # baixa, decifra e roda o restore-drill.sh
 bash infra/scripts/external-backup.sh pull  --env-file <env de leitura> --object <chave> --output /caminho/novo.dump [--sha256 <hex>]
 ```
@@ -145,7 +150,7 @@ Cada execução grava uma linha no `history.jsonl` (`external-backup` / `externa
 
 **`pull`** baixa o objeto, confere o `--sha256` se informado, decifra para um arquivo temporário protegido e confere o dump. Com `--drill`, passa o arquivo ao `restore-drill.sh` (restauração num banco descartável, com a conferência da RLS e das proteções do K2/K11) e apaga o arquivo em claro ao terminar; o código de saída é o do ensaio. Com `--output`, entrega o dump **em claro** num arquivo novo (permissão 600; não sobrescreve), e apagá-lo depois é de quem pediu. Um objeto adulterado ou a chave errada falham na decifragem e nada é entregue. Para restaurar de verdade (não só ensaiar) siga o procedimento de [MIGRATION_RUNBOOK.md](MIGRATION_RUNBOOK.md), "Restauração no ambiente real".
 
-Variáveis no arquivo de ambiente (modelo em `infra/staging/.env.staging.example`; vazias = desligado). Para recuperar de outra máquina, use um arquivo de ambiente com credencial de leitura:
+Variáveis no arquivo de ambiente do **backup** (`/etc/luxora-backup/staging.env`; modelo em `infra/staging/.env.backup.example`, que não tem nenhum segredo da aplicação). Os modelos `.env.staging.example` e o `generate-env.sh` ainda trazem as variáveis `BACKUP_S3_*` por compatibilidade com o `pull`/`restore-drill.sh`, mas **no servidor elas não devem ficar no ambiente da aplicação**. Para recuperar de outra máquina, use um arquivo de ambiente com credencial de leitura:
 
 | Variável | O que é |
 |---|---|
@@ -155,8 +160,12 @@ Variáveis no arquivo de ambiente (modelo em `infra/staging/.env.staging.example
 | `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` | credencial; segredo, só no arquivo de ambiente (permissão 600, fora do Git) |
 | `BACKUP_ENCRYPTION_PASSPHRASE_FILE` | caminho do arquivo com a chave de cifragem (permissão 600 ou 400, 24+ caracteres) |
 | `BACKUP_VERIFY_AFTER_UPLOAD` | `1` (padrão) confere o tamanho depois do envio; `0` para credencial só de escrita |
+| `BACKUP_PG_HOST`, `BACKUP_PG_PORT`, `BACKUP_PG_USER` | endereço do Postgres e papel do backup: `127.0.0.1`, a porta publicada (`POSTGRES_BACKUP_PORT`, padrão `15432`) e `luxora_backup` |
+| `BACKUP_PG_PASSFILE` | caminho do arquivo de senhas no formato pgpass (`host:porta:banco:usuário:senha`); dono = quem executa o backup, permissão 600 ou 400, sem link simbólico, não vazio. A senha só existe nele. Variáveis `PG*` herdadas do processo são descartadas |
+| `BACKUP_PG_SSLMODE` | opcional (padrão `prefer`). O Postgres do compose não tem TLS: `require`/`verify-*` fariam a conexão falhar |
+| `POSTGRES_DB` | o banco do dump (letras, números e sublinhado) |
 
-Dependências no host: bash, docker com o plugin compose, `curl` 7.75 ou mais novo, `gpg` e `sha256sum`. Nada é instalado por estes scripts; no servidor, confirme que `gpg` existe.
+Dependências no host: para o `check` e o `push`, `bash`, `pg_dump` e `pg_restore` (clientes PostgreSQL da **mesma versão principal** do servidor: 16), `curl` 7.75 ou mais novo, `gpg` e `sha256sum` — **sem Docker**. Só o `pull` precisa de `docker` (com o plugin compose). Nada é instalado por estes scripts; no servidor, confirme `gpg` e os clientes PostgreSQL.
 
 **Teste local:** `bash infra/tests/external-backup-test.sh` roda tudo contra um `docker` simulado e um armazenamento S3 falso em `127.0.0.1` (precisa de `node`), com dados fictícios e sem rede externa. Roda também no CI, no passo "Backup externo (armazenamento e docker simulados)" do job `deploy-rehearsal`. Ele prova o fluxo, a cifragem, a ausência de arquivo em claro e o tratamento de falhas; **não prova** que um armazenamento real aceita a assinatura nem que o `pg_dump`/`pg_restore` reais funcionam por esse caminho.
 
@@ -196,6 +205,7 @@ Pendente do VPS e de decisões:
 - **Chave de cifragem:** gerar, guardar uma cópia **fora do servidor** (e fora do próprio armazenamento dos backups) e decidir quem a detém. Sem ela, os backups não abrem; com ela no servidor e nada fora, perder o servidor perde tudo.
 - **Retenção e exclusão:** nada é apagado; o prazo depende do J-4 e a regra de ciclo de vida pode ficar no próprio armazenamento.
 - **Agendamento e alerta de falha:** preparados (unidades do systemd, executor e interface de notificação), **não instalados nem validados em servidor**; sem canal de alerta escolhido. Ver "Agendamento e alertas do backup", abaixo.
+- **Isolamento do usuário do backup:** resolvido no desenho (usuário `luxora-backup`, role `luxora_backup`, scripts de `root:root` em `/opt/luxora-backup`, sem Docker); falta instalá-lo e validar no servidor. Roteiro e pendências: [BACKUP_ISOLADO.md](BACKUP_ISOLADO.md).
 - **Cadência do teste de restauração** a partir da cópia externa (`pull --drill`).
 
 ## Backup automático e alerta de falha
@@ -206,7 +216,7 @@ Pendente do VPS e de decisões:
 
 **Agendamento (resumo do que está preparado):**
 
-1. Um envio diário do backup (`external-backup.sh push`; não confundir com `git push`), como o usuário `deploy`, num horário de pouco uso, com o arquivo de ambiente da homologação.
+1. Um envio diário do backup (`external-backup.sh push`; não confundir com `git push`), como o usuário `luxora-backup`, num horário de pouco uso, com o arquivo de ambiente do backup (`/etc/luxora-backup/staging.env`).
 2. Saída e erros num log próprio, fora do repositório, com rotação.
 3. Decidido na preparação: timer do systemd (não cron), às 03:30 UTC, com o log no journal (ver "Agendamento e alertas do backup").
 
@@ -220,8 +230,8 @@ Um jeito que cobre os dois: quando o envio do backup termina com `0`, o agendame
 **Verificador da idade do backup (`external-backup-health.sh`).** Existe, e responde só à pergunta "o último backup bem-sucedido está dentro do prazo?". **Ele não envia alerta nenhum**: apenas imprime uma linha e sai com um código; quem chama (um agendador, um monitor) decide o que fazer. Não depende de fornecedor, e o R2, o UptimeRobot e o canal de avisos continuam sem decisão. Só lê: não acessa rede, banco nem armazenamento, não grava nada e não cria diretório.
 
 ```bash
-bash infra/scripts/external-backup-health.sh --env-file /etc/luxora/staging.env   # estado ao lado do arquivo de ambiente
-bash infra/scripts/external-backup-health.sh --state-dir <luxora-deploy-state>    # ou o diretório de estado direto
+bash infra/scripts/external-backup-health.sh --env-file /etc/luxora/staging.env   # estado ao lado do arquivo de ambiente (instalação antiga, como deploy)
+sudo -u luxora-backup bash /opt/luxora-backup/scripts/external-backup-health.sh --state-dir /var/lib/luxora-backup/staging   # no servidor: o estado do serviço
 ```
 
 - **De onde vem a idade.** Do conteúdo de `last-external-backup`, que o `external-backup.sh` só grava **depois** de um envio bem-sucedido e que guarda a chave do objeto, terminada em `<AAAAMMDD>T<HHMMSS>Z-<hex>.dump.gpg`. O horário (UTC) é o do início do envio, gerado pelo próprio script. **Não** vem da data de modificação do arquivo, e o `history.jsonl` não é lido. A saída mostra o horário do backup, nunca a chave do objeto.
@@ -240,9 +250,12 @@ bash infra/scripts/external-backup-health.sh --state-dir <luxora-deploy-state>  
 | Arquivo | Para quê |
 |---|---|
 | `infra/scripts/backup-job.sh` | Executor dos timers: `backup` e `health`. Só chama `external-backup.sh` e `external-backup-health.sh` e decide o que fazer com o código de saída deles; não repete a lógica de nenhum dos dois |
-| `infra/systemd/luxora-backup@.service` e `.timer` | Backup diário. `luxora-backup@staging` usa `/etc/luxora/staging.env` |
-| `infra/systemd/luxora-backup-health@.service` e `.timer` | Verificação da idade a cada hora (`luxora-backup-health@staging`) |
-| `infra/tests/backup-schedule-test.sh` | Teste permanente das peças acima |
+| `infra/systemd/luxora-backup@.service` e `.timer` | Backup diário, como `luxora-backup`. `luxora-backup@staging` usa `/etc/luxora-backup/staging.env` e executa `/opt/luxora-backup/scripts/backup-job.sh` |
+| `infra/systemd/luxora-backup-health@.service` e `.timer` | Verificação da idade a cada hora (`luxora-backup-health@staging`), mesma identidade e mesmo estado |
+| `infra/scripts/install-backup-scripts.sh` | Instala os 4 scripts do backup em `/opt/luxora-backup/scripts` (`root:root`), com `--verify`; ver [BACKUP_ISOLADO.md](BACKUP_ISOLADO.md) |
+| `infra/scripts/install-backup-pgpass.sh` | Cria o pgpass do `luxora-backup` a partir do ambiente da aplicação, sem exibir a senha |
+| `infra/staging/.env.backup.example` | Modelo do `/etc/luxora-backup/staging.env` (sem segredos da aplicação) |
+| `infra/tests/backup-schedule-test.sh` e `infra/tests/install-backup-scripts-test.sh` | Testes permanentes das peças acima (o segundo é chamado pelo primeiro) |
 
 **Backup diário (`backup-job.sh backup`).** O timer dispara às **03:30 UTC (00:30 em Brasília)**, uma vez por dia, com `Persistent=true`: se o servidor estava desligado no horário, a execução perdida roda assim que ele ligar (comportamento do systemd, ainda não visto em servidor real). A execução: (1) toma uma trava (`flock`) em `luxora-deploy-state/backup-job.lock`; se já existe outra em andamento, inclusive manual, sai com **75** sem fazer nada e sem alertar; (2) roda `external-backup.sh check`; se a configuração obrigatória estiver incompleta, **o `push` não roda**, sai com **20** e avisa `config_invalid`; (3) roda `external-backup.sh push`; sucesso sai com **0**, falha com **21** e avisa `backup_upload_failed`. Um sucesso depois de um problema avisa `recovered`.
 
@@ -250,19 +263,21 @@ bash infra/scripts/external-backup-health.sh --state-dir <luxora-deploy-state>  
 
 **Usuário e permissões.**
 
-- As unidades rodam como **`deploy`**, sem root: o mesmo dono do arquivo de ambiente (600) e do estado (`luxora-deploy-state/`, 700). Um usuário próprio só para o backup exigiria compartilhar o estado com o `deploy.sh` por grupo e foi deixado de fora; se for decidido depois, troque `User=` e `Group=` num drop-in e ajuste o dono do estado.
-- **O `deploy` está no grupo `docker`, que equivale a acesso de administrador ao servidor** (o `pg_dump` roda por `docker compose exec`). Não é isolamento forte; só evita rodar o executor como root. Docker sem root (rootless) ou um `pg_dump` por conexão de rede seriam alternativas, não avaliadas.
-- Endurecimento do systemd: só `NoNewPrivileges`, `PrivateTmp` e `UMask=0077`. `ProtectSystem=` e afins **não** foram usados porque o estado fica em `/etc/luxora` e o acesso ao socket do Docker não foi conferido num servidor; acrescentar depois de testar.
-- As unidades ficam em `/etc/systemd/system/`, dono root, 644. O notificador (abaixo) precisa ser de root ou do `deploy` e não pode ser gravável por grupo ou outros.
-- Caminhos fixos nas unidades: repositório em `/srv/luxora-app` e ambiente em `/etc/luxora/<instância>.env` (checklist, itens 6 e 7). Se forem outros, use `sudo systemctl edit luxora-backup@staging.service` e redefina `ExecStart=` (primeiro `ExecStart=` vazio, depois o novo).
+- As unidades rodam como **`luxora-backup`** (usuário de sistema, sem shell, sem sudo, **fora do grupo `docker`**), com grupo próprio. O `pg_dump` roda no host e conecta em `127.0.0.1` com a role `luxora_backup` (somente leitura): o backup automático **não usa o Docker nem o `deploy`**. Detalhes, arquivos, donos e modos: [BACKUP_ISOLADO.md](BACKUP_ISOLADO.md).
+- Configuração em `/etc/luxora-backup/<instância>.env` (`root:luxora-backup`, 0640) e estado em `/var/lib/luxora-backup/<instância>/` (criado pelo systemd, 0700; as unidades definem `LUXORA_STATE_DIR`). O ambiente da aplicação (`/etc/luxora`) e o checkout do deploy (`/srv/luxora-app`) ficam inacessíveis ao serviço (`InaccessiblePaths=`). O `backup-job.sh` recusa um arquivo de ambiente que tenha segredos da aplicação, escrita para o grupo ou acesso para outros.
+- **Os scripts executados são os de `/opt/luxora-backup/scripts` (`root:root`)**, instalados por `install-backup-scripts.sh` a partir de um clone de root e de um commit conferido; o `deploy` não consegue alterá-los. Alterar só as permissões do checkout do deploy não bastaria, porque o CD refaz o checkout a cada versão.
+- Endurecimento do systemd: `NoNewPrivileges`, `PrivateTmp`, `PrivateDevices`, `ProtectSystem=strict`, `ProtectHome`, `ProtectKernel*`, `ProtectControlGroups`, `RestrictSUIDSGID`, `LockPersonality`, `CapabilityBoundingSet=` vazio, `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6` e `UMask=0077`. **Nunca foi aplicado por um systemd real**: o primeiro `systemctl start` no servidor é que mostra se algum deles atrapalha o `gpg`, o `curl` ou o `pg_dump`.
+- As unidades ficam em `/etc/systemd/system/`, dono root, 644. O notificador (abaixo) precisa ser de root ou do `luxora-backup` e não pode ser gravável por grupo ou outros (sugestão: `/opt/luxora-backup/notify/`, `root:root`).
+- Caminhos fixos nas unidades: scripts em `/opt/luxora-backup/scripts` e ambiente em `/etc/luxora-backup/<instância>.env`. Se forem outros, use `sudo systemctl edit luxora-backup@staging.service` e redefina `ExecStart=` (primeiro `ExecStart=` vazio, depois o novo); o instalador aceita `--dest`.
 
-**Instalar no futuro** (só depois do checklist do servidor, de um `push` manual real que passou e do `pull --drill`; cada passo com autorização própria):
+**Instalar no futuro** (só depois do checklist do servidor, da role `luxora_backup` ativada e de um envio manual real que passou; cada passo com autorização própria). O roteiro completo, em ordem — usuário e pasta, clone de root, instalação dos scripts, ambiente do backup, pgpass, chave de cifragem, unidades, primeiro envio pelo próprio serviço e só então os timers — está em [BACKUP_ISOLADO.md](BACKUP_ISOLADO.md), "Instalação no servidor". Resumo da parte do systemd:
 
 ```bash
-sudo install -m 644 infra/systemd/luxora-backup@.service infra/systemd/luxora-backup@.timer \
+sudo install -m 0644 -o root -g root infra/systemd/luxora-backup@.service infra/systemd/luxora-backup@.timer \
   infra/systemd/luxora-backup-health@.service infra/systemd/luxora-backup-health@.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemd-analyze verify /etc/systemd/system/luxora-backup@.service /etc/systemd/system/luxora-backup-health@.service
+sudo systemd-analyze verify /etc/systemd/system/luxora-backup@staging.service /etc/systemd/system/luxora-backup-health@staging.service
+sudo systemctl start luxora-backup@staging.service      # primeiro envio, como o timer fará; confira o resultado e o objeto no armazenamento
 sudo systemctl enable --now luxora-backup@staging.timer luxora-backup-health@staging.timer
 systemctl list-timers 'luxora-backup*'
 ```
@@ -277,9 +292,9 @@ systemctl status luxora-backup@staging.service                 # resultado da ú
 systemctl show luxora-backup@staging.service -p Result -p ExecMainStatus   # Result e código de saída do executor
 journalctl -u luxora-backup@staging.service --since '2 days ago'          # log do backup, com os códigos
 journalctl -u luxora-backup-health@staging.service --since '1 day ago'    # log da verificação
-tail -n 20 /etc/luxora/luxora-deploy-state/alerts.jsonl        # cada alerta: tipo, e se foi entregue, não enviado ou não entregue
-cat /etc/luxora/luxora-deploy-state/backup-job/*.state         # estado atual (status, desde quando, último aviso)
-tail -n 5 /etc/luxora/luxora-deploy-state/history.jsonl        # histórico do backup (external-backup.sh)
+sudo tail -n 20 /var/lib/luxora-backup/staging/alerts.jsonl    # cada alerta: tipo, e se foi entregue, não enviado ou não entregue
+sudo cat /var/lib/luxora-backup/staging/backup-job/*.state     # estado atual (status, desde quando, último aviso)
+sudo tail -n 5 /var/lib/luxora-backup/staging/history.jsonl    # histórico do backup (external-backup.sh)
 ```
 
 Cada execução registra no log o `evento=inicio`, o resultado com os códigos (`codigo-do-push`, `codigo-do-verificador`, `codigo-de-saida`) e, se houver, o `evento=alerta` com `alerta=ENTREGUE`, `NAO-ENVIADO` ou `NAO-ENTREGUE`. Nenhum segredo vai para esses registros. Rotação: a do journal; `alerts.jsonl` e `history.jsonl` crescem devagar e não têm rotação ainda.
@@ -314,15 +329,15 @@ Contrato do notificador:
 
 **Sem canal configurado.** O log diz expressamente `alerta=NAO-ENVIADO` e `ALERTA NÃO ENVIADO: nenhum canal de notificação configurado`, e `alerts.jsonl` registra `"delivery":"not-sent"`. **Ninguém foi avisado.** Um alerta nunca aparece como entregue sem a confirmação do notificador. Enquanto não houver canal, a falta de aviso não significa que está tudo bem: confira à mão, no mínimo uma vez por dia útil, `systemctl list-timers 'luxora-backup*'`, `systemctl status luxora-backup@staging.service` e o fim de `alerts.jsonl`; o `backup-job.sh health` roda no mesmo comando se quiser a resposta na hora.
 
-**Testar uma falha e confirmar um alerta** (fora de horário de uso e com autorização; use um ambiente de teste **com pasta própria**, porque o estado fica ao lado do arquivo de ambiente e o de produção não pode ser tocado):
+**Testar uma falha e confirmar um alerta** (fora de horário de uso e com autorização; use um ambiente de teste **com pasta de estado própria** — `LUXORA_STATE_DIR` —, porque o estado de produção (`/var/lib/luxora-backup/staging`) não pode ser tocado):
 
-1. Crie `/srv/teste-backup/teste.env` (cópia do ambiente com `BACKUP_S3_BUCKET` inexistente ou credencial errada, `BACKUP_ALERT_NOTIFIER` apontando para o notificador de teste, permissão 600). O estado de teste fica em `/srv/teste-backup/luxora-deploy-state/`.
-2. Como `deploy`: `bash infra/scripts/backup-job.sh backup --env-file /srv/teste-backup/teste.env`. Esperado: saída **21**, `alerta=ENTREGUE` no log e o evento `backup_upload_failed` no canal. Anote a hora da falha e a hora em que o aviso chegou.
-3. Atraso: grave em `luxora-deploy-state/last-external-backup` uma chave de objeto com mais de 26 h (por exemplo, `luxora/staging/db/<data de ontem às 00:00:00>Z-a1b2c3d4.dump.gpg`) e rode `backup-job.sh health --env-file ...`. Esperado: saída **11** e o aviso `backup_overdue`.
+1. Crie `/srv/teste-backup/teste.env` (cópia do **ambiente do backup**, não do da aplicação, com `BACKUP_S3_BUCKET` inexistente ou credencial errada, `BACKUP_ALERT_NOTIFIER` apontando para o notificador de teste, dono `luxora-backup`, permissão 600; os arquivos de senha e de chave que ele cita precisam ser do `luxora-backup`, 400). O estado de teste fica numa pasta dele (`LUXORA_STATE_DIR=/srv/teste-backup/estado`, dono `luxora-backup`, 700).
+2. Como `luxora-backup`: `sudo -u luxora-backup env LUXORA_STATE_DIR=/srv/teste-backup/estado bash /opt/luxora-backup/scripts/backup-job.sh backup --env-file /srv/teste-backup/teste.env`. Esperado: saída **21**, `alerta=ENTREGUE` no log e o evento `backup_upload_failed` no canal. Anote a hora da falha e a hora em que o aviso chegou.
+3. Atraso: grave em `/srv/teste-backup/estado/last-external-backup` uma chave de objeto com mais de 26 h (por exemplo, `luxora/staging/db/<data de ontem às 00:00:00>Z-a1b2c3d4.dump.gpg`) e rode `backup-job.sh health --env-file ...` com o mesmo `LUXORA_STATE_DIR`. Esperado: saída **11** e o aviso `backup_overdue`.
 4. Recuperação: corrija a configuração, rode o `backup` de novo (saída **0**) e depois o `health`. Esperado: o aviso `recovered`.
 5. Sem canal: repita o passo 2 com `BACKUP_ALERT_NOTIFIER` vazio. Esperado: `ALERTA NÃO ENVIADO` no log. Apague a pasta de teste no fim. **Registre horários e resultados; nunca token, senha nem dado de paciente.**
 
-**O que continua pendente.** Instalar e ver os timers dispararem (inclusive o `Persistent=true` depois de um reinício); o primeiro `push` real, o armazenamento real e a retenção (J-4); **escolher o canal de alerta e escrever o notificador** (nenhum existe); um monitor externo de "sinal de vida" para o caso de o próprio servidor ou o timer da verificação parar (nada hoje avisa que a verificação deixou de rodar, nem que o servidor caiu); **isolamento do usuário de serviço (pendência registrada para a instalação):** o `deploy` pertence ao grupo `docker`, com privilégios equivalentes a administrador, então estas unidades não isolam o backup do restante do servidor; antes de instalar, decidir entre um usuário próprio, Docker sem root (rootless) ou um `pg_dump` por conexão de rede, e só então endurecer o systemd (`ProtectSystem=` e afins); rotação de `alerts.jsonl`. A recuperação perdida (aviso `recovered` não entregue) não é repetida.
+**O que continua pendente.** Instalar e ver os timers dispararem (inclusive o `Persistent=true` depois de um reinício); o primeiro `push` real, o armazenamento real e a retenção (J-4); **escolher o canal de alerta e escrever o notificador** (nenhum existe); um monitor externo de "sinal de vida" para o caso de o próprio servidor ou o timer da verificação parar (nada hoje avisa que a verificação deixou de rodar, nem que o servidor caiu); **isolamento do usuário de serviço:** decidido e preparado (usuário `luxora-backup`, role `luxora_backup`, scripts de `root:root`, sem Docker, endurecimento do systemd — [BACKUP_ISOLADO.md](BACKUP_ISOLADO.md)), mas **nada disso foi visto num servidor**: falta criar o usuário, instalar os scripts e as unidades, ver o systemd aplicar o endurecimento e confirmar a conexão SCRAM; rotação de `alerts.jsonl`. A recuperação perdida (aviso `recovered` não entregue) não é repetida.
 
 ## Sondas de saúde
 
@@ -436,5 +451,6 @@ Usa um projeto compose próprio, com volumes próprios, e apaga tudo ao final. O
 - [ADR-0060](../02-Arquitetura/ADRs/ADR-0060-deploy-e-operacao.md) — as decisões.
 - [MIGRATION_RUNBOOK.md](MIGRATION_RUNBOOK.md) — migrations, backup e restauração.
 - [PREPARACAO_SERVIDOR_HOMOLOGACAO.md](PREPARACAO_SERVIDOR_HOMOLOGACAO.md) — checklist do servidor de homologação, para quando ele existir.
+- [BACKUP_ISOLADO.md](BACKUP_ISOLADO.md) — backup com identidade própria (`luxora-backup`): arquivos e permissões, ativação da role em volume existente, instalação, operação e o que depende da VPS.
 - [AUTOMACOES_AGENDADOR.md](AUTOMACOES_AGENDADOR.md) — como o agendador deverá chamar as automações, e o que falta.
 - [13-Deploy.md](../02-Arquitetura/13-Deploy.md) e [00-Provedor-e-Custos.md](00-Provedor-e-Custos.md).

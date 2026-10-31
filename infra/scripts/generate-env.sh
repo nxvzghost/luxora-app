@@ -73,6 +73,8 @@ OTEL_EXPORTER_OTLP_ENDPOINT=
 LOG_LEVEL=log
 
 # --- backup externo cifrado (infra/scripts/external-backup.sh). Tudo vazio = desligado.
+# No servidor o backup automatico usa /etc/luxora-backup/staging.env (infra/staging/.env.backup.example),
+# nao este arquivo; nao preencha aqui as credenciais do armazenamento (docs/07-Infra/BACKUP_ISOLADO.md).
 # Qualquer armazenamento compativel com S3 com enderecamento por caminho: <endpoint>/<bucket>/<chave>.
 # Endpoint em https://. Credencial de envio: so escrita (e BACKUP_VERIFY_AFTER_UPLOAD=0) ou escrita + leitura.
 BACKUP_S3_ENDPOINT=

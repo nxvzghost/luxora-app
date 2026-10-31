@@ -40,17 +40,18 @@ Pressupostos: Ubuntu 24.04 LTS, acesso inicial de administrador fornecido pelo p
 ## 4. Firewall
 
 - [ ] Entrada só em 22 (SSH), 80 e 443 (Caddy): no firewall do provedor, no `ufw` do host, ou nos dois.
-- [ ] Se usar `ufw`: as portas publicadas pelo Docker passam por fora das regras do `ufw`. Na pilha de homologação isso só atinge o Caddy (80 e 443, que devem ficar abertas mesmo); a API e o painel são publicados apenas no loopback (`127.0.0.1`), e o Postgres e o Redis não são publicados.
+- [ ] Se usar `ufw`: as portas publicadas pelo Docker passam por fora das regras do `ufw`. Na pilha de homologação isso só atinge o Caddy (80 e 443, que devem ficar abertas mesmo); a API e o painel são publicados apenas no loopback (`127.0.0.1`); o **Postgres é publicado somente em `127.0.0.1:15432`** (para o `pg_dump` do backup; nunca em `0.0.0.0`) e o Redis não é publicado.
 - [ ] Se possível, restringir a 22 a endereços conhecidos. Os runners do GitHub usam endereços variáveis, então restringir a 22 pode impedir o CD; decidir antes.
 
-**Concluído quando:** de fora do servidor, só 22, 80 e 443 respondem (`nc -zv <host> <porta>` para as portas 5432, 6379, 13000 e 13001 falha); `sudo ss -tlnp` mostra 13000 e 13001 só em `127.0.0.1`.
+**Concluído quando:** de fora do servidor, só 22, 80 e 443 respondem (`nc -zv <host> <porta>` para as portas 5432, 6379, 13000, 13001 e 15432 falha); `sudo ss -tlnp` mostra 13000, 13001 e 15432 só em `127.0.0.1`.
 
 ## 5. Docker e ferramentas
 
 - [ ] Docker Engine e o plugin compose pelo repositório oficial da Docker (não o pacote `docker.io` da distribuição, para ter o `docker compose`).
 - [ ] `curl` 7.75 ou mais novo (o backup externo usa `--aws-sigv4`), `gpg`, `sha256sum` (coreutils) e `git`.
+- [ ] Clientes PostgreSQL **16** no host (`postgresql-client-16`, a mesma versão principal do `postgres:16` do compose): o `pg_dump` do backup roda no host, sem Docker.
 
-**Concluído quando:** como `deploy`, `docker compose version`, `curl --version`, `gpg --version`, `sha256sum --version` e `git --version` respondem, e `docker ps` funciona sem `sudo`.
+**Concluído quando:** como `deploy`, `docker compose version`, `curl --version`, `gpg --version`, `sha256sum --version` e `git --version` respondem, e `docker ps` funciona sem `sudo`; `pg_dump --version` e `pg_restore --version` mostram a versão 16.
 
 ## 6. Checkout do repositório
 
@@ -65,9 +66,9 @@ Pressupostos: Ubuntu 24.04 LTS, acesso inicial de administrador fornecido pelo p
 - [ ] Gerado como `deploy`: `bash infra/scripts/generate-env.sh /etc/luxora/staging.env staging`. Preencher `FRONTEND_URL` (`https://` + o host do painel), `PUBLIC_API_HOST`, `PUBLIC_PANEL_HOST` e, quando existirem, as chaves **de teste** (Anthropic, Asaas sandbox). Nunca chave de produção.
 - [ ] Permissão 600, dono `deploy`. Fora do repositório e fora de qualquer backup que não seja cifrado.
 - [ ] Esse caminho vira a variável `STAGING_ENV_FILE` do GitHub.
-- [ ] Backup externo (DEPLOY_RUNBOOK, "Configuração esperada com o Cloudflare R2"): variáveis `BACKUP_S3_*` com a credencial de envio, e o arquivo da chave de cifragem em, por exemplo, `/etc/luxora/backup-passphrase` (600, dono `deploy`), apontado por `BACKUP_ENCRYPTION_PASSPHRASE_FILE`.
+- [ ] Este arquivo é **só da aplicação e do deploy**. As variáveis do backup (`BACKUP_S3_*`, `BACKUP_ENCRYPTION_PASSPHRASE_FILE`, `BACKUP_PG_*`) **não ficam aqui**: vão para `/etc/luxora-backup/staging.env` (item 9), com outro dono e outro usuário. Aqui ficam só `POSTGRES_BACKUP_PASSWORD` e `POSTGRES_BACKUP_PORT`, que o compose entrega ao container do Postgres (o `generate-env.sh` as gera).
 
-**Concluído quando:** `stat -c '%a %U' /etc/luxora/staging.env` mostra `600 deploy`; `grep -c troque-este-valor /etc/luxora/staging.env` mostra `0`; `bash infra/scripts/external-backup.sh check --env-file /etc/luxora/staging.env` passa (só confere a configuração, sem rede nem banco).
+**Concluído quando:** `stat -c '%a %U' /etc/luxora/staging.env` mostra `600 deploy`; `grep -c troque-este-valor /etc/luxora/staging.env` mostra `0`.
 
 ## 8. GitHub
 
@@ -77,18 +78,23 @@ Pressupostos: Ubuntu 24.04 LTS, acesso inicial de administrador fornecido pelo p
 
 **Concluído quando:** os nomes aparecem nas configurações do repositório. O primeiro deploy pelo CD é uma etapa à parte, com autorização própria.
 
-## 9. Agendamento do backup (só depois de um envio real e de um `pull --drill` que passaram)
+## 9. Backup com identidade própria e agendamento (só depois do primeiro deploy e do envio manual)
 
-**Preparado, não instalado nem validado em servidor.** Detalhes e comandos: DEPLOY_RUNBOOK, "Agendamento e alertas do backup".
+**Preparado, não instalado nem validado em servidor.** O roteiro completo, com os comandos em ordem, os donos e modos e o que depende do servidor, está em [BACKUP_ISOLADO.md](BACKUP_ISOLADO.md); detalhes de agendamento e alertas: DEPLOY_RUNBOOK, "Agendamento e alertas do backup". O isolamento não é mais uma pendência de decisão: o backup roda como o usuário `luxora-backup`, sem Docker, com a role `luxora_backup` e com scripts de `root:root`.
 
-- [ ] `push` manual real passou, e um `pull --drill` do objeto enviado passou.
-- [ ] Unidades copiadas para `/etc/systemd/system/` (dono root, 644), `systemd-analyze verify` sem erro e `systemctl enable --now luxora-backup@staging.timer luxora-backup-health@staging.timer`.
+- [ ] **Role no banco:** `02-backup-role.sh` executado (volume novo: sozinho; volume existente: pelo procedimento do BACKUP_ISOLADO.md, sem apagar o volume) e `bash infra/tests/backup-role-test.sh --container <postgres>` com `0 falharam`; porta 15432 só em `127.0.0.1`.
+- [ ] **Usuário e pasta:** `luxora-backup` criado (de sistema, sem shell, sem sudo, fora do grupo `docker`) e `/etc/luxora-backup` (`root:luxora-backup`, 750).
+- [ ] **Scripts de root:** clone feito por root, commit conferido e `install-backup-scripts.sh --expect-commit <hash>` seguido de `--verify`; `/opt/luxora-backup/scripts` é `root:root`.
+- [ ] **Configuração do backup:** `/etc/luxora-backup/staging.env` (a partir de `infra/staging/.env.backup.example`, `root:luxora-backup`, 640, sem nenhum segredo da aplicação), pgpass (`install-backup-pgpass.sh`) e arquivo da chave de cifragem (`luxora-backup`, 400), com uma cópia da chave **fora do servidor**.
+- [ ] `external-backup.sh check` como `luxora-backup` passa (sem rede nem banco).
+- [ ] Unidades copiadas de um clone de root para `/etc/systemd/system/` (dono root, 644), `systemd-analyze verify` sem erro.
+- [ ] **Primeiro envio real pelo próprio serviço** (`systemctl start luxora-backup@staging.service`) passou, o objeto apareceu no armazenamento e um `pull --drill` dele (como `deploy`, com a credencial de leitura) passou.
+- [ ] Só então `systemctl enable --now luxora-backup@staging.timer luxora-backup-health@staging.timer`.
 - [ ] Journal persistente (`/var/log/journal` existe ou `Storage=persistent`).
-- [ ] **Isolamento do usuário de serviço decidido (pendência):** o `deploy` está no grupo `docker`, equivalente a administrador do servidor; escolher entre usuário próprio, Docker sem root ou `pg_dump` por conexão de rede antes de instalar as unidades.
-- [ ] Canal de alerta decidido, **notificador** escrito e instalado (dono root, sem escrita para grupo ou outros) e `BACKUP_ALERT_NOTIFIER` no arquivo de ambiente. Sem isso, o log diz `ALERTA NÃO ENVIADO` e a conferência é manual.
-- [ ] Falha forçada e atraso forçado num ambiente de teste com pasta própria, com os horários da falha e do aviso registrados (roteiro no runbook).
+- [ ] Canal de alerta decidido, **notificador** escrito e instalado (dono root, sem escrita para grupo ou outros, por exemplo em `/opt/luxora-backup/notify/`) e `BACKUP_ALERT_NOTIFIER` no arquivo de ambiente do backup. Sem isso, o log diz `ALERTA NÃO ENVIADO` e a conferência é manual.
+- [ ] Falha forçada e atraso forçado num ambiente de teste com pasta de estado própria, com os horários da falha e do aviso registrados (roteiro no runbook).
 
-**Concluído quando:** `systemctl list-timers 'luxora-backup*'` mostra os dois timers com a próxima execução, o primeiro backup agendado apareceu no armazenamento e o aviso de uma falha forçada chegou ao canal.
+**Concluído quando:** `id luxora-backup` não mostra `docker` nem `sudo`; `install-backup-scripts.sh --verify` passa; `systemctl list-timers 'luxora-backup*'` mostra os dois timers com a próxima execução, o primeiro backup agendado apareceu no armazenamento e o aviso de uma falha forçada chegou ao canal.
 
 ## Depois do checklist
 
