@@ -1,17 +1,33 @@
 # Luxora — verificação da idade do último backup externo (A-12). luxora-backup-health@staging.service
-# usa /etc/luxora/staging.env. Só lê; avisa pelo notificador configurado, se houver.
+# usa /etc/luxora-backup/staging.env. Só lê; avisa pelo notificador configurado, se houver.
 # PREPARADO, NÃO INSTALADO NEM VALIDADO EM SERVIDOR REAL.
+# Mesma identidade, mesma configuração e mesmo diretório de estado do luxora-backup@.service
+# (leia o cabeçalho dele): o marcador do último backup é gravado lá e lido aqui.
 [Unit]
 Description=Luxora verificação da idade do backup externo (%i)
 Documentation=file:///srv/luxora-app/docs/07-Infra/DEPLOY_RUNBOOK.md
 
 [Service]
 Type=oneshot
-# Mesmo usuário do backup (precisa ler o arquivo de ambiente e o estado). Não usa docker.
-User=deploy
-Group=deploy
+User=luxora-backup
+Group=luxora-backup
 UMask=0077
-ExecStart=/usr/bin/bash /srv/luxora-app/infra/scripts/backup-job.sh health --env-file /etc/luxora/%i.env
+# Só o caminho do estado (não é segredo); o mesmo do luxora-backup@.service.
+Environment=LUXORA_STATE_DIR=%S/luxora-backup/%i
+StateDirectory=luxora-backup/%i
+StateDirectoryMode=0700
+ExecStart=/usr/bin/bash /srv/luxora-app/infra/scripts/backup-job.sh health --env-file /etc/luxora-backup/%i.env
 TimeoutStartSec=5min
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+InaccessiblePaths=/etc/luxora

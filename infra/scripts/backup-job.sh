@@ -43,6 +43,14 @@
 #
 # Sem notificador configurado, o log diz expressamente "ALERTA NÃO ENVIADO". Um alerta só
 # aparece como ENTREGUE quando o notificador saiu com 0.
+#
+# Arquivo de ambiente e estado. Os timers rodam como um usuário dedicado (luxora-backup),
+# sem Docker e sem os segredos da aplicação (ver infra/systemd/). O arquivo de ambiente
+# precisa ser dele ou de root, sem escrita para o grupo e sem acesso para outros, e NÃO pode
+# ter segredo da aplicação (APP_SECRET_KEYS abaixo): se tiver, o script recusa (20 no backup,
+# 13 na verificação) sem usar o notificador dele. O diretório de estado vem de
+# LUXORA_STATE_DIR (as unidades o definem); sem ele, fica ao lado do arquivo de ambiente, que
+# num servidor de verdade é somente leitura para o serviço e a execução falha com clareza.
 
 set -uo pipefail
 umask 077
@@ -84,13 +92,36 @@ int_setting() { # nome padrão mínimo máximo -> valor válido ou o padrão (co
   printf '%s' "$2"
 }
 
-fail_without_env() { # código
-  jlog "evento=configuracao-invalida motivo=arquivo-de-ambiente-ilegivel codigo=$1"
-  jlog "ALERTA NÃO ENVIADO: sem o arquivo de ambiente não há como saber o canal de notificação."
+fail_without_env() { # código [motivo]
+  jlog "evento=configuracao-invalida motivo=$(clean "${2:-arquivo-de-ambiente-ilegivel}") codigo=$1"
+  if [ -n "${2:-}" ]; then
+    jlog "ALERTA NÃO ENVIADO: o arquivo de ambiente não é confiável, então o canal de notificação dele não foi usado."
+  else
+    jlog "ALERTA NÃO ENVIADO: sem o arquivo de ambiente não há como saber o canal de notificação."
+  fi
   exit "$1"
 }
 
-[ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ] || fail_without_env "$([ "$COMMAND" = backup ] && echo "$EX_BACKUP_CONFIG" || echo 13)"
+# O arquivo de ambiente do backup é só do backup. Aceita-se apenas: dono root ou o usuário
+# que executa, sem escrita para o grupo e sem nenhum acesso para outros (0640 root:luxora-backup,
+# 0600 e 0400 servem) e sem nenhum segredo da aplicação (as senhas do banco, o JWT, as chaves
+# das integrações...), que ficam no arquivo da aplicação. A senha da role de backup também não
+# entra aqui: ela só existe no arquivo de senhas do PostgreSQL (BACKUP_PG_PASSFILE).
+APP_SECRET_KEYS="POSTGRES_ADMIN_PASSWORD POSTGRES_APP_PASSWORD POSTGRES_BACKUP_PASSWORD JWT_SECRET WHATSAPP_TOKEN_ENCRYPTION_KEY WHATSAPP_APP_SECRET WHATSAPP_WEBHOOK_VERIFY_TOKEN ASAAS_WEBHOOK_TOKEN ASAAS_API_KEY ANTHROPIC_API_KEY AUTOMATION_API_KEY METRICS_ACCESS_TOKEN"
+env_file_problem() { # imprime o motivo e devolve 1 se o arquivo não servir
+  local owner mode key
+  owner="$(stat -c %u "$ENV_FILE")"; mode="$(stat -c %a "$ENV_FILE")"
+  { [ "$owner" = 0 ] || [ "$owner" = "$(id -u)" ]; } || { echo "arquivo-de-ambiente-de-dono-inesperado"; return 1; }
+  [ $(( 8#$mode & 8#027 )) -eq 0 ] || { echo "arquivo-de-ambiente-com-permissao-$mode (use 640, 600 ou 400)"; return 1; }
+  for key in $APP_SECRET_KEYS; do
+    [ -z "$(env_file_get "$key")" ] || { echo "arquivo-de-ambiente-com-segredo-da-aplicacao:$key"; return 1; }
+  done
+  return 0
+}
+
+ENV_CODE="$([ "$COMMAND" = backup ] && echo "$EX_BACKUP_CONFIG" || echo 13)"
+[ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ] || fail_without_env "$ENV_CODE"
+ENV_PROBLEM="$(env_file_problem)" || fail_without_env "$ENV_CODE" "$ENV_PROBLEM"
 ENV_FILE="$(cd "$(dirname "$ENV_FILE")" && pwd)/$(basename "$ENV_FILE")"
 
 APP_ENV_NAME="$(clean "$(env_file_get APP_ENV)")"; APP_ENV_NAME="${APP_ENV_NAME:-staging}"

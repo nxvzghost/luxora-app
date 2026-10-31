@@ -1,26 +1,50 @@
 # Luxora — backup externo diário (A-12). Modelo por ambiente: luxora-backup@staging.service
-# usa /etc/luxora/staging.env. PREPARADO, NÃO INSTALADO NEM VALIDADO EM SERVIDOR REAL.
+# usa /etc/luxora-backup/staging.env. PREPARADO, NÃO INSTALADO NEM VALIDADO EM SERVIDOR REAL.
 # Instalação e alterações (usuário, caminhos): docs/07-Infra/DEPLOY_RUNBOOK.md,
 # "Agendamento e alertas do backup".
+#
+# Identidade própria: o usuário luxora-backup (sem shell, sem sudo, fora do grupo docker, sem
+# acesso ao socket do Docker). Ele só enxerga o que é do backup:
+#   /etc/luxora-backup/            pasta de root, grupo luxora-backup, 0750
+#   /etc/luxora-backup/<amb>.env   root:luxora-backup 0640 — só configuração do backup
+#   (o arquivo de senhas do PostgreSQL e o da chave de cifragem ficam na mesma pasta, do
+#   luxora-backup, 0400; o caminho de cada um vem do arquivo de ambiente)
+#   /var/lib/luxora-backup/<amb>/  estado e histórico, criado pelo systemd (StateDirectory), 0700
+# O pg_dump é do host e conecta em 127.0.0.1 com a role luxora_backup (somente leitura); este
+# serviço não usa o Docker e não lê o arquivo de ambiente da aplicação (/etc/luxora).
 [Unit]
 Description=Luxora backup externo (%i)
 Documentation=file:///srv/luxora-app/docs/07-Infra/DEPLOY_RUNBOOK.md
-After=docker.service network-online.target
+After=network-online.target
 Wants=network-online.target
-Requires=docker.service
 
 [Service]
 Type=oneshot
-# Usuário sem privilégios, o mesmo dono do arquivo de ambiente e do estado (checklist, itens 2 e 7).
-# Ele precisa do grupo docker (pg_dump roda por docker compose exec), que equivale a acesso de
-# administrador ao servidor: não é um isolamento forte.
-User=deploy
-Group=deploy
+User=luxora-backup
+Group=luxora-backup
 UMask=0077
-ExecStart=/usr/bin/bash /srv/luxora-app/infra/scripts/backup-job.sh backup --env-file /etc/luxora/%i.env
+# Só o caminho do estado (não é segredo). O backup-job.sh e os scripts irmãos o leem daqui.
+Environment=LUXORA_STATE_DIR=%S/luxora-backup/%i
+StateDirectory=luxora-backup/%i
+StateDirectoryMode=0700
+ExecStart=/usr/bin/bash /srv/luxora-app/infra/scripts/backup-job.sh backup --env-file /etc/luxora-backup/%i.env
 # O push é demorado; passou disso, o systemd o encerra e a unidade fica "failed".
 TimeoutStartSec=2h
 Nice=10
 IOSchedulingClass=idle
+# Endurecimento. O sistema de arquivos fica somente leitura, exceto o estado, e a pasta da
+# aplicação fica fora de alcance. Rede: só loopback e o armazenamento externo (IPv4/IPv6) e o
+# socket local do agente do gpg.
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+InaccessiblePaths=/etc/luxora
