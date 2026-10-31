@@ -131,6 +131,12 @@ else
 fi
 equal "um único pool: a aplicação abre uma conexão logo após o boot (eram 17, uma por PrismaClient)" "1" "$(psql_admin "select count(*) from pg_stat_activity where usename = 'luxora_app'")"
 
+section "banco: role de backup"
+# Prova que o 02-backup-role.sh rodou na inicialização do volume e deixou a luxora_backup como
+# prometido (somente leitura). Só consulta; ver o cabeçalho do teste.
+bash "$TESTS_DIR/backup-role-test.sh" --container "$(compose ps -q postgres)" --db luxora_staging
+equal "a role de backup está como o 02-backup-role.sh a define (backup-role-test.sh)" "0" "$?"
+
 section "borda HTTP em modo produção"
 equal "smoke: login inexistente consulta o banco e devolve 401" "401" "$(status -X POST -H 'Content-Type: application/json' -d '{"email":"ensaio@luxora.invalid","password":"senha-inexistente-0000"}' "$API/api/v1/auth/login")"
 equal "/metrics sem token é recusado" "401" "$(status "$API/metrics")"
